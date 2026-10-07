@@ -48,10 +48,27 @@ const moduloCerebro = require("../src/cerebro");
 let modoCerebro = "ok";
 let vecesQueSeLlamoAlCerebro = 0;
 
+// Para el escenario del turno bloqueado en el proveedor de IA (seccion 5):
+// `puertaDeIA` es la promesa que lo deja esperando, y `escrituraDelTurno` es
+// lo que el turno escribe cuando el proveedor por fin responde.
+let puertaDeIA = null;
+let escrituraDelTurno = null;
+let turnoLlegoAlProveedor = null;
+
 moduloCerebro.obtenerCerebro = async () => ({
   procesar: async () => {
     vecesQueSeLlamoAlCerebro++;
     if (modoCerebro === "lanza") throw new Error("fallo simulado del cerebro");
+
+    if (modoCerebro === "bloquea") {
+      // El turno ya paso la compuerta y tiene su trabajo RECLAMADO. Ahora
+      // se queda esperando una respuesta de red que puede tardar lo que
+      // quiera: es el caso que ninguna espera del cutover puede acotar.
+      if (turnoLlegoAlProveedor) turnoLlegoAlProveedor();
+      await puertaDeIA;
+      if (escrituraDelTurno) await escrituraDelTurno();
+    }
+
     return {
       enviada: false,
       estadoNuevo: "saludo",
@@ -70,6 +87,9 @@ const { recuperarPendientes } = require("../src/webhook/recuperar");
 function limpiar() {
   modoCerebro = "ok";
   vecesQueSeLlamoAlCerebro = 0;
+  puertaDeIA = null;
+  escrituraDelTurno = null;
+  turnoLlegoAlProveedor = null;
   congelacion.descongelar(dir);
   // rmSync recursivo porque algunas pruebas ponen una CARPETA en la ruta del
   // archivo para forzar el fallo de escritura.
@@ -506,27 +526,47 @@ describe("4 · tras el 503, la retransmision de Meta se tiene que poder reclamar
   });
 });
 
+
 // ==========================================================================
-// 5 · Los turnos que ya estaban EN CURSO al congelar
+// 5 · DRENAJE VERIFICABLE DE LOS TURNOS EN VUELO
 // ==========================================================================
 //
-// Congelar frena los turnos nuevos, no los que ya pasaron la compuerta. El
-// webhook contesta 200 y procesa despues, asi que un turno en vuelo puede
-// guardar un pedido cientos de milisegundos despues de que la marca de
-// congelacion exista.
+// La version anterior del cutover esperaba 2 segundos y comparaba dos
+// huellas del origen. Eso no prueba lo que hace falta: dos lecturas iguales
+// solo dicen que no hubo escrituras ENTRE esas dos lecturas.
 //
-// La barrera de reposo es como se espera a que drenen: se mira el origen, se
-// espera, y se vuelve a mirar. Dos miradas iguales = nadie escribiendo.
+// El caso que la atraviesa entera -y el que se prueba aqui-:
 //
-// Se prueba con archivos a los dos lados a proposito: la barrera usa
-// `_inventario()`, que es parte del contrato, asi que no depende del backend
-// y esta prueba corre siempre, con base de datos o sin ella.
+//   1. un turno pasa la compuerta y se queda esperando al proveedor de IA
+//   2. se congela
+//   3. pasa la ventana de espera SIN una sola escritura
+//      (el turno esta bloqueado en la red, no escribiendo)
+//   4. el cutover se declara exitoso
+//   5. el proveedor responde, el turno continua y GUARDA SU PEDIDO
+//      en archivos, fuera de PostgreSQL
+//
+// Subir el tiempo de espera no lo arregla: el limite lo pone un servicio
+// ajeno. Con Gemini configurado esto no es hipotetico.
+//
+// La solucion no es temporal, es estructural:
+//
+//   CONDICION 1  el servicio arranco DESPUES de congelar
+//                (el reinicio mata el turno bloqueado; el proceso nuevo
+//                 arranca congelado y su compuerta no deja empezar ninguno)
+//
+//   CONDICION 2  la bitacora no tiene turnos EN VUELO
+//                (un turno solo puede escribir mientras su registro esta
+//                 RECLAMADO sin marcar como diferido)
+//
+// Las pruebas simulan el reinicio llamando a registrarArranque() y
+// recuperarPendientes(), que es exactamente lo que hace un arranque.
 // ==========================================================================
 
-describe("5 · barrera de reposo: los turnos en curso al congelar", () => {
+describe("5 · drenaje verificable de los turnos en vuelo", () => {
   const os = require("node:os");
-  const { copiar, REPOSO_MS, INTENTOS_DE_REPOSO } = require("../src/cutover");
+  const { copiar } = require("../src/cutover");
   const { crearReposDeArchivos } = require("../src/almacen/repos/archivos");
+  const persistencia = require("../src/almacen/persistencia");
   const { cotizar } = require("../src/dominio/cotizador");
   const dominioPedido = require("../src/dominio/pedido");
 
@@ -561,164 +601,333 @@ describe("5 · barrera de reposo: los turnos en curso al congelar", () => {
     }).pedido;
   }
 
-  async function dosLados() {
-    const dirOrigen = fs.mkdtempSync(path.join(os.tmpdir(), "novika-rep-o-"));
-    const dirDestino = fs.mkdtempSync(path.join(os.tmpdir(), "novika-rep-d-"));
-    const origen = await crearReposDeArchivos({ dir: dirOrigen });
+  /**
+   * Origen DENTRO de DATA_DIR, como en produccion: el disco persistente
+   * guarda `transaccional/`, `trabajo.jsonl`, `CONGELADO.json` y
+   * `marcador-de-disco.json` juntos. Los candados del cutover leen los tres
+   * ultimos, asi que tienen que estar donde de verdad estan.
+   */
+  async function montar() {
+    // Se vacia: todas las pruebas de esta seccion comparten DATA_DIR -tiene
+    // que ser el mismo para que los candados lean la bitacora y el marcador
+    // de verdad- y una prueba anterior deja sus pedidos ahi.
+    fs.rmSync(path.join(dir, "transaccional"), { recursive: true, force: true });
+    const origen = await crearReposDeArchivos({ dir: path.join(dir, "transaccional") });
+    const dirDestino = fs.mkdtempSync(path.join(os.tmpdir(), "novika-dest-"));
     const destino = await crearReposDeArchivos({ dir: dirDestino });
     await origen.contactos.guardar({ id: "573001112233", telefono: "3001112233" });
-    await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-1", "wamid.rep.1"));
-    return { dirOrigen, origen, destino };
+    await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-previo", "wamid.previo"));
+    return { origen, destino };
   }
 
-  test("ESCENARIO: un turno en vuelo escribe justo despues de congelar", async () => {
-    const { dirOrigen, origen, destino } = await dosLados();
+  /**
+   * Lo que hace un arranque de verdad, en el mismo orden.
+   *
+   * La espera de 3 ms no es un adorno: las marcas de congelacion y de
+   * arranque son ISO con milisegundos, y el cutover exige que el arranque
+   * sea ESTRICTAMENTE posterior. Dos marcas iguales no prueban el orden, asi
+   * que el cutover se niega -el lado seguro-. En produccion median los
+   * segundos que tarda un Restart de Render; en una prueba hay que
+   * separarlas a mano.
+   */
+  const esperarUnPoco = () => new Promise((listo) => setTimeout(listo, 3));
+
+  async function simularReinicio() {
+    await esperarUnPoco();
+    trabajo._olvidarMemoria();
+    persistencia.registrarArranque(dir);
+    return recuperarPendientes();
+  }
+
+  /** Deja un turno pasada la compuerta y bloqueado en el proveedor de IA. */
+  async function turnoBloqueadoEnLaIA(origen, wamid) {
+    modoCerebro = "bloquea";
+    let abrir;
+    puertaDeIA = new Promise((listo) => {
+      abrir = listo;
+    });
+    let llego;
+    const haLlegado = new Promise((listo) => {
+      llego = listo;
+    });
+    turnoLlegoAlProveedor = llego;
+
+    // Cuando el proveedor responda, el turno guarda su pedido.
+    escrituraDelTurno = async () => {
+      await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-en-vuelo", wamid));
+    };
+
+    // SIN congelar: el turno entra y reclama con normalidad.
+    const admision = procesar.admitir(ayuda.payloadDeTexto({ wamid }), "vuelo");
+    assert.equal(admision.congelado, false);
+    assert.equal(admision.durable, true);
+
+    // No se espera: el turno se queda dentro del cerebro.
+    const turno = procesar.procesarAdmitidos(admision.admitidos, "vuelo");
+    await haLlegado; // ahora sabemos que esta bloqueado, sin dormir
+
+    return { turno, abrir };
+  }
+
+  // ----------------------------------------------------------------------
+  // LA REGRESION QUE PIDE EL CASO PENDIENTE
+  // ----------------------------------------------------------------------
+  test("ESCENARIO: turno bloqueado en la IA, se libera DESPUES de la ventana de copia", async () => {
+    limpiar();
+    const { origen, destino } = await montar();
+
     try {
-      congelacion.congelar(dirOrigen, "cutover");
+      const { turno, abrir } = await turnoBloqueadoEnLaIA(origen, "wamid.VUELO.1");
 
-      // El turno en vuelo: guarda un pedido 20 ms despues de arrancar el
-      // cutover, es decir DENTRO de la primera espera de la barrera.
-      const enVuelo = new Promise((listo) => {
-        setTimeout(async () => {
-          await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-en-vuelo", "wamid.rep.vuelo"));
-          listo();
-        }, 20);
-      });
+      // El turno esta en vuelo y el disco lo dice.
+      const bitacora = trabajo.inspeccionar(dir);
+      assert.equal(bitacora.enCurso.length, 1, "el turno en vuelo tiene que verse en la bitacora");
+      assert.equal(bitacora.enCurso[0].wamid, "wamid.VUELO.1");
 
-      const informe = await copiar({
-        origen,
-        destino,
-        dirDatos: dirOrigen,
-        reposoMs: 60,
-        intentosDeReposo: 1,
-      });
-      await enVuelo;
+      // Se congela DESPUES de que el turno pasara la compuerta.
+      congelacion.congelar(dir, "cutover");
 
-      // LO QUE IMPORTA: no se copio NADA. La barrera lo paro antes, en vez
-      // de copiar un origen en movimiento y descubrirlo al final.
-      assert.ok(informe.problemas.length > 0, "la barrera tiene que parar el cutover");
-      assert.match(informe.problemas.join(" "), /sigue cambiando/);
-      assert.match(informe.problemas.join(" "), /turnos en curso/);
+      // Y se intenta el cutover. Aqui es donde la version anterior esperaba
+      // 2 s, no veia ninguna escritura -el turno esta bloqueado en la red- y
+      // se declaraba exitosa.
+      const informe = await copiar({ origen, destino, dirDatos: dir });
+
+      // ------------------------------------------------------------------
+      // LO QUE IMPORTA: NO HAY CUTOVER EXITOSO.
+      // ------------------------------------------------------------------
+      assert.ok(informe.problemas.length > 0, "el cutover NO puede declararse exitoso con un turno en vuelo");
+      assert.equal((await destino.estado()).pedidos, 0, "y no copio nada");
+
+      // Ahora el proveedor responde y el turno escribe. Esta es la escritura
+      // que la version anterior dejaba fuera de PostgreSQL.
+      abrir();
+      await turno;
+
+      const pedidosEnOrigen = (await origen._inventario()).pedidos.length;
+      assert.equal(pedidosEnOrigen, 2, "el turno en vuelo escribio, como en el caso real");
+
+      // LA INVARIANTE: no existe un cutover declarado exitoso seguido de una
+      // escritura al origen omitida del destino. El cutover se nego, asi que
+      // esa escritura nunca quedo huerfana.
+      const copiados = (await destino.estado()).pedidos;
+      assert.equal(copiados, 0);
+      assert.ok(
+        informe.problemas.length > 0 || copiados === pedidosEnOrigen,
+        "o el cutover se nego, o el destino tiene todo lo del origen. Nunca exitoso-e-incompleto."
+      );
+    } finally {
+      await origen.cerrar();
+      await destino.cerrar();
+    }
+  });
+
+  test("y tras el reinicio congelado, ese mismo cutover SI completa", async () => {
+    // El procedimiento correcto, de principio a fin.
+    limpiar();
+    const { origen, destino } = await montar();
+
+    try {
+      const { turno, abrir } = await turnoBloqueadoEnLaIA(origen, "wamid.VUELO.2");
+      congelacion.congelar(dir, "cutover");
+
+      // Se niega, como en la prueba anterior.
+      const primera = await copiar({ origen, destino, dirDatos: dir });
+      assert.ok(primera.problemas.length > 0);
+
+      // --- REINICIO CONGELADO ---
+      //
+      // En produccion el reinicio MATA el proceso con el turno dentro: su
+      // escritura nunca ocurre Y su registro se queda en RECLAMADO, porque
+      // nadie llego a llamar a terminar().
+      //
+      // Se modela igual: el turno NO se libera (sigue "dentro" del proceso
+      // que acaba de morir) y se arranca de nuevo. Liberarlo aqui seria
+      // modelar un turno que termina, que es justo lo que un reinicio
+      // impide.
+      const resumen = await simularReinicio();
+      assert.ok(resumen.diferidos >= 1, "el arranque congelado marca los pendientes como diferidos");
+
+      // La bitacora ya no ve turnos en vuelo, y lo dice por escrito.
+      const bitacora = trabajo.inspeccionar(dir);
+      assert.equal(bitacora.enCurso.length, 0, "tras el reinicio congelado no hay nada en vuelo");
+      assert.ok(bitacora.diferidos.length >= 1, "pero si hay trabajo diferido esperando");
+
+      // Y ahora el cutover completa.
+      const segunda = await copiar({ origen, destino, dirDatos: dir });
+      assert.deepEqual(segunda.problemas, [], "tras el reinicio congelado el cutover completa");
+      assert.equal(segunda.drenaje.arrancoDespuesDeCongelar, true);
+      assert.equal(segunda.drenaje.enCurso, 0);
+      assert.equal(segunda.huellaAntes.resumen, segunda.huellaDespues.resumen);
+      assert.equal((await destino.estado()).pedidos, 1, "el pedido previo se copio");
+
+      // El mensaje del turno muerto no se perdio: quedo diferido y se
+      // procesara al descongelar y reiniciar. Eso ya esta cubierto en la
+      // seccion 1; aqui basta ver que sigue en la cola.
+      assert.ok(
+        trabajo.paraRecuperar().some((p) => p.wamid === "wamid.VUELO.2"),
+        "el mensaje del turno interrumpido sigue recuperable"
+      );
+
+      // Limpieza: se suelta la promesa sin escritura, ya fuera de toda
+      // ventana de cutover, para no dejarla pendiente al terminar.
+      escrituraDelTurno = null;
+      abrir();
+      await turno;
+    } finally {
+      await origen.cerrar();
+      await destino.cerrar();
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // Las dos condiciones, por separado
+  // ----------------------------------------------------------------------
+  test("CONDICION 1: sin reinicio despues de congelar, el cutover se niega", async () => {
+    limpiar();
+    const { origen, destino } = await montar();
+    try {
+      // Arranque ANTES de congelar: es el orden que deja turnos posibles en
+      // vuelo, y el que no se puede aceptar.
+      persistencia.registrarArranque(dir);
+      await new Promise((listo) => setTimeout(listo, 5));
+      congelacion.congelar(dir, "cutover");
+
+      const informe = await copiar({ origen, destino, dirDatos: dir });
+
+      assert.ok(informe.problemas.length > 0);
+      assert.match(informe.problemas.join(" "), /NO se ha reiniciado desde que se congelo/);
+      assert.match(informe.problemas.join(" "), /proveedor de IA/);
+      assert.match(informe.problemas.join(" "), /Restart service/);
+      assert.equal(informe.drenaje.arrancoDespuesDeCongelar, false);
+      assert.equal((await destino.estado()).pedidos, 0, "no copio nada");
+    } finally {
+      await origen.cerrar();
+      await destino.cerrar();
+    }
+  });
+
+  test("CONDICION 2: con reinicio pero con un turno en vuelo, el cutover se niega", async () => {
+    // La condicion 2 es la EVIDENCIA de que la 1 surtio efecto. Tiene que
+    // funcionar por si sola: si alguien reinicia y luego descongela y
+    // vuelve a congelar mal, o si la compuerta no cierra, esto lo caza.
+    limpiar();
+    const { origen, destino } = await montar();
+    try {
+      congelacion.congelar(dir, "cutover");
+      await esperarUnPoco();
+      persistencia.registrarArranque(dir); // reinicio DESPUES de congelar: condicion 1 ok
+
+      // Y aun asi, un turno reclamado sin marcar como diferido.
+      trabajo._olvidarMemoria();
+      const reclamo = trabajo.reclamar("wamid.VUELO.3", { evento: { wamid: "wamid.VUELO.3" } });
+      assert.equal(reclamo.ok, true);
+      assert.equal(trabajo.inspeccionar(dir).enCurso.length, 1);
+
+      const informe = await copiar({ origen, destino, dirDatos: dir });
+
+      assert.ok(informe.problemas.length > 0);
+      assert.match(informe.problemas.join(" "), /turno\(s\) EN VUELO/);
+      assert.match(informe.problemas.join(" "), /wamid\.VUELO\.3/);
       assert.match(informe.problemas.join(" "), /No se copio nada/);
-
-      assert.equal(informe.reposo.quieto, false);
-      assert.equal((await destino.estado()).pedidos, 0, "destino intacto");
-      // Y no se llego ni a la fase de copia.
-      assert.equal(informe.pedidos.copiados, 0);
-      assert.equal(informe.huellaDespues, undefined, "no hubo copia, no hay huella de despues");
+      assert.equal(informe.drenaje.enCurso, 1);
+      assert.equal((await destino.estado()).pedidos, 0);
     } finally {
       await origen.cerrar();
       await destino.cerrar();
     }
   });
 
-  test("en cuanto drenan, la barrera deja pasar y el cutover completa", async () => {
-    const { dirOrigen, origen, destino } = await dosLados();
+  test("un evento DIFERIDO no bloquea el cutover: no es un turno en vuelo", async () => {
+    // La distincion es el centro de todo. Si un diferido bloqueara, el
+    // cutover seria imposible justo cuando hay mensajes esperando, que es
+    // cuando mas falta hace poder hacerlo.
+    limpiar();
+    const { origen, destino } = await montar();
     try {
-      congelacion.congelar(dirOrigen, "cutover");
+      congelacion.congelar(dir, "cutover");
+      await esperarUnPoco();
+      persistencia.registrarArranque(dir);
 
-      // Un turno que drena durante la PRIMERA espera y despues para. Con
-      // varios intentos, la barrera lo absorbe sola.
-      setTimeout(async () => {
-        await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-drena", "wamid.rep.drena"));
-      }, 20);
+      // Mensaje que llega YA congelado: se reclama y se marca diferido en
+      // la misma escritura.
+      trabajo._olvidarMemoria();
+      const admision = procesar.admitir(ayuda.payloadDeTexto({ wamid: "wamid.DIFER.1" }), "d1");
+      assert.equal(admision.admitidos[0].diferido, true);
+      await procesar.procesarAdmitidos(admision.admitidos, "d1");
 
-      const informe = await copiar({
-        origen,
-        destino,
-        dirDatos: dirOrigen,
-        reposoMs: 60,
-        intentosDeReposo: 3,
-      });
+      const bitacora = trabajo.inspeccionar(dir);
+      assert.equal(bitacora.diferidos.length, 1, "diferido");
+      assert.equal(bitacora.enCurso.length, 0, "y NO en vuelo");
 
-      assert.deepEqual(informe.problemas, [], "tras drenar, el cutover completa");
-      assert.equal(informe.reposo.quieto, true);
-      assert.ok(informe.reposo.intentos >= 2, "hizo falta mas de una mirada");
-
-      // Los DOS pedidos estan: el de antes y el que escribio el turno en
-      // vuelo. Esperar a que drene es lo que impide dejarlo fuera.
-      assert.equal(informe.pedidos.origen, 2);
-      assert.equal((await destino.estado()).pedidos, 2, "no se perdio el pedido del turno en vuelo");
-      assert.equal(informe.huellaAntes.resumen, informe.huellaDespues.resumen);
+      const informe = await copiar({ origen, destino, dirDatos: dir });
+      assert.deepEqual(informe.problemas, [], "un diferido no puede bloquear el cutover");
+      assert.equal(informe.drenaje.diferidos, 1);
     } finally {
       await origen.cerrar();
       await destino.cerrar();
     }
   });
 
-  test("con el origen quieto, la barrera pasa a la primera", async () => {
-    const { dirOrigen, origen, destino } = await dosLados();
+  test("si la bitacora no se puede leer, el cutover se niega", async () => {
+    // Ante la duda no se copia. Suponer que no hay nada en vuelo porque no
+    // se puede comprobar es exactamente el error que cerramos.
+    limpiar();
+    const { origen, destino } = await montar();
     try {
-      congelacion.congelar(dirOrigen, "cutover");
-      const informe = await copiar({
-        origen,
-        destino,
-        dirDatos: dirOrigen,
-        reposoMs: 20,
-        intentosDeReposo: 3,
-      });
+      congelacion.congelar(dir, "cutover");
+      await esperarUnPoco();
+      persistencia.registrarArranque(dir);
+      romperLaEscrituraDeTrabajo(); // una CARPETA donde va el archivo
 
-      assert.deepEqual(informe.problemas, []);
-      assert.equal(informe.reposo.quieto, true);
-      assert.equal(informe.reposo.intentos, 1, "una sola espera basta si nadie escribe");
-      assert.equal((await destino.estado()).pedidos, 1);
+      const informe = await copiar({ origen, destino, dirDatos: dir });
+      assert.ok(informe.problemas.length > 0);
+      assert.match(informe.problemas.join(" "), /no se pudo leer la bitacora/);
+      assert.equal((await destino.estado()).pedidos, 0);
     } finally {
+      repararLaEscrituraDeTrabajo();
       await origen.cerrar();
       await destino.cerrar();
     }
   });
 
-  test("la barrera NO sustituye a la huella de antes/despues", async () => {
-    // Las dos hacen falta, y cubren ventanas distintas:
-    //   barrera -> lo que se escribe ANTES de empezar a copiar
-    //   huella  -> lo que se escribe DURANTE la copia
-    // Quitar cualquiera de las dos deja un hueco.
-    const { dirOrigen, origen, destino } = await dosLados();
+  test("sin marcador de arranque, el cutover se niega", async () => {
+    limpiar();
+    const { origen, destino } = await montar();
     try {
-      congelacion.congelar(dirOrigen, "cutover");
+      congelacion.congelar(dir, "cutover");
+      fs.rmSync(path.join(dir, "marcador-de-disco.json"), { force: true });
 
-      // La escritura concurrente se engancha a la primera escritura del
-      // destino, no a un setTimeout. Asi es DETERMINISTA: cuando ocurre, la
-      // copia esta en marcha con seguridad, y la prueba no depende de que
-      // el destino sea mas lento que el reloj.
-      let yaEscribio = false;
-      const destinoQueEscribeEnMedio = {
-        ...destino,
-        contactos: {
-          ...destino.contactos,
-          guardar: async (c) => {
-            if (!yaEscribio) {
-              yaEscribio = true;
-              await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-durante", "wamid.rep.durante"));
-            }
-            return destino.contactos.guardar(c);
-          },
-        },
-      };
-
-      // Barrera desactivada a proposito: se esta midiendo la huella sola.
-      const informe = await copiar({
-        origen,
-        destino: destinoQueEscribeEnMedio,
-        dirDatos: dirOrigen,
-        reposoMs: 0,
-      });
-
-      assert.ok(yaEscribio, "el escenario no se reprodujo");
-      assert.ok(informe.problemas.length > 0, "la huella tiene que cazar la escritura de en medio");
-      assert.match(informe.problemas.join(" "), /EL ORIGEN CAMBIO DURANTE LA COPIA/);
-      assert.notEqual(informe.huellaAntes.resumen, informe.huellaDespues.resumen);
+      const informe = await copiar({ origen, destino, dirDatos: dir });
+      assert.ok(informe.problemas.length > 0);
+      assert.match(informe.problemas.join(" "), /no hay marcador de arranque/);
     } finally {
       await origen.cerrar();
       await destino.cerrar();
     }
   });
 
-  test("los valores por defecto de la barrera son razonables", () => {
-    // Si alguien los pone a 0 por comodidad, la barrera desaparece sin que
-    // ninguna prueba se queje. Esto lo nota.
-    assert.ok(REPOSO_MS >= 1000, `REPOSO_MS=${REPOSO_MS}: demasiado corto para un turno real`);
-    assert.ok(INTENTOS_DE_REPOSO >= 2, `INTENTOS_DE_REPOSO=${INTENTOS_DE_REPOSO}: sin margen para drenar`);
+  test("inspeccionar() NO reescribe la bitacora", () => {
+    // Si usara cargar(), podria compactar y llevarse por delante las lineas
+    // que el servicio escribio entre la lectura y el rename. Eso es perder
+    // reclamos, es decir perder mensajes.
+    limpiar();
+    trabajo.reclamar("wamid.INSP.1", { evento: { wamid: "wamid.INSP.1" } });
+    const antes = fs.readFileSync(trabajo.ARCHIVO, "utf8");
+
+    for (let i = 0; i < 3; i++) trabajo.inspeccionar(dir);
+
+    assert.equal(fs.readFileSync(trabajo.ARCHIVO, "utf8"), antes, "inspeccionar tiene que ser de solo lectura");
+  });
+
+  test("leerMarcador() NO incrementa el contador de arranques", () => {
+    // Si el cutover incrementara el contador, satisfaria su propia
+    // comprobacion. Un candado que el interesado puede abrir no es candado.
+    limpiar();
+    const inicial = persistencia.registrarArranque(dir).arranques;
+
+    for (let i = 0; i < 3; i++) persistencia.leerMarcador(dir);
+
+    assert.equal(persistencia.leerMarcador(dir).arranques, inicial, "leer no puede contar como arrancar");
   });
 });
 

@@ -136,25 +136,59 @@ Un evento reclamado y sin terminar es exactamente lo que el recuperador busca al
 
 El cutover **se niega a copiar** si no está congelado. Un paso que se puede olvidar, se olvida.
 
-**1.b Esperar a los turnos que ya estaban en curso.** Congelar frena los turnos **nuevos**. No frena los que ya habían pasado la compuerta.
+**1.b Drenar los turnos que ya estaban en curso.** Congelar frena los turnos **nuevos**. No frena los que ya habían pasado la compuerta.
 
-El webhook contesta 200 a Meta y procesa **después**, de forma asíncrona. Un turno en vuelo cuando se congela sigue su camino —producto, cotización, pedido— y puede **guardar un pedido cientos de milisegundos después** de que la marca de congelación exista. Es decir: *congelado* significa "no entra trabajo nuevo", no "el origen está quieto". Y el cutover necesita lo segundo.
+El webhook contesta 200 a Meta y procesa **después**, de forma asíncrona. Un turno en vuelo cuando se congela sigue su camino —producto, IA, cotización, pedido— y puede escribir mucho después de que la marca exista. Es decir: *congelado* significa "no entra trabajo nuevo", no "el origen está quieto". Y el cutover necesita lo segundo.
 
-La **barrera de reposo** lo resuelve antes de copiar: se mira el origen, se espera 2 s, y se vuelve a mirar. Dos huellas iguales = nadie escribiendo. Si difieren, hay turnos drenando y se espera otra vez, hasta 3 veces.
+#### Lo que no funciona: esperar
+
+La primera versión miraba el origen, esperaba 2 s y volvía a mirar. **Dos huellas iguales no prueban que no haya turnos en vuelo: prueban que no hubo escrituras entre esas dos lecturas.**
+
+El caso que la atraviesa entera:
+
+```
+1. un turno pasa la compuerta y se queda esperando al proveedor de IA
+2. se congela
+3. pasan los 2 s SIN una sola escritura
+   (el turno está bloqueado en la red, no escribiendo)
+4. el cutover se declara exitoso
+5. el proveedor responde, el turno continúa y GUARDA SU PEDIDO
+   en archivos, fuera de PostgreSQL
+```
+
+Subir el tiempo de espera no lo arregla: **el límite lo pone un servicio ajeno, no nosotros.** Y con Gemini configurado, ese servicio ajeno está en el camino de cada turno. Una espera no es un candado.
+
+#### Lo que sí funciona: preguntarle al disco
+
+Un turno solo puede escribir en el almacén transaccional **mientras su registro de trabajo está `RECLAMADO`**: el reclamo se escribe *antes* de procesar y el `terminar` *después* de haber escrito. Por tanto:
+
+> no hay registros `RECLAMADO` en vuelo **⟺** nadie puede estar escribiendo
+
+Eso no es una estimación temporal: es un hecho leído del disco, que es el único canal que comparten el servicio y el cutover.
+
+Hacen falta **dos condiciones**, porque un registro `RECLAMADO` es ambiguo visto desde fuera —puede ser un turno vivo o el resto de un proceso que murió—:
+
+**Condición 1 · el servicio arrancó después de congelar.** Es lo que garantiza que no queda ningún turno en vuelo: el reinicio mata el proceso y con él cualquier turno bloqueado esperando a la IA —su escritura nunca ocurre, el proceso ya no existe—. Y el proceso nuevo arranca **congelado**, así que su compuerta no deja empezar ninguno. Estructural, no temporal: no depende de cuánto tarde nadie.
+
+**Condición 2 · la bitácora no tiene turnos en vuelo.** Es la evidencia de que la condición 1 surtió efecto. Tras un reinicio congelado, la recuperación **marca** los pendientes como `diferido`, así que lo que quede sin marcar solo puede ser un turno empezado en el proceso actual — es decir, una compuerta que no cerró.
 
 ```
   escrituras congeladas desde 2026-10-07T...
-  el origen se movio (pedidos: contenido distinto); esperando a que drene
-  origen en reposo tras 2 comprobacion(es) de 2000 ms
+  servicio reiniciado despues de congelar (arranque 2026-10-07T...)
+  sin turnos en vuelo · 3 diferido(s) esperando el descongelado
 ```
 
-No hace falta coordinar procesos ni leer memoria ajena —el cutover es **otro proceso**, el disco es el único canal—: el inventario del origen ya dice la verdad.
+Si falla cualquiera de las dos, **no copia nada** y dice qué hacer. Lo mismo si la bitácora no se puede leer o no hay marcador de arranque: ante la duda no se copia, porque suponer que no hay nada en vuelo *porque no se puede comprobar* es exactamente el error que esto cierra.
 
-Si después de tres esperas sigue moviéndose, **no copia nada** y lo dice. A los 6 segundos de estar congelado, algo que sigue escribiendo no es un turno drenando: es que la congelación no está donde creemos, y seguir esperando solo retrasa el diagnóstico.
+> Dos marcas de tiempo **iguales** cuentan como "no probado" y el cutover se niega. En producción median los segundos de un Restart; la igualdad solo aparece en pruebas, y ahí es correcto exigir que se separen.
+
+**El marcador de arranque se lee sin incrementarlo** (`persistencia.leerMarcador`). Si el cutover llamara a `registrarArranque`, estaría satisfaciendo su propia comprobación: un candado que el interesado puede abrir no es un candado.
+
+**La bitácora se lee sin tocarla** (`trabajo.inspeccionar`). Usar `cargar()` desde el cutover sería un error grave: compacta con `tmp+rename`, y un rename desde otro proceso se llevaría por delante las líneas que el servicio escribió entre la lectura y el rename — perder reclamos es perder mensajes.
 
 **2. Verificarlo, no confiarlo.** Se toma una **huella** del origen antes y después de copiar: ids + versiones + estados + fechas de actualización. Si cambió algo, el cutover **falla**.
 
-> **La barrera y la huella cubren ventanas distintas y hacen falta las dos.** La barrera: lo que se escribe **antes** de empezar a copiar. La huella: lo que se escribe **durante**. Probado por separado en `f3-defectos-congelacion.test.js` (`la barrera NO sustituye a la huella de antes/despues`).
+> **El drenaje y la huella cubren ventanas distintas y hacen falta las dos.** El drenaje: que no haya nadie capaz de escribir. La huella: que de hecho no se escribió. La segunda es la red por si la primera se razonó mal.
 
 La huella detecta las tres formas de cambiar, incluida la que un conteo no ve:
 
@@ -233,7 +267,7 @@ DATABASE_URL puesta + tablas que no existen  →  el arranque falla a propósito
 
 Es el candado de la Fase 3A funcionando (el servicio no crea tablas por su cuenta), pero el resultado es el mismo: el bot deja de contestar. **El arreglo es quitar la variable** y volver a desplegar; nada se corrompe.
 
-Por eso `DATABASE_URL` va en el entorno **de cada comando**, no en el servicio, hasta el paso 5:
+Por eso `DATABASE_URL` va en el entorno **de cada comando**, no en el servicio, hasta el paso 6:
 
 ```bash
 DATABASE_URL="..." npm run migrar     # ← así
@@ -254,27 +288,34 @@ DATABASE_URL="..." npm run migrar
 # 2. congelar las escrituras
 DATA_DIR=/var/data npm run congelar
 
-# 3. ensayar
-DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --simular
+# 3. REINICIAR novika-bot en Render (Manual Deploy -> Restart service)
+#    Mata cualquier turno en vuelo esperando al proveedor de IA.
+#    El proceso nuevo arranca congelado y no empieza ninguno.
+#    SIN ESTE PASO EL CUTOVER SE NIEGA.
 
-# 4. copiar
+# 4. ensayar
+DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --simular
+#    debe decir: "servicio reiniciado despues de congelar"
+#                "sin turnos en vuelo"
+
+# 5. copiar
 DATABASE_URL="..." DATA_DIR=/var/data npm run cutover
 #    debe decir: "huella del origen: abc -> abc  (no se movio)"
 #    y terminar con "Cutover completo y verificado"
 
-# 5. Render: DATABASE_URL en el servicio -> reinicia
+# 6. Render: DATABASE_URL en el servicio -> reinicia
 #    /health debe decir almacen_transaccional: "postgres"
 #            y escrituras_congeladas: true
 
-# 6. descongelar
+# 7. descongelar
 DATA_DIR=/var/data npm run descongelar
 
-# 7. Render: reiniciar otra vez
+# 8. Render: reiniciar otra vez
 #    el recuperador procesa los mensajes diferidos, ya contra PostgreSQL
 #    /health -> trabajo.reclamados debe volver a 0
 ```
 
-**Dos reinicios, y el orden importa.** El paso 5 va antes del 6 a propósito: si se descongelara primero, el servicio procesaría los mensajes diferidos **contra archivos**, creando datos que PostgreSQL no tiene — y volveríamos al problema que acabamos de cerrar.
+**Tres reinicios, y el orden importa.** El paso 6 va antes del 7 a propósito: si se descongelara primero, el servicio procesaría los mensajes diferidos **contra archivos**, creando datos que PostgreSQL no tiene — y volveríamos al problema que acabamos de cerrar.
 
 Los mensajes diferidos se retrasan un reinicio. No se pierden: están reclamados en el disco y `/health → trabajo.reclamados` dice cuántos quedan.
 
@@ -303,7 +344,7 @@ El cutover **lo dice y falla**. Es el único caso que no se puede resolver sin u
                                      PUNTO DE NO RETORNO ┘
 ```
 
-**El punto de no retorno es el paso 7**: el reinicio con `DATABASE_URL` puesta **y** las escrituras descongeladas. A partir de ahí, cada mensaje que entra escribe en PostgreSQL y **no** en el disco.
+**El punto de no retorno es el paso 8**: el reinicio con `DATABASE_URL` puesta **y** las escrituras descongeladas. A partir de ahí, cada mensaje que entra escribe en PostgreSQL y **no** en el disco.
 
 ### Antes del punto de no retorno
 
@@ -319,19 +360,21 @@ El procedimiento correcto es el cutover **al revés**:
 # 1. congelar (ahora frena las escrituras a PostgreSQL)
 DATA_DIR=/var/data npm run congelar
 
-# 2. ensayar la vuelta
+# 2. REINICIAR novika-bot congelado (drena los turnos en vuelo)
+
+# 3. ensayar la vuelta
 DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --inverso --simular
 
-# 3. copiar PostgreSQL -> archivos
+# 4. copiar PostgreSQL -> archivos
 DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --inverso
 #    misma verificación de huella, en el otro sentido
 
-# 4. Render: QUITAR DATABASE_URL -> reinicia
+# 5. Render: QUITAR DATABASE_URL -> reinicia
 
-# 5. descongelar
+# 6. descongelar
 DATA_DIR=/var/data npm run descongelar
 
-# 6. Render: reiniciar para vaciar los diferidos
+# 7. Render: reiniciar para vaciar los diferidos
 ```
 
 `--inverso` usa la **misma** función de copia y las **mismas** verificaciones: congelación obligatoria, huella antes y después, idempotencia. Está probado en `test/f3-ventana-cutover.test.js` (`el ROLLBACK copia de PostgreSQL a archivos`), incluido el caso de un pedido que nació solo en PostgreSQL.
@@ -354,7 +397,7 @@ GET /health
 | `f3-cutover.test.js` | No perder, no duplicar, idempotencia, estados finales, snapshot |
 | `f3-recuperacion-postgres.test.js` | Que la recuperación durable siga funcionando con Postgres |
 | `f3-ventana-cutover.test.js` | La ventana de escrituras, la huella, el congelado y el rollback inverso |
-| `f3-defectos-congelacion.test.js` | Los cuatro agujeros de arriba, la barrera de reposo y el 503 por HTTP |
+| `f3-defectos-congelacion.test.js` | Los cuatro agujeros de arriba, el drenaje verificable y el 503 por HTTP |
 
 Lo que solo se puede probar con una base real y **sí se probó**:
 
@@ -374,7 +417,12 @@ Lo que solo se puede probar con una base real y **sí se probó**:
 - un turno que hace lanzar al cerebro **no queda terminado**, se recupera cuando el fallo desaparece, y se agota en `MAX_INTENTOS`
 - congelado y con el disco roto, Meta recibe **503** y no 200 (comprobado por HTTP)
 - tras ese 503, **la retransmisión de Meta se puede reclamar** y el mensaje acaba procesándose
-- un turno en vuelo que escribe justo después de congelar **detiene el cutover antes de copiar**, y en cuanto drena el cutover completa con ese pedido incluido
+- **un turno bloqueado en el proveedor de IA antes de congelar, liberado después de la ventana de copia, no puede producir un cutover exitoso con su escritura fuera del destino** (el caso que la espera de 2 s no cubría)
+- sin reinicio posterior a la congelación, el cutover se niega y lo explica
+- con reinicio pero con un turno en vuelo, el cutover se niega igual (la condición 2 funciona sola)
+- un evento **diferido** no bloquea el cutover: no es un turno en vuelo
+- si la bitácora no se puede leer o falta el marcador de arranque, el cutover se niega
+- `inspeccionar()` no reescribe la bitácora y `leerMarcador()` no incrementa el contador
 
 ```bash
 # sin base: las pruebas de Postgres se SALTAN, el resto corre

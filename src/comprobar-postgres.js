@@ -196,6 +196,42 @@ async function principal() {
       avisos.push("lleva mas de una hora congelado: los mensajes se estan acumulando sin atender");
     }
 
+    // ---- 9.b Drenaje de turnos en vuelo ----
+    //
+    // Son los dos candados que el cutover va a exigir. Se muestran aqui para
+    // que se sepa ANTES de intentarlo, no por un error a mitad.
+    const trabajo = require("./almacen/trabajo");
+    const persistencia = require("./almacen/persistencia");
+    const bitacora = trabajo.inspeccionar(config.dirDatos);
+    const marcador = persistencia.leerMarcador(config.dirDatos);
+
+    if (!bitacora.legible) {
+      console.log("  turnos en vuelo ............ NO SE PUDO LEER");
+      problemas.push(`no se pudo leer la bitacora de trabajo: ${bitacora.error}`);
+    } else {
+      console.log(`  turnos en vuelo ............ ${bitacora.enCurso.length}`);
+      console.log(`  trabajo diferido ........... ${bitacora.diferidos.length}`);
+    }
+    console.log(`  ultimo arranque ............ ${marcador.ultimoArranque || "(sin marcador)"}`);
+
+    if (cong.congelado) {
+      const arranque = marcador.ultimoArranque ? Date.parse(marcador.ultimoArranque) : NaN;
+      const desde = cong.desde ? Date.parse(cong.desde) : NaN;
+      const reinicioOk = !Number.isNaN(arranque) && !Number.isNaN(desde) && arranque > desde;
+      console.log(`  reinicio tras congelar ..... ${si(reinicioOk)}`);
+      if (!reinicioOk) {
+        avisos.push(
+          "el servicio no se ha reiniciado desde que se congelo: el cutover se negara. " +
+            "Render -> novika-bot -> Manual Deploy -> Restart service."
+        );
+      }
+      if (bitacora.legible && bitacora.enCurso.length > 0) {
+        avisos.push(
+          `hay ${bitacora.enCurso.length} turno(s) en vuelo: el cutover se negara hasta que un reinicio congelado los drene.`
+        );
+      }
+    }
+
     // ---- 10. Veredicto ----
     console.log("");
     console.log("".padEnd(66, "-"));
@@ -220,10 +256,22 @@ async function principal() {
     } else if (!esquemaListo) {
       console.log("    El esquema esta incompleto. Revisa las migraciones antes de seguir.");
     } else if (!cong.congelado) {
-      console.log("    Congelar las escrituras:          npm run congelar");
-      console.log("    y despues ensayar el cutover:     npm run cutover -- --simular");
+      console.log("    1. Congelar las escrituras:       npm run congelar");
+      console.log("    2. REINICIAR novika-bot en Render (Manual Deploy -> Restart service)");
+      console.log("       Mata cualquier turno en vuelo esperando a la IA. Sin esto el cutover se niega.");
+      console.log("    3. Ensayar:                       npm run cutover -- --simular");
     } else {
-      console.log("    Ensayar el cutover:               npm run cutover -- --simular");
+      const arranque = marcador.ultimoArranque ? Date.parse(marcador.ultimoArranque) : NaN;
+      const desde = cong.desde ? Date.parse(cong.desde) : NaN;
+      const reinicioOk = !Number.isNaN(arranque) && !Number.isNaN(desde) && arranque > desde;
+      if (!reinicioOk) {
+        console.log("    REINICIAR novika-bot en Render (Manual Deploy -> Restart service)");
+        console.log("    Ya esta congelado, pero el proceso actual pudo empezar turnos antes.");
+      } else if (bitacora.legible && bitacora.enCurso.length > 0) {
+        console.log("    Hay turnos en vuelo. Vuelve a reiniciar novika-bot, congelado.");
+      } else {
+        console.log("    Ensayar el cutover:               npm run cutover -- --simular");
+      }
     }
     console.log("");
 

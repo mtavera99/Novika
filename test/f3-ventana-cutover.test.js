@@ -188,7 +188,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     const destino = await destinoLimpio();
     try {
       congelacion.descongelar(dir);
-      const informe = await copiar({ origen, destino, dirDatos: dir, reposoMs: 0 });
+      const informe = await copiar({ origen, destino, dirDatos: dir, exigirDrenaje: false });
 
       assert.ok(informe.problemas.length > 0, "copio sin congelar");
       assert.match(informe.problemas.join(" "), /NO estan congeladas/);
@@ -206,7 +206,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     const destino = await destinoLimpio();
     try {
       congelacion.congelar(dir, "prueba");
-      const informe = await copiar({ origen, destino, dirDatos: dir, reposoMs: 0 });
+      const informe = await copiar({ origen, destino, dirDatos: dir, exigirDrenaje: false });
 
       assert.deepEqual(informe.problemas, [], informe.problemas.join(" | "));
       assert.equal(informe.pedidos.copiados, 2);
@@ -229,7 +229,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     try {
       congelacion.congelar(dir, "prueba");
 
-      const copia = copiar({ origen, destino, dirDatos: dir, reposoMs: 0 });
+      const copia = copiar({ origen, destino, dirDatos: dir, exigirDrenaje: false });
       // Escritura concurrente, saltandose la congelacion a proposito: es lo
       // que pasaria si el candado fallara o alguien escribiera por otro
       // camino.
@@ -258,14 +258,14 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     try {
       congelacion.congelar(dir, "prueba");
 
-      const copia = copiar({ origen, destino, dirDatos: dir, reposoMs: 0 });
+      const copia = copiar({ origen, destino, dirDatos: dir, exigirDrenaje: false });
       await new Promise((r) => setTimeout(r, 2));
       await origen.pedidos.crearSiNoExiste(pedidoNuevo("of-3", "wamid.3"));
       const primera = await copia;
       assert.ok(primera.problemas.length > 0);
 
       // Segundo pase, ahora sin nadie escribiendo.
-      const segunda = await copiar({ origen, destino, dirDatos: dir, reposoMs: 0 });
+      const segunda = await copiar({ origen, destino, dirDatos: dir, exigirDrenaje: false });
       assert.deepEqual(segunda.problemas, [], segunda.problemas.join(" | "));
       assert.equal((await destino.estado()).pedidos, 3);
       assert.equal(segunda.huellaAntes.resumen, segunda.huellaDespues.resumen);
@@ -285,7 +285,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
       const inventario = await origen._inventario();
       const victima = inventario.pedidos[0];
 
-      const copia = copiar({ origen, destino, dirDatos: dir, reposoMs: 0 });
+      const copia = copiar({ origen, destino, dirDatos: dir, exigirDrenaje: false });
       await new Promise((r) => setTimeout(r, 2));
       const modificado = dominioPedido.modificar({
         pedido: victima,
@@ -315,7 +315,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     const postgres = await destinoLimpio();
     try {
       congelacion.congelar(dir, "prueba");
-      await copiar({ origen: archivos, destino: postgres, dirDatos: dir, reposoMs: 0 });
+      await copiar({ origen: archivos, destino: postgres, dirDatos: dir, exigirDrenaje: false });
 
       // Ahora nace un pedido SOLO en PostgreSQL: operacion real sobre la base.
       await postgres.pedidos.crearSiNoExiste(pedidoNuevo("of-nuevo-en-pg", "wamid.PG"));
@@ -323,7 +323,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
       assert.equal((await archivos._inventario()).pedidos.length, 2);
 
       // Rollback.
-      const vuelta = await copiar({ origen: postgres, destino: archivos, dirDatos: dir, reposoMs: 0 });
+      const vuelta = await copiar({ origen: postgres, destino: archivos, dirDatos: dir, exigirDrenaje: false });
       assert.deepEqual(vuelta.problemas, [], vuelta.problemas.join(" | "));
 
       // El pedido exclusivo de PostgreSQL ya esta en el disco.
@@ -339,7 +339,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     const postgres = await destinoLimpio();
     try {
       congelacion.descongelar(dir);
-      const informe = await copiar({ origen: postgres, destino: archivos, dirDatos: dir, reposoMs: 0 });
+      const informe = await copiar({ origen: postgres, destino: archivos, dirDatos: dir, exigirDrenaje: false });
       assert.match(informe.problemas.join(" "), /NO estan congeladas/);
     } finally {
       await postgres.cerrar();
@@ -352,7 +352,7 @@ describe("ventana de escrituras contra PostgreSQL real", { skip: ayudaPg.sinBase
     const postgres = await destinoLimpio();
     try {
       congelacion.congelar(dir, "prueba");
-      await copiar({ origen: archivos, destino: postgres, dirDatos: dir, reposoMs: 0 });
+      await copiar({ origen: archivos, destino: postgres, dirDatos: dir, exigirDrenaje: false });
 
       const inv = await postgres._inventario();
       assert.equal(inv.pedidos.length, 2);

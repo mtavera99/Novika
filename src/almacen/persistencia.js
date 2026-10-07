@@ -150,4 +150,33 @@ function registrarArranque(dirDatos) {
   return marcador;
 }
 
-module.exports = { revisar, registrarArranque, MODOS };
+/**
+ * Lee el marcador de arranques SIN incrementarlo.
+ *
+ * Existe para que otro proceso -el cutover, comprobar-postgres- pueda saber
+ * CUANDO arranco el servicio por ultima vez. Es la unica evidencia en disco
+ * de ese hecho, y el cutover la necesita para exigir que el servicio se haya
+ * reiniciado despues de congelar.
+ *
+ * Tiene que ser una funcion aparte y no un parametro de registrarArranque():
+ * si el cutover incrementara el contador, estaria satisfaciendo su propia
+ * comprobacion. Un candado que el interesado puede abrir no es un candado.
+ *
+ * @returns {{arranques: number, primerArranque: string|null, ultimoArranque: string|null, existe: boolean}}
+ */
+function leerMarcador(dirDatos) {
+  const archivo = path.join(dirDatos, "marcador-de-disco.json");
+  try {
+    const leido = JSON.parse(fs.readFileSync(archivo, "utf8"));
+    return {
+      arranques: Number.isFinite(leido.arranques) ? leido.arranques : 0,
+      primerArranque: leido.primerArranque || null,
+      ultimoArranque: leido.ultimoArranque || null,
+      existe: true,
+    };
+  } catch {
+    return { arranques: 0, primerArranque: null, ultimoArranque: null, existe: false };
+  }
+}
+
+module.exports = { revisar, registrarArranque, leerMarcador, MODOS };

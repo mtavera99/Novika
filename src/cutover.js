@@ -57,25 +57,8 @@ const { crearReposDeArchivos } = require("./almacen/repos/archivos");
 const congelacion = require("./almacen/congelar");
 
 const { describirDestino } = require("./almacen/repos/postgres");
-
-/**
- * Barrera de reposo: cuanto se espera entre dos miradas al origen.
- *
- * 2 segundos porque un turno pasa por catalogo, cotizador y pedido, todo
- * sobre disco local, y eso se mide en decenas de milisegundos. 2 s da dos
- * ordenes de magnitud de margen sin alargar una operacion que ya exige
- * tener el bot congelado.
- */
-const REPOSO_MS = 2000;
-
-/**
- * Cuantas veces se vuelve a esperar si el origen seguia moviendose.
- *
- * Tres, no infinitas: si despues de 6 segundos congelado alguien sigue
- * escribiendo, no es un turno drenando. Es que la congelacion no esta
- * puesta donde creemos, y seguir esperando solo retrasa el diagnostico.
- */
-const INTENTOS_DE_REPOSO = 3;
+const trabajo = require("./almacen/trabajo");
+const persistencia = require("./almacen/persistencia");
 
 /**
  * Huella del contenido de un almacen.
@@ -128,12 +111,10 @@ async function copiar({
   exigirCongelacion = true,
   dirDatos = null,
   contar = null,
-  // Barrera de reposo: cuanto se espera entre dos miradas al origen para
-  // dar por drenados los turnos que ya estaban en curso al congelar, y
-  // cuantas veces se reintenta. 0 la desactiva (las pruebas que no la
-  // ejercitan la apagan para no dormir en cada caso).
-  reposoMs = REPOSO_MS,
-  intentosDeReposo = INTENTOS_DE_REPOSO,
+  // Drenaje verificable de los turnos en vuelo: exige reinicio congelado y
+  // bitacora sin turnos en curso. Las pruebas que miden OTRO mecanismo lo
+  // apagan para no tener que simular un reinicio en cada caso.
+  exigirDrenaje = true,
 }) {
   const informe = {
     simulado: simular,
@@ -158,71 +139,144 @@ async function copiar({
     avisar(`escrituras congeladas desde ${estadoCongelacion.desde}`);
   }
 
-  // --- 0.b BARRERA DE REPOSO ----------------------------------------------
+  // --- 0.b DRENAJE VERIFICABLE DE LOS TURNOS EN VUELO ---------------------
   //
-  // Congelar frena los turnos NUEVOS. No frena los que ya estaban en curso.
+  // Congelar frena los turnos NUEVOS. No frena los que ya pasaron la
+  // compuerta. El webhook contesta 200 a Meta y procesa DESPUES, asi que un
+  // turno en vuelo sigue su camino -catalogo, IA, cotizacion, pedido- y
+  // puede escribir mucho despues de que la marca de congelacion exista.
   //
-  // El webhook contesta 200 a Meta y procesa DESPUES, de forma asincrona. Un
-  // turno que ya habia pasado la compuerta cuando se congelo sigue su
-  // camino: identifica el producto, cotiza, y puede GUARDAR UN PEDIDO varios
-  // cientos de milisegundos despues de que la marca de congelacion exista.
+  // --------------------------------------------------------------------
+  // LO QUE NO FUNCIONA: ESPERAR
+  // --------------------------------------------------------------------
   //
-  // Es decir: "congelado" no significa "quieto" en el instante en que se
-  // congela. Significa "no entra trabajo nuevo". Y el cutover no necesita lo
-  // primero, necesita lo segundo.
+  // La version anterior miraba el origen, esperaba 2 segundos y volvia a
+  // mirar. Dos huellas iguales NO prueban que no haya turnos en vuelo:
+  // prueban que no hubo escrituras entre esas dos lecturas.
   //
-  // La huella de antes/despues ya detectaba esto, pero solo DESPUES de haber
-  // copiado: el cutover fallaba y habia que repetirlo, sin decir por que. Y
-  // repetirlo podia volver a caer en la misma ventana.
+  // El caso que la atraviesa entera: un turno pasa la compuerta y se queda
+  // esperando al proveedor de IA. Se congela. Pasan los 2 segundos sin una
+  // sola escritura -el turno esta bloqueado en la red, no escribiendo-. El
+  // cutover se declara exitoso. Y DESPUES el proveedor responde, el turno
+  // continua y guarda su pedido en archivos, fuera de PostgreSQL.
   //
-  // Esta barrera lo resuelve antes: se mira el origen, se espera, y se
-  // vuelve a mirar. Si las dos huellas coinciden, nadie esta escribiendo y
-  // se puede copiar. Si no coinciden, hay turnos drenando y se espera otra
-  // vez. No hace falta coordinar procesos ni leer memoria ajena -el cutover
-  // es otro proceso-: el disco ya dice la verdad.
+  // Subir el tiempo de espera no lo arregla: el limite lo pone un servicio
+  // ajeno, no nosotros. Una espera no es un candado.
   //
-  // Se usa la ultima muestra como huella de partida, asi no se lee dos veces
-  // para nada.
+  // --------------------------------------------------------------------
+  // LO QUE SI FUNCIONA: PREGUNTARLE AL DISCO
+  // --------------------------------------------------------------------
+  //
+  // Un turno solo puede escribir en el almacen transaccional mientras su
+  // registro de trabajo esta RECLAMADO: el reclamo se escribe ANTES de
+  // procesar y el `terminar` DESPUES de haber escrito. Asi que:
+  //
+  //   no hay registros RECLAMADO en vuelo  <=>  nadie puede estar escribiendo
+  //
+  // Eso no es una estimacion temporal, es un hecho leido del disco, y el
+  // disco es el unico canal que comparten el servicio y este proceso.
+  //
+  // Hacen falta DOS condiciones, porque un registro RECLAMADO es ambiguo
+  // visto desde fuera: puede ser un turno vivo o el resto de un proceso que
+  // murio. La segunda condicion deshace la ambiguedad.
   // ------------------------------------------------------------------------
-  let antes = await origen._inventario();
-  let huellaAntes = huella(antes);
-  const muestras = [huellaAntes.resumen];
+  const dirParaCandados = dirDatos || config.dirDatos;
 
-  if (reposoMs > 0) {
-    let quieto = false;
-    for (let intento = 1; intento <= intentosDeReposo; intento++) {
-      await new Promise((listo) => setTimeout(listo, reposoMs));
-      const otra = await origen._inventario();
-      const huellaOtra = huella(otra);
-      muestras.push(huellaOtra.resumen);
+  if (exigirDrenaje) {
+    const marcaCongelacion = congelacion.estado(dirParaCandados);
+    const marcador = persistencia.leerMarcador(dirParaCandados);
+    const bitacora = trabajo.inspeccionar(dirParaCandados);
 
-      if (huellaOtra.resumen === huellaAntes.resumen) {
-        quieto = true;
-        antes = otra;
-        huellaAntes = huellaOtra;
-        break;
-      }
+    informe.drenaje = {
+      arrancoDespuesDeCongelar: null,
+      ultimoArranque: marcador.ultimoArranque,
+      congeladoDesde: marcaCongelacion.desde,
+      enCurso: bitacora.enCurso.length,
+      diferidos: bitacora.diferidos.length,
+      bitacoraLegible: bitacora.legible,
+    };
 
-      // Se movio: hay turnos en curso drenando. Se adopta la muestra nueva y
-      // se vuelve a esperar.
-      avisar(`el origen se movio (${diferencias(huellaAntes, huellaOtra).join("; ")}); esperando a que drene`);
-      antes = otra;
-      huellaAntes = huellaOtra;
-    }
+    // --- CONDICION 1: el servicio arranco DESPUES de congelar ---
+    //
+    // Es lo que garantiza que no queda ningun turno en vuelo: el reinicio
+    // mata el proceso y con el cualquier turno bloqueado esperando a la IA
+    // -su escritura nunca ocurre, el proceso ya no existe-. Y el proceso
+    // nuevo arranca CONGELADO, asi que su compuerta no deja empezar ni uno.
+    //
+    // Estructural, no temporal: no depende de cuanto tarde nadie.
+    const arranque = marcador.ultimoArranque ? Date.parse(marcador.ultimoArranque) : NaN;
+    const congeladoDesde = marcaCongelacion.desde ? Date.parse(marcaCongelacion.desde) : NaN;
 
-    informe.reposo = { quieto, muestras, reposoMs, intentos: muestras.length - 1 };
-
-    if (!quieto) {
+    if (!marcador.existe || Number.isNaN(arranque)) {
       informe.problemas.push(
-        `el origen sigue cambiando despues de ${intentosDeReposo} espera(s) de ${reposoMs} ms: hay turnos en curso escribiendo. ` +
-          "No se copio nada. Comprueba que las escrituras esten congeladas (`npm run congelado`) y repite el cutover."
+        "no hay marcador de arranque en " +
+          `${dirParaCandados}: no se puede comprobar que el servicio se haya reiniciado despues de congelar. ` +
+          "Reinicia novika-bot con las escrituras ya congeladas y repite el cutover."
       );
       return informe;
     }
-    avisar(`origen en reposo tras ${informe.reposo.intentos} comprobacion(es) de ${reposoMs} ms`);
+
+    if (Number.isNaN(congeladoDesde)) {
+      // Marca de congelacion sin fecha: estado() ya devuelve congelado:true
+      // cuando la marca es ilegible. Sin fecha no se puede comparar, y
+      // suponer que el reinicio fue despues seria suponer justo lo que hay
+      // que demostrar.
+      informe.problemas.push(
+        "la marca de congelacion no tiene fecha, asi que no se puede comprobar el reinicio. " +
+          "Ejecuta `npm run descongelar` y `npm run congelar` de nuevo, reinicia el servicio y repite."
+      );
+      return informe;
+    }
+
+    informe.drenaje.arrancoDespuesDeCongelar = arranque > congeladoDesde;
+
+    if (arranque <= congeladoDesde) {
+      informe.problemas.push(
+        `el servicio NO se ha reiniciado desde que se congelo (ultimo arranque ${marcador.ultimoArranque}, ` +
+          `congelado desde ${marcaCongelacion.desde}). Puede haber un turno en vuelo esperando al proveedor de IA ` +
+          "que escriba DESPUES de la copia y quede fuera de PostgreSQL. " +
+          "Reinicia novika-bot (Render -> Manual Deploy -> Restart service) con las escrituras ya congeladas y repite el cutover."
+      );
+      return informe;
+    }
+
+    avisar(`servicio reiniciado despues de congelar (arranque ${marcador.ultimoArranque})`);
+
+    // --- CONDICION 2: la bitacora confirma que no hay nada en vuelo ---
+    //
+    // Es la evidencia de que la condicion 1 surtio efecto. Tras un reinicio
+    // congelado, la recuperacion marca los pendientes como DIFERIDOS, asi
+    // que lo que quede sin marcar solo puede ser un turno empezado en el
+    // proceso actual, es decir una compuerta que no cerro.
+    if (!bitacora.legible) {
+      informe.problemas.push(
+        `no se pudo leer la bitacora de trabajo (${bitacora.error}): no se puede descartar que haya turnos en vuelo. ` +
+          "No se copio nada."
+      );
+      return informe;
+    }
+
+    if (bitacora.enCurso.length > 0) {
+      informe.problemas.push(
+        `hay ${bitacora.enCurso.length} turno(s) EN VUELO (reclamados y sin terminar, sin marcar como diferidos): ` +
+          `${bitacora.enCurso
+            .slice(0, 5)
+            .map((r) => r.wamid)
+            .join(", ")}. ` +
+          "Una escritura suya quedaria fuera de PostgreSQL. No se copio nada. " +
+          "Reinicia novika-bot con las escrituras congeladas: el reinicio los deja diferidos y se procesaran al descongelar."
+      );
+      return informe;
+    }
+
+    avisar(
+      `sin turnos en vuelo · ${bitacora.diferidos.length} diferido(s) esperando el descongelado`
+    );
   }
 
   // --- 1. Huella del origen ANTES -----------------------------------------
+  const antes = await origen._inventario();
+  const huellaAntes = huella(antes);
   informe.huellaAntes = huellaAntes;
 
   informe.contactos.origen = huellaAntes.contactos;
@@ -364,6 +418,12 @@ async function principal() {
         }`
       );
     }
+    if (informe.drenaje) {
+      const d = informe.drenaje;
+      console.log(
+        `  drenaje: reinicio tras congelar=${d.arrancoDespuesDeCongelar === null ? "?" : d.arrancoDespuesDeCongelar ? "si" : "NO"}  turnos en vuelo=${d.enCurso}  diferidos=${d.diferidos}`
+      );
+    }
     if (informe.destino) console.log(`  destino: ${JSON.stringify(informe.destino)}`);
 
     if (informe.problemas.length) {
@@ -406,4 +466,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { copiar, huella, diferencias, REPOSO_MS, INTENTOS_DE_REPOSO };
+module.exports = { copiar, huella, diferencias };

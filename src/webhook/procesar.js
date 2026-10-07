@@ -227,7 +227,10 @@ function admitir(cuerpo, idEntrega = null) {
     }
 
     mensajes++;
-    const reclamo = trabajo.reclamar(evento.wamid, { evento });
+    // `diferido` se decide AQUI, en la misma escritura que el reclamo. Si se
+    // marcara despues, habria un instante en el que el registro parece un
+    // turno en vuelo, y el cutover se negaria sin motivo.
+    const reclamo = trabajo.reclamar(evento.wamid, { evento, diferido: congelado });
 
     // El unico caso malo es "aceptamos trabajo nuevo y no pudimos
     // anotarlo". Un reclamo RECHAZADO (terminado, en curso, agotado) si es
@@ -372,6 +375,10 @@ async function atenderEvento(evento, { idEntrega = null, enRecuperacion = false,
     // fatal: tres reinicios durante un cutover agotarian el mensaje y lo
     // dejarian fuera para siempre, sin haberlo intentado ni una vez.
     if (congelacion.estado(config.dirDatos).congelado) {
+      // Si ya habia un registro reclamado, se marca diferido: deja de
+      // contar como turno en vuelo para el cutover, sin dejar de ser
+      // recuperable. No consume intentos.
+      trabajo.diferir(evento.wamid);
       diario.anotar("diferido_por_congelacion", { idEntrega, wamid: evento.wamid, enRecuperacion });
       metricas.incrementar("evento_diferido");
       return { wamid: evento.wamid, accion: "diferido" };
