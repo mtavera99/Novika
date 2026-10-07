@@ -132,4 +132,64 @@ function cantidadesEn(texto) {
   return encontradas.sort((a, b) => a.posicion - b.posicion);
 }
 
-module.exports = { sinTildes, aplanar, vistas, primeraCoincidencia, cantidadesEn, NUMEROS_EN_PALABRAS, NUMEROS_COMPUESTOS };
+// --------------------------------------------------------------------------
+// ¿EL CLIENTE ESTA PIDIENDO VER EL PRODUCTO?
+//
+// Hace falta porque el envio de fotos no puede depender de en que punto de
+// la venta estemos. Antes se mandaban solo mientras el producto estaba en
+// borrador; al activarlo, el mismo mensaje -"muestrame fotos del
+// cinturon"- cae en la captura de datos y no salia ninguna foto.
+//
+// Deliberadamente NO entra "como es": el mensaje real que fallaba decia
+// "...y como es el envio", y eso es una pregunta de logistica, no una
+// peticion de imagenes. Un falso positivo aqui manda cinco fotos a quien
+// pregunto por el flete.
+// --------------------------------------------------------------------------
+const PIDE_IMAGENES = [
+  /\bfotos?\b/,
+  /\bimagen(es)?\b/,
+  /\bfotograf\w*/,
+  /\b(muestra|muestrame|mostrar|ensena|ensename|ensenar)\b/,
+  /\b(quiero|puedo|podria|se\s+puede|quisiera)\s+(ver|verlo|verla)\b/,
+  /\bver\s+(el|la|los|las)\s+\w+/,
+];
+
+/** ¿El texto pide ver fotos del producto? */
+function pideFotos(texto) {
+  const plano = aplanar(texto);
+  return PIDE_IMAGENES.some((re) => re.test(plano));
+}
+
+/**
+ * ¿Pregunta por el precio?
+ *
+ * Sirve para decidir si repetir una cifra que ya se dijo. Un bot que repite
+ * el mismo mensaje en cada turno parece roto, pero uno que se niega a
+ * repetir el precio cuando se lo preguntan otra vez es peor.
+ */
+const PREGUNTA_PRECIO = [
+  /\bcuanto\s+(vale|cuesta|sale|es|seria|me\s+sale)\b/,
+  /\ben\s+cuanto\b/,
+  /\bque\s+precio\b/,
+  /\bprecios?\b/,
+  /\bvalor\b/,
+];
+
+function preguntaPrecio(texto) {
+  const plano = aplanar(texto);
+  return PREGUNTA_PRECIO.some((re) => re.test(plano));
+}
+
+module.exports = {
+  sinTildes,
+  aplanar,
+  vistas,
+  primeraCoincidencia,
+  cantidadesEn,
+  pideFotos,
+  preguntaPrecio,
+  PIDE_IMAGENES,
+  PREGUNTA_PRECIO,
+  NUMEROS_EN_PALABRAS,
+  NUMEROS_COMPUESTOS,
+};
