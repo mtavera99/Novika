@@ -242,6 +242,8 @@ Ventas, unidades, importe, conversión y ticket medio por origen, leyendo el `re
 
 Verificado a mano con los datos de muestra: embudo 7 → 6 → 6 → 5 → 4 → 2, y `facebook` con $336.000 = 89.000 + 158.000 + 89.000, ticket medio $112.000.
 
+> **Esas cifras son inventadas para probar el cálculo.** No son precios de NOVIKA y no salen del catálogo. El único precio real confirmado hasta hoy es **$49.900 por una unidad del cinturón** (Marco, 2026-10-07), y vive en `catalogo/productos/cinturon-termico-colicos.json`. Si alguna vez hay que comprobar un precio, se mira el catálogo, nunca esta página.
+
 ---
 
 ## Para desplegarlo

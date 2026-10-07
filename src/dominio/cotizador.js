@@ -36,7 +36,7 @@ const crypto = require("node:crypto");
  * cuando las reglas ya cambiaron. Subirla es obligatorio al cambiar como se
  * calcula algo.
  */
-const POLITICA_VERSION = "2026.10-fase2.1";
+const POLITICA_VERSION = "2026.10-fase2.2";
 
 const MONEDA = "COP";
 
@@ -62,8 +62,33 @@ function versionDeCatalogo(producto) {
     precioUnitario: producto.precioUnitario ?? null,
     politicaEnvio: (producto.logistica && producto.logistica.politicaEnvio) || null,
     promociones: producto.promociones || null,
+    // El metodo de cobro es parte de las condiciones, no de la redaccion.
+    // Si pasa de contraentrega a pago anticipado, lo que el cliente acepto
+    // deja de aplicar: tiene que caducar la oferta igual que un cambio de
+    // precio. Sin esto, alguien confirmaria "pago al recibir" y el pedido se
+    // despacharia esperando una transferencia previa.
+    pago: (producto.pago && producto.pago.metodo) || null,
   };
   return crypto.createHash("sha256").update(JSON.stringify(comercial)).digest("hex").slice(0, 12);
+}
+
+/**
+ * Condiciones de cobro y envio tal y como se le muestran al cliente.
+ *
+ * Salen del catalogo, nunca del modelo. Devuelve `null` en lo que el
+ * producto no declare: un hueco explicito es mejor que una frase amable
+ * puesta por defecto, porque "envio incluido" asumido es el flete regalado
+ * en cada venta.
+ */
+function condicionesDe(producto) {
+  const politica = (producto.logistica && producto.logistica.politicaEnvio) || null;
+  const pago = producto.pago || null;
+  return {
+    politicaEnvio: (politica && politica.tipo) || null,
+    envioIncluido: !!politica && politica.tipo === POLITICAS_ENVIO.INCLUIDO,
+    pagoMetodo: (pago && pago.metodo) || null,
+    pagoEtiqueta: (pago && pago.etiquetaCliente) || null,
+  };
 }
 
 /** Calcula el envio. Devuelve null y el faltante si no se puede saber. */
@@ -270,6 +295,14 @@ function cotizar({ producto, cantidad, destino = null, variante = null, ahora = 
 
     motorDePrecio: producto.motorDePrecio,
     promocionesAplicadas: desc.aplicadas,
+
+    // Condiciones comerciales del catalogo. Viajan DENTRO de la cotizacion
+    // porque el pedido guarda la cotizacion como copia: asi el metodo de
+    // cobro queda estampado en el pedido sin que `pedido.js` tenga que
+    // saber que existe, y quien despacha lee en el propio pedido si hay que
+    // recaudar en la puerta.
+    condiciones: condicionesDe(producto),
+
     politicaVersion: POLITICA_VERSION,
     versionCatalogo: versionDeCatalogo(producto),
     calculadoEn: ahora.toISOString(),
@@ -338,6 +371,7 @@ module.exports = {
   MONEDA,
   MOTORES,
   POLITICAS_ENVIO,
+  condicionesDe,
   cotizar,
   firmaDeCondiciones,
   revisarImportes,

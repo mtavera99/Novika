@@ -70,6 +70,36 @@ function pesos(n) {
 }
 
 /**
+ * Lineas de condiciones -envio y cobro- que acompañan a un total.
+ *
+ * Salen de `cotizacion.condiciones`, que el cotizador copia del catalogo. Si
+ * el producto no declara una condicion, NO se escribe nada: no hay texto por
+ * defecto. Dos motivos concretos:
+ *
+ *   - "Envío incluido" dicho por costumbre, sobre un producto cuya politica
+ *     es "fijo", es un flete que el cliente no espera pagar y una discusion
+ *     en la puerta.
+ *   - En contraentrega, si el mensaje NO dice que paga al recibir, el
+ *     cliente puede entender que ya debe transferir. Decirlo es parte del
+ *     cierre, no un adorno.
+ *
+ * Ninguna etiqueta puede traer cifras -el esquema lo impide-, asi que estas
+ * lineas nunca activan el filtro de importes no autorizados.
+ */
+function lineasDeCondiciones(cotizacion) {
+  const c = (cotizacion && cotizacion.condiciones) || null;
+  if (!c) return [];
+
+  const partes = [];
+  // Solo cuando el envio va realmente incluido. Con envio > 0 ya se desglosa
+  // arriba como una linea de importe, y repetirlo seria confuso.
+  if (c.envioIncluido && !cotizacion.envio) partes.push("Envío incluido");
+  if (c.pagoEtiqueta) partes.push(c.pagoEtiqueta);
+
+  return partes.length ? [partes.join(" · ")] : [];
+}
+
+/**
  * Texto determinista segun la situacion.
  *
  * NO contiene ni un dato comercial escrito a mano: todo sale de la
@@ -128,6 +158,7 @@ function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones
       }
       if (cotizacion.descuento > 0) lineas.push(`Descuento: -${pesos(cotizacion.descuento)}`);
       lineas.push(`Total: ${pesos(cotizacion.total)}`);
+      lineas.push(...lineasDeCondiciones(cotizacion));
       return lineas.join("\n");
     }
 
@@ -152,6 +183,7 @@ function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones
         "Confirmemos tu pedido:",
         `${cotizacion.productoNombre} · ${cotizacion.cantidad} unidad(es)`,
         `Total: ${pesos(cotizacion.total)}`,
+        ...lineasDeCondiciones(cotizacion),
         "",
         "¿Confirmas?",
       ].join("\n");
