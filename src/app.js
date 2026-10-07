@@ -17,7 +17,7 @@ const express = require("express");
 const { config } = require("./config");
 const log = require("./log");
 const diario = require("./almacen/diario");
-const vistos = require("./almacen/vistos");
+const trabajo = require("./almacen/trabajo");
 const persistencia = require("./almacen/persistencia");
 const metricas = require("./metricas");
 const { capturarCuerpoCrudo } = require("./webhook/firma");
@@ -100,7 +100,7 @@ function crearApp() {
       // despliegues, la carpeta se esta borrando, diga lo que diga la
       // configuracion.
       marcador_de_disco: MARCADOR,
-      ids_recordados: vistos.cuantos(),
+      trabajo: trabajo.estado(),
       zona_horaria: config.zonaHoraria,
       version_graph: config.versionGraph,
       diario_de_hoy: diario.resumenDeHoy(),

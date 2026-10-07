@@ -22,7 +22,7 @@
 const { config } = require("../config");
 const log = require("../log");
 const diario = require("../almacen/diario");
-const vistos = require("../almacen/vistos");
+const trabajo = require("../almacen/trabajo");
 const aislamiento = require("../aislamiento");
 const metricas = require("../metricas");
 const { obtenerCerebro } = require("../cerebro");
@@ -158,73 +158,204 @@ async function manejarMensaje(evento) {
  * lote. Y un fallo no se traga en silencio, se anota en el diario, que es lo
  * que BIKERPRO no hace (`.catch(e => console.error(...))` y el trabajo se pierde).
  */
-async function procesar(cuerpo, idEntrega = null) {
+/**
+ * ADMITIR: reclama el trabajo de forma durable. SINCRONO Y ANTES DEL 200.
+ *
+ * --------------------------------------------------------------------------
+ * EL INVARIANTE QUE SOSTIENE TODO
+ * --------------------------------------------------------------------------
+ *
+ *   NUNCA SE CONTESTA 200 SIN QUE EL TRABAJO ESTE RECLAMADO EN DISCO.
+ *
+ * La primera version de la recuperacion reclamaba dentro del procesamiento
+ * asincrono, es decir DESPUES del 200. Simulando un SIGKILL se vio que
+ * quedaba una ventana: el proceso moria entre el acuse y el reclamo, y
+ * entonces no habia registro de trabajo que recuperar. El evento estaba en
+ * el diario -la evidencia- pero nada sabia que habia quedado pendiente.
+ *
+ * Medido: `entrada_cruda` escrito, `trabajo.jsonl` inexistente, 0 turnos
+ * procesados tras el reinicio.
+ *
+ * El reclamo no es parte del procesamiento: es parte de PERSISTIR. Por eso
+ * esta funcion es sincrona de principio a fin y se ejecuta antes del acuse.
+ * Cuesta un appendFileSync de unos cientos de bytes por evento, muy por
+ * debajo del margen que da Meta.
+ *
+ * @returns {{admitidos: Array, durable: boolean}}
+ */
+function admitir(cuerpo, idEntrega = null) {
   metricas.incrementar("webhook_recibido");
   const eventos = normalizar(cuerpo);
-  const resultados = [];
+  const admitidos = [];
+  let mensajes = 0;
+  let sinRespaldoEnDisco = 0;
 
   for (const evento of eventos) {
-    try {
-      // 1. Aislamiento
-      const propio = aislamiento.eventoEsDeNovika(evento, config.idNumero);
-      if (!propio.ok) {
-        diario.anotar("evento_ajeno", {
-          idEntrega,
-          idNumeroDelEvento: evento.idNumero,
-          idNumeroDeNovika: config.idNumero,
-          wamid: evento.wamid,
-        });
-        metricas.incrementar("numero_ajeno");
-        log.error("evento_de_otro_numero", {
-          detalle:
-            "Llego un evento de un phone_number_id que no es el de NOVIKA. Revisa que no haya dos apps de Meta apuntando a este webhook.",
-          idNumeroDelEvento: evento.idNumero,
-        });
-        resultados.push({ wamid: evento.wamid, accion: "descartado_ajeno" });
-        continue;
-      }
-
-      // 2. Clase
-      if (evento.clase === CLASES.ESTADO) {
-        metricas.incrementar("estado_recibido");
-        manejarEstado(evento);
-        resultados.push({ wamid: evento.wamid, accion: "estado" });
-        continue;
-      }
-
-      if (evento.clase === CLASES.DESCONOCIDO) {
-        diario.anotar("evento_desconocido", { idEntrega, claves: evento.claves, campo: evento.campo });
-        resultados.push({ accion: "desconocido" });
-        continue;
-      }
-
-      // 3. Deduplicacion
-      if (!vistos.esNuevo(evento.wamid)) {
-        metricas.incrementar("duplicado_descartado");
-        diario.anotar("duplicado_descartado", { idEntrega, wamid: evento.wamid });
-        log.warn("duplicado_descartado", { wamid: evento.wamid });
-        resultados.push({ wamid: evento.wamid, accion: "duplicado" });
-        continue;
-      }
-
-      // 4. Manejo
-      metricas.incrementar("mensaje_valido");
-      const r = await manejarMensaje(evento);
-      resultados.push({ wamid: evento.wamid, ...r });
-    } catch (e) {
-      metricas.incrementar("error_interno");
-      diario.anotar("fallo_al_procesar", {
+    // Aislamiento. Se evalua aqui porque es sincrono y porque no tiene
+    // sentido reclamar trabajo de un numero que no es el nuestro.
+    const propio = aislamiento.eventoEsDeNovika(evento, config.idNumero);
+    if (!propio.ok) {
+      metricas.incrementar("numero_ajeno");
+      diario.anotar("evento_ajeno", {
         idEntrega,
+        idNumeroDelEvento: evento.idNumero,
+        idNumeroDeNovika: config.idNumero,
         wamid: evento.wamid,
-        error: e.message,
-        pila: e.stack,
       });
-      log.error("fallo_al_procesar", { wamid: evento.wamid, detalle: e.message });
-      resultados.push({ wamid: evento.wamid, accion: "fallo" });
+      log.error("evento_de_otro_numero", {
+        detalle:
+          "Llego un evento de un phone_number_id que no es el de NOVIKA. Revisa que no haya dos apps de Meta apuntando a este webhook.",
+        idNumeroDelEvento: evento.idNumero,
+      });
+      continue;
     }
+
+    // Solo los mensajes se reclaman. Un acuse de entrega no se reprocesa:
+    // no tiene efectos que puedan quedar a medias.
+    if (evento.clase !== CLASES.MENSAJE) {
+      admitidos.push({ evento, reclamo: null });
+      continue;
+    }
+
+    mensajes++;
+    const reclamo = trabajo.reclamar(evento.wamid, { evento });
+
+    // El unico caso malo es "aceptamos trabajo nuevo y no pudimos
+    // anotarlo". Un reclamo RECHAZADO (terminado, en curso, agotado) si es
+    // durable: significa que ya sabemos de ese evento, y saberlo es
+    // exactamente lo que hace falta para no perderlo.
+    //
+    // La primera version contaba cualquier rechazo como "no durable", y un
+    // replay normal de Meta -que siempre se rechaza por "terminado"- se
+    // respondia con 503. Eso le dice a Meta que reintente algo que ya esta
+    // hecho, y un 5xx repetido acaba desactivando la suscripcion.
+    if (reclamo.ok && reclamo.persistido === false) sinRespaldoEnDisco++;
+
+    admitidos.push({ evento, reclamo });
   }
 
+  const durable = sinRespaldoEnDisco === 0;
+  return { admitidos, durable, mensajes, sinRespaldoEnDisco };
+}
+
+/** Procesa lo ya admitido. Asincrono, DESPUES del 200. */
+async function procesarAdmitidos(admitidos, idEntrega = null) {
+  const resultados = [];
+  for (const { evento, reclamo } of admitidos) {
+    resultados.push(await atenderEvento(evento, { idEntrega, reclamoPrevio: reclamo }));
+  }
   return resultados;
 }
 
-module.exports = { procesar, manejarMensaje, manejarEstado };
+/**
+ * Camino completo: admitir y procesar. Lo usan la recuperacion y las
+ * pruebas; el webhook los separa para poder contestar 200 en medio.
+ */
+async function procesar(cuerpo, idEntrega = null) {
+  const { admitidos } = admitir(cuerpo, idEntrega);
+  return procesarAdmitidos(admitidos, idEntrega);
+}
+
+/**
+ * Atiende UN evento. Es el unico camino de procesamiento, y lo usan tanto el
+ * webhook como el recuperador de arranque.
+ *
+ * Que compartan funcion no es ahorro de lineas: es la garantia de que un
+ * evento recuperado se procesa EXACTAMENTE igual que uno recien llegado. Dos
+ * caminos distintos divergen, y el que casi nunca se ejecuta es el que acaba
+ * roto sin que nadie lo note.
+ *
+ * ORDEN CRITICO:
+ *
+ *   1. reclamar  -> escritura durable: "estoy procesando este wamid"
+ *   2. manejar
+ *   3. terminar  -> escritura durable: "ya esta"
+ *
+ * Si el proceso muere entre 1 y 3, el registro se queda en `reclamado`, y eso
+ * es precisamente lo que el recuperador busca al arrancar. La version
+ * anterior marcaba el wamid como visto en el paso 1 y no tenia paso 3: un
+ * crash dejaba el mensaje registrado y sin procesar para siempre, y el
+ * propio candado antiduplicados impedia recuperarlo.
+ *
+ * @param {object} evento  evento normalizado
+ * @param {object} opciones
+ * @param {boolean} [opciones.enRecuperacion]
+ */
+async function atenderEvento(evento, { idEntrega = null, enRecuperacion = false, reclamoPrevio = null } = {}) {
+  try {
+    // 1. Aislamiento. En el camino del webhook ya lo comprobo admitir(); se
+    //    repite porque la recuperacion entra por aqui directamente y un
+    //    candado que depende de quien llame no es un candado.
+    const propio = aislamiento.eventoEsDeNovika(evento, config.idNumero);
+    if (!propio.ok) {
+      diario.anotar("evento_ajeno", {
+        idEntrega,
+        idNumeroDelEvento: evento.idNumero,
+        idNumeroDeNovika: config.idNumero,
+        wamid: evento.wamid,
+      });
+      metricas.incrementar("numero_ajeno");
+      log.error("evento_de_otro_numero", {
+        detalle:
+          "Llego un evento de un phone_number_id que no es el de NOVIKA. Revisa que no haya dos apps de Meta apuntando a este webhook.",
+        idNumeroDelEvento: evento.idNumero,
+      });
+      return { wamid: evento.wamid, accion: "descartado_ajeno" };
+    }
+
+    // 2. Clase
+    if (evento.clase === CLASES.ESTADO) {
+      metricas.incrementar("estado_recibido");
+      manejarEstado(evento);
+      return { wamid: evento.wamid, accion: "estado" };
+    }
+
+    if (evento.clase === CLASES.DESCONOCIDO) {
+      diario.anotar("evento_desconocido", { idEntrega, claves: evento.claves, campo: evento.campo });
+      return { accion: "desconocido" };
+    }
+
+    // 3. Reclamo. Si viene del webhook ya se hizo ANTES del 200; si no, se
+    //    hace aqui (recuperacion y pruebas).
+    const reclamo = reclamoPrevio || trabajo.reclamar(evento.wamid, { evento, enRecuperacion });
+    if (!reclamo.ok) {
+      metricas.incrementar("duplicado_descartado");
+      diario.anotar("duplicado_descartado", {
+        idEntrega,
+        wamid: evento.wamid,
+        // El motivo distingue tres cosas muy distintas: ya se termino, se
+        // esta procesando ahora mismo, o se agotaron los reintentos.
+        motivo: reclamo.motivo,
+        intentos: reclamo.intentos,
+      });
+      log.warn("duplicado_descartado", { wamid: evento.wamid, motivo: reclamo.motivo });
+      return { wamid: evento.wamid, accion: "duplicado", motivo: reclamo.motivo };
+    }
+
+    // 4. Manejo
+    metricas.incrementar("mensaje_valido");
+    if (enRecuperacion) metricas.incrementar("evento_recuperado");
+
+    const r = await manejarMensaje(evento);
+
+    // 5. Terminado (durable). Desde aqui, este wamid no vuelve a ejecutarse.
+    trabajo.terminar(evento.wamid, { accion: r.accion, situacion: r.situacion || null });
+
+    return { wamid: evento.wamid, ...r, intentos: reclamo.intentos };
+  } catch (e) {
+    metricas.incrementar("error_interno");
+    // El registro se queda reclamable: el proximo arranque lo reintenta.
+    trabajo.fallar(evento.wamid, e.message);
+    diario.anotar("fallo_al_procesar", {
+      idEntrega,
+      wamid: evento.wamid,
+      enRecuperacion,
+      error: e.message,
+      pila: e.stack,
+    });
+    log.error("fallo_al_procesar", { wamid: evento.wamid, detalle: e.message });
+    return { wamid: evento.wamid, accion: "fallo" };
+  }
+}
+
+module.exports = { procesar, admitir, procesarAdmitidos, atenderEvento, manejarMensaje, manejarEstado };

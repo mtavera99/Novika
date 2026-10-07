@@ -22,10 +22,10 @@ Cómo viaja un mensaje, y dónde está cada candado.
 ## El camino de un mensaje
 
 ```
-Meta → POST /webhook        (Fase 1, sin cambios)
-  │  firma → diario → 200 → procesar aparte
+Meta → POST /webhook
+  │  firma → diario → RECLAMAR TRABAJO → 200 → procesar aparte
   │
-  └─ procesar: aislamiento → clase → dedup por wamid
+  └─ procesar: aislamiento → clase → reclamo → manejar → TERMINAR
        │
        └─ cerebro.procesar(evento)
             │
@@ -43,6 +43,43 @@ Meta → POST /webhook        (Fase 1, sin cambios)
                 10. respuesta ............. preparar SIEMPRE, enviar casi nunca
                 11. guardar ............... conversación + diario
 ```
+
+### El invariante del acuse
+
+> **Nunca se contesta 200 sin que el trabajo esté reclamado en disco.**
+
+Meta deja de reintentar en cuanto recibe el 200. Así que si el proceso muere después del acuse y no hay un registro durable de que ese mensaje quedó pendiente, **no hay a quién preguntar**: el mensaje desaparece sin un solo error.
+
+Y morir ahí no es exótico: un disco persistente en Render **desactiva los despliegues sin interrupción**, de modo que cada deploy mata el proceso. Hubo días con ocho despliegues.
+
+Por eso el orden es `firma → diario → reclamar → 200 → procesar`, y `reclamar` es síncrono. El reclamo no es parte del procesamiento: es parte de **persistir**.
+
+Si el reclamo no se puede escribir en disco, se responde **503** en vez de 200: es mejor que Meta reintente —tiene 36 horas— que aceptar un mensaje que podríamos perder.
+
+### Recuperación al arrancar
+
+Tres estados por `wamid`, en `src/almacen/trabajo.js`:
+
+| Estado | Significa |
+|---|---|
+| `reclamado` | alguien empezó y no terminó |
+| `terminado` | se procesó completo — **este es el candado antiduplicados** |
+| `agotado` | falló 3 veces; no se reintenta más |
+
+**Se deduplica por `terminado`, no por "visto".** Un evento visto a medias no es un duplicado: es trabajo pendiente. Un registro que sigue en `reclamado` al arrancar significa exactamente una cosa — el proceso murió procesándolo — y `src/webhook/recuperar.js` lo reprocesa.
+
+La recuperación pasa por `atenderEvento()`, **el mismo camino** que un evento recién llegado. Dos caminos distintos divergen, y el que casi nunca se ejecuta es el que acaba roto sin que nadie lo note.
+
+Por qué reprocesar es seguro: `claveDeEvento` se deriva del `wamid`, así que un replay produce la misma clave y `crearSiNoExiste` lo rechaza. **Un replay no puede crear un segundo pedido.** Y no puede enviar nada, porque los envíos salen por `enviar.js`, que comprueba el interruptor — la recuperación hereda el candado sin tener que acordarse.
+
+Arranca **después** de `listen`, y sin esperarla: un problema con mensajes viejos no puede impedir atender los nuevos.
+
+```
+GET /health?token=…
+"trabajo": { "total": 7, "reclamados": 0, "terminados": 7, "agotados": 0 }
+```
+
+`reclamados > 0` en reposo = el proceso murió procesando. `agotados > 0` = hay mensajes que nadie atendió y **hay que mirarlos a mano**.
 
 ### Tres reglas de orden, y por qué
 

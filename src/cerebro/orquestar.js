@@ -355,7 +355,24 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       contar("falsa_senal_de_cambio");
     }
 
-    const producto = conversacion.productoId ? catalogo.porId.get(conversacion.productoId) || null : null;
+    // SOLO PRODUCTOS ACTIVOS. `porId` incluye tambien los borradores, y un
+    // borrador tiene los datos comerciales a medias: precios vacios,
+    // descripcion sin aprobar, claims sin revisar.
+    //
+    // El caso concreto que esto cierra: una conversacion guardada con el id
+    // de un producto que luego se desactiva -o que nunca estuvo activo y
+    // entro por un referral mal configurado- volveria a cargarse del disco y
+    // el cerebro intentaria venderlo. El cotizador se negaria, pero el bot ya
+    // habria dado el producto por bueno en la conversacion. Mejor no llegar
+    // ahi: si no esta activo, es como si no existiera.
+    const candidato = conversacion.productoId ? catalogo.porId.get(conversacion.productoId) || null : null;
+    const producto = candidato && candidato.activo === true ? candidato : null;
+
+    if (candidato && !producto) {
+      conversacion.productoId = null; // vuelve a DESCONOCIDO: se preguntara
+      traza.avisos.push(`el producto "${candidato.id}" no esta activo: no se puede ofrecer`);
+      contar("producto_desconocido");
+    }
 
     // ------------------------------------------------------------------
     // IA: intencion, candidatos y borrador. Nunca hechos.

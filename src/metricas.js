@@ -32,6 +32,8 @@ const NOMBRES = [
   "numero_ajeno",
   "duplicado_descartado",
   "mensaje_valido",
+  "evento_recuperado",
+  "trabajo_agotado",
   "estado_recibido",
   "mensaje_no_entregado",
 
@@ -123,6 +125,9 @@ function salud() {
     rechazados_por_firma: valor("firma_invalida"),
     rechazados_por_numero: valor("numero_ajeno"),
     duplicados: valor("duplicado_descartado"),
+    // Si esto no es 0, el proceso murio procesando y se recupero trabajo.
+    eventos_recuperados: valor("evento_recuperado"),
+    eventos_agotados: valor("trabajo_agotado"),
     productos_desconocidos: valor("producto_desconocido"),
     pedidos: valor("pedido_confirmado"),
     pedidos_duplicados_evitados: valor("pedido_duplicado_evitado"),

@@ -14,7 +14,8 @@ E-commerce colombiano **multiproducto y multicategoría**: hogar, tecnología, b
 |---|---|
 | Verificación del webhook de Meta | ✅ |
 | Firma `X-Hub-Signature-256` | ✅ obligatoria para procesar |
-| Deduplicación de eventos | ✅ persistida |
+| Deduplicación de eventos | ✅ persistida, por *terminado* |
+| Recuperación de trabajo tras un crash | ✅ automática al arrancar |
 | Diario de eventos en disco | ✅ |
 | Aislamiento respecto a BIKERPRO | ✅ arranque + por evento |
 | Persistencia comprobada, no supuesta | ✅ disco de Render + candado |

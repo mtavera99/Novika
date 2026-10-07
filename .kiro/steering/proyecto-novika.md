@@ -74,6 +74,8 @@ Reglas que no se negocian:
 - **El candado del envío vive en `src/whatsapp/enviar.js`**, que es el único camino al exterior. No en la capa de arriba: eso sería una instrucción, y las instrucciones se incumplen.
 - **No hay producto por defecto.** Sin señal, producto desconocido y se pregunta.
 - **`valorConfirmado()` devuelve `null` si el dato no está confirmado.** Nunca el candidato "por si sirve". Si alguien "mejora" esa línea, el sistema pierde su frontera.
+- **Nunca contestar 200 sin que el trabajo esté reclamado en disco.** Meta deja de reintentar al recibir el 200; sin registro durable, un crash pierde el mensaje en silencio. Se deduplica por `terminado`, no por "visto": un evento visto a medias es trabajo pendiente, no un duplicado.
+- **La recuperación pasa por `atenderEvento()`**, el mismo camino que un evento nuevo. Un camino aparte divergiría, y el que casi nunca se ejecuta es el que acaba roto.
 - **Dos claves de idempotencia**, porque hay dos duplicados distintos: retransmisión del webhook (`claveDeEvento`) y "sí" repetido (`claveDeOferta`).
 - **Snapshot en el pedido.** Si mañana sube el precio, el pedido de ayer conserva el suyo.
 

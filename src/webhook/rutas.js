@@ -29,7 +29,7 @@ const log = require("../log");
 const diario = require("../almacen/diario");
 const metricas = require("../metricas");
 const { revisarFirma } = require("./firma");
-const { procesar } = require("./procesar");
+const { admitir, procesarAdmitidos } = require("./procesar");
 
 function montar(app) {
   // ------------------------------------------------------------------------
@@ -109,21 +109,58 @@ function montar(app) {
       return res.sendStatus(403);
     }
 
-    // 2. Durabilidad antes del acuse
+    // 2. Durabilidad antes del acuse: el evento crudo
     const anotado = diario.anotar("entrada_cruda", { idEntrega, cuerpo: req.body });
 
-    // 3. Acuse a Meta
+    // 3. Durabilidad antes del acuse: EL TRABAJO RECLAMADO
+    //
+    // Esto va aqui, y no dentro del procesamiento asincrono, por el
+    // invariante que sostiene la recuperacion:
+    //
+    //   NUNCA CONTESTAR 200 SIN QUE EL TRABAJO ESTE RECLAMADO EN DISCO.
+    //
+    // Meta deja de reintentar en cuanto recibe el 200. Si el proceso muere
+    // despues del acuse y no hay un registro de trabajo, nadie sabe que ese
+    // mensaje quedo pendiente: no hay a quien preguntar. Se midio con
+    // SIGKILL, y el mensaje se perdia en silencio.
+    let admision;
+    try {
+      admision = admitir(req.body, idEntrega);
+    } catch (e) {
+      // Fallo al normalizar o reclamar. NO se contesta 200: es mejor que
+      // Meta reintente que perder el mensaje.
+      diario.anotar("fallo_al_admitir", { idEntrega, error: e.message, pila: e.stack });
+      log.error("fallo_al_admitir", { idEntrega, detalle: e.message });
+      return res.sendStatus(503);
+    }
+
+    if (!admision.durable) {
+      // Habia mensajes y ninguno se pudo reclamar en disco. Sin registro
+      // durable no hay recuperacion posible, asi que se devuelve 503 para
+      // que Meta lo reintente -tiene 36 horas de margen- en vez de aceptar
+      // un mensaje que podriamos perder.
+      diario.anotar("admision_no_durable", { idEntrega, mensajes: admision.mensajes });
+      log.error("admision_no_durable", {
+        idEntrega,
+        mensajes: admision.mensajes,
+        detalle:
+          "No se pudo reclamar el trabajo en disco. Se devuelve 503 para que Meta reintente en vez de perder el mensaje. Revisa el disco.",
+      });
+      return res.sendStatus(503);
+    }
+
+    // 4. Acuse a Meta. Desde aqui, todo lo admitido es recuperable.
     res.sendStatus(200);
 
     if (!anotado) {
       log.error("entrada_sin_diario", {
         idEntrega,
-        detalle: "No se pudo escribir en el diario. Se procesa igual, pero sin rastro en disco.",
+        detalle: "No se pudo escribir el evento crudo en el diario, pero el trabajo si quedo reclamado.",
       });
     }
 
-    // 4. Procesamiento fuera del ciclo de respuesta
-    procesar(req.body, idEntrega).catch((e) => {
+    // 5. Procesamiento fuera del ciclo de respuesta
+    procesarAdmitidos(admision.admitidos, idEntrega).catch((e) => {
       diario.anotar("fallo_global_al_procesar", { idEntrega, error: e.message, pila: e.stack });
       log.error("fallo_global_al_procesar", { idEntrega, detalle: e.message });
     });
