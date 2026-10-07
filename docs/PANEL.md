@@ -30,7 +30,9 @@ El token se manda **una vez** por POST y lo que queda es una cookie firmada, `Ht
 | **Buscar** | Por teléfono, nombre o ciudad |
 | **Venta manual** | Ventas cerradas fuera del bot, cotizadas por el mismo motor |
 | **Exportar** | CSV de pedidos, abre bien en Excel en español |
-| **Auditoría** | Últimos 14 días. Dice "sin datos" mientras no haya pedidos |
+| **Guías** | Pedidos por despachar, registrar la guía y despachar, lista de despachados |
+| **Novedades** | Registrar y resolver novedades de entrega (ausente · dirección · oficina) |
+| **Auditoría** | Últimos 14 días, **embudo** y **atribución** |
 
 ### Clasificación
 
@@ -146,7 +148,9 @@ Y el estado que no se puede perder al actualizar:
 | ![Chat](panel/escritorio-chat.png) | ![Chat en móvil](panel/movil-chat.png) |
 | ![Chat con control tomado](panel/escritorio-chat-pausado.png) | ![Buscar en móvil](panel/movil-buscar.png) |
 | ![Venta manual](panel/escritorio-venta-manual.png) | ![Entrada en móvil](panel/movil-entrada.png) |
-| ![Pantalla bloqueada honesta](panel/escritorio-guias.png) | |
+| ![Guías y despachos](panel/escritorio-guias.png) | ![Guías en móvil](panel/movil-guias.png) |
+| ![Novedades de entrega](panel/escritorio-novedades.png) | ![Novedades en móvil](panel/movil-novedades.png) |
+| ![Auditoría: embudo y atribución](panel/escritorio-auditoria.png) | ![Auditoría en móvil](panel/movil-auditoria.png) |
 
 Hechas contra el HTML que devuelve el servidor de verdad, con datos de muestra inventados (ningún cliente real). Las horas aparecen en hora de Colombia.
 
@@ -172,31 +176,71 @@ src/almacen/atencion.js   pausa, atención e historial, persistidos
 
 ---
 
-## Lo que NO está operativo
+## Guías y despachos — implementado, con una parte bloqueada
 
-No se presenta como si funcionara: cada pantalla dice qué falta y cómo se desbloquea.
+**Funciona:** ver los pedidos por despachar, registrar el número de guía con su transportadora, y despachar. La transición es del dominio (`dominioPedido.despachar`), así que queda **versionada y en el historial** igual que si la hubiera hecho el bot.
 
-### Guías y despachos — falta un PDF real
+| Garantía | Por qué |
+|---|---|
+| La guía es **obligatoria** | Un "despachado" sin guía no se puede rastrear. Es el estado en el que un cliente pregunta dónde va su pedido y nadie sabe responder |
+| **Idempotente** con la misma guía, y no sube la versión | El panel puede reintentar y un PDF puede subirse dos veces |
+| Con una guía **distinta** falla y lo explica | Dos guías para un pedido significa que una es de otro cliente. Eso no lo resuelve el código |
+| No despacha si **faltan datos** de entrega | Un paquete sin dirección completa vuelve |
+| El motor lo sostiene | `CHECK (estado <> 'despachado' OR despacho->>'guia' IS NOT NULL)` — probado insertando a mano, saltándose el adaptador |
+| Se busca **por guía** | `pedidos.guia` es columna generada e **indexada**: cuando la transportadora llama diciendo "la guía 123456 tiene una novedad", eso es una consulta con índice y no recorrer todos los pedidos |
 
-El flujo de BIKERPRO parte un PDF de **99 Envíos** y reparte una guía por cliente. No hay API ni credenciales: se sube el PDF a mano. Pero el lector está ajustado al formato exacto de ese PDF, y portarlo sin un ejemplo real sería escribir código que no se puede verificar. **Una guía asignada al cliente equivocado manda el paquete a otra persona.**
+**Bloqueado:** partir automáticamente un PDF con muchas guías. El lector se ajusta al formato exacto del PDF de la transportadora, y sin un ejemplo real sería código que no se puede verificar. **Una guía asignada al cliente equivocado manda el paquete a otra persona.** Para desbloquearlo: elegir transportadora y pasarme un PDF de guías de verdad (sirve una sola).
 
-Para desbloquearlo: elegir transportadora y pasarme **un PDF de guías de verdad** (sirve una sola).
+> Detalle técnico de su implementación que habrá que repetir: `pdfjs` **no devuelve la memoria** que usa (+71 MB por lote, medido por ellos), así que corre en un proceso hijo.
 
-> Detalle técnico de su implementación que habrá que repetir: `pdfjs` **no devuelve la memoria** que usa (+71 MB por lote medido), así que corre en un proceso hijo.
+---
 
-### Novedades de entrega — faltan plantillas aprobadas por Meta
+## Novedades de entrega — implementado, con el aviso bloqueado
 
-Una novedad se avisa días después del pedido, cuando la ventana de 24 h ya se cerró. Fuera de esa ventana **Meta solo entrega plantillas aprobadas**: con texto libre acepta el mensaje y no lo entrega, así que el cliente nunca se enteraría y nosotros creeríamos que sí.
+**Funciona:** registrar una novedad sobre un pedido despachado, verla en la lista con los días que lleva, y resolverla.
 
-Hay que crear en Meta Business Manager y esperar aprobación:
+| Decisión | Por qué |
+|---|---|
+| Una novedad **no cambia el estado** del pedido | Es algo que le pasó al paquete, no un estado distinto de la venta. Si lo cambiara, el pedido desaparecería de la lista de despachados — justo donde hay que verlo |
+| **No sube la versión** del pedido | La venta no cambió. Pero sí queda en el historial, porque es lo que explica por qué una entrega tardó |
+| Solo **tres tipos**: `ausente`, `direccion`, `oficina` | Una novedad con tipo libre no se puede contar, y lo que no se cuenta no se corrige |
+| **Idempotente** por tipo abierto | La transportadora reporta lo mismo varias veces |
+| Solo sobre un pedido **despachado** | Una novedad sobre un pedido que no salió significa que alguien se equivocó de pedido, y avisar al cliente equivocado es peor que no avisar |
 
-- `PLANTILLA_NOVEDAD_AUSENTE`
-- `PLANTILLA_NOVEDAD_DIRECCION`
-- `PLANTILLA_NOVEDAD_OFICINA`
+**Bloqueado:** avisar al cliente por WhatsApp. Una novedad se reporta días después del pedido, cuando la ventana de 24 h ya se cerró, y fuera de esa ventana **Meta solo entrega plantillas aprobadas**: con texto libre acepta el mensaje y no lo entrega, así que el cliente no se enteraría y nosotros creeríamos que sí.
 
-### Atribución y embudo — falta dato, no código
+El campo `avisoAlCliente` existe y queda en `null` — **no en "avisado"**. El día que haya plantilla, ahí se verá si Meta lo aceptó y si llegó el acuse, que no es lo mismo.
 
-Cruzan el `referral` de los anuncios con los pedidos. NOVIKA no tiene productos activos ni pedidos, así que cualquier número aquí sería inventado. La pantalla se enciende sola en cuanto haya pedidos; la atribución necesita además anuncios de Click-to-WhatsApp activos.
+Hay que crear en Meta Business Manager y esperar aprobación: `PLANTILLA_NOVEDAD_AUSENTE`, `PLANTILLA_NOVEDAD_DIRECCION`, `PLANTILLA_NOVEDAD_OFICINA`.
+
+---
+
+## Embudo y atribución — implementados y probados
+
+Lo que hacía falta de fuera era el **dato**, no la regla. Las reglas se deciden y se verifican con datos ficticios; lo que no se puede inventar es el número final. Así que están implementados, probados, y la pantalla dice cuándo no hay nada que leer.
+
+### Embudo
+
+Seis etapas: escribió → identificó producto → recibió cotización → dio sus datos → confirmó → despachado.
+
+**Las etapas son acumulativas** y cada conversación cuenta en la más avanzada a la que llegó. Si no lo fueran, la conversión de un paso daría más de 100% en cuanto alguien se salte una etapa, y el embudo no serviría para decidir nada. Hay una prueba que lo fija.
+
+- **Del total** es sobre todos los que escribieron.
+- **Del paso** es sobre la etapa inmediatamente anterior — es la columna que dice *dónde* arreglar algo.
+- Un pedido **cancelado** no cuenta como confirmado.
+- Una **venta registrada a mano** no se pierde: el pedido manda sobre el estado de la conversación, porque el cierre pudo ser por teléfono.
+- Sin datos devuelve `null`, **no `0`**: un 0% inventado se lee como "esto va muy mal" cuando en realidad es "todavía no hay datos".
+
+### Atribución
+
+Ventas, unidades, importe, conversión y ticket medio por origen, leyendo el `referral` que Meta manda cuando el cliente entra por un anuncio de Click-to-WhatsApp.
+
+- Sin `referral` se atribuye a **`directo`** y **no se reparte** entre campañas. Con esto se decide gasto de publicidad: inventar un origen es peor que no tenerlo.
+- Una **venta del panel** no se atribuye a un anuncio: no se sabe de dónde vino, y colarla en una campaña infla su resultado.
+- Los **cancelados** no cuentan como venta pero sí se informan por origen: una campaña que trae ventas que luego se caen no es buena, y si los cancelados no aparecen parece que sí.
+- Si todo sale como `directo` o `panel`, la pantalla **lo dice**: el cálculo está, pero no hay nada que atribuir hasta que haya campañas activas.
+
+Verificado a mano con los datos de muestra: embudo 7 → 6 → 6 → 5 → 4 → 2, y `facebook` con $336.000 = 89.000 + 158.000 + 89.000, ticket medio $112.000.
 
 ---
 
@@ -210,6 +254,17 @@ Cruzan el `referral` de los anuncios con los pedidos. NOVIKA no tiene productos 
 Bloqueos reales:
 
 1. **El panel va en PR aparte y sin fusionar.** Y depende de PR #4 (Fase 3A), que tampoco está fusionado.
-2. **Migración `002`.** Añade `atencion` y `mensajes` a la conversación. Sobre archivos no hace falta nada; **si algún día se activa PostgreSQL hay que aplicarla** con `npm run migrar`, antes de poner `DATABASE_URL`.
-3. **El catálogo no tiene productos activos**, así que la venta manual no tiene de dónde elegir y la auditoría dirá "sin datos". No es un fallo del panel: es que todavía no hay productos definidos, y el panel no inventa ninguno.
-4. **Responder de verdad necesita `WHATSAPP_TOKEN`** en el servicio y `PANEL_ENVIO_MANUAL=1`.
+2. **Migraciones `002` y `003`, antes de arrancar este código sobre PostgreSQL.**
+
+   ```
+   002-panel-operativo.sql        conversaciones.atencion y .mensajes
+   003-despacho-y-novedades.sql   pedidos.despacho, .guia (indexada), .novedades
+   ```
+
+   Sobre archivos no hace falta nada. Pero si se activa `DATABASE_URL`, hay que migrar **primero**: el servicio comprueba el esquema al arrancar y **ahora también las columnas**, no solo las tablas. Una base con la 001 aplicada y la 002 sin aplicar tiene las tablas, pasaría el arranque y fallaría en la primera venta — por eso la comprobación se amplió, y hay una prueba que esconde cada columna y verifica que el arranque se niega.
+
+   Orden correcto: `npm run migrar` → `DATABASE_URL` en el servicio → desplegar.
+
+3. **El catálogo no tiene productos activos**, así que la venta manual no tiene de dónde elegir. No es un fallo del panel: es que todavía no hay productos definidos, y el panel no inventa ninguno.
+4. **Responder de verdad necesita `PANEL_ENVIO_MANUAL=1`.** `WHATSAPP_TOKEN` ya está configurado en el servicio (verificado por `puede_enviar: true` en `/health`, sin leer su valor).
+5. **La atribución dirá `directo`** hasta que haya anuncios de Click-to-WhatsApp activos. El cálculo está probado; falta el dato.

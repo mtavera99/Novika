@@ -25,6 +25,8 @@ const auth = require("./auth");
 const datos = require("./datos");
 const vistas = require("./vistas");
 const fecha = require("./fecha");
+const analitica = require("./analitica");
+const dominioPedido = require("../dominio/pedido");
 
 const { PERMISOS, MOTIVOS_BLOQUEO } = require("../whatsapp/enviar");
 
@@ -561,93 +563,179 @@ function crearRutasDelPanel({ obtenerCerebro }) {
   });
 
   // ----------------------------------------------------------------------
-  // Pantallas que NO estan operativas. Se dicen, no se disimulan.
+  // Guias y despachos
+  //
+  // Lo IMPLEMENTADO: registrar la guia a mano y despachar, con la
+  // transicion del dominio (versionada, en el historial, idempotente).
+  // Lo BLOQUEADO: partir el PDF de la transportadora, que necesita un PDF
+  // real contra el que ajustar el lector. Se separa en la pantalla en vez
+  // de bloquearla entera.
   // ----------------------------------------------------------------------
-  router.get("/guias", (req, res) => {
+  const TRANSPORTADORAS = ["99 Envios", "Coordinadora", "Interrapidisimo", "Envia", "Servientrega", "otra"];
+
+  router.get("/guias", async (req, res) => {
     if (!auth.exigirSesion(req, res, config)) return;
-    html(
-      res,
-      vistas.bloqueada({
-        titulo: "Guias y despachos",
-        queFalta:
-          "Decidir la transportadora de NOVIKA y tener <b>un PDF real de guias</b> contra el que ajustar el lector.",
-        porQue:
-          "El flujo de BIKERPRO parte un PDF de 99 Envios y reparte una guia por cliente. No hay API ni credenciales: " +
-          "se sube el PDF a mano. Pero el lector esta ajustado al formato exacto de ese PDF, y portarlo sin un " +
-          "ejemplo real seria escribir codigo que no se puede verificar. Una guia asignada al cliente equivocado " +
-          "manda el paquete a otra persona.",
-        comoSeDesbloquea:
-          "<ol><li>Elegir transportadora.</li><li>Pasarme un PDF de guias de verdad (puede ser de una sola).</li>" +
-          "<li>Se ajusta el lector contra ese formato y se prueba con el.</li></ol>",
-      })
-    );
+    try {
+      const { repos } = await piezas();
+      const pedidos = await repos.pedidos.listar({ limite: 2000 });
+      const d = analitica.despachos({ pedidos });
+      // Se anota si cada uno esta listo: despachar un pedido sin direccion
+      // completa manda un paquete que vuelve.
+      d.porDespachar = d.porDespachar.map((p) => ({ ...p, _listo: dominioPedido.listoParaDespachar(p) }));
+      html(res, vistas.guias({ datos: d, transportadoras: TRANSPORTADORAS }));
+    } catch (e) {
+      log.error("panel_guias_fallo", { detalle: e.message });
+      res.status(500).send(`No se pudo armar la pantalla de guias: ${e.message}`);
+    }
   });
 
-  router.get("/novedades", (req, res) => {
-    if (!auth.exigirSesion(req, res, config)) return;
-    html(
-      res,
-      vistas.bloqueada({
-        titulo: "Novedades de entrega",
-        queFalta: "Tres plantillas <b>aprobadas por Meta</b> para NOVIKA.",
-        porQue:
-          "Una novedad se avisa dias despues del pedido, cuando la ventana de 24 horas ya se cerro. Fuera de esa " +
-          "ventana Meta solo entrega plantillas aprobadas: con texto libre acepta el mensaje y no lo entrega, " +
-          "asi que el cliente nunca se enteraria y nosotros creeriamos que si.",
-        comoSeDesbloquea:
-          "<p>Crear en Meta Business Manager y esperar aprobacion:</p><ul>" +
-          "<li><code>PLANTILLA_NOVEDAD_AUSENTE</code></li>" +
-          "<li><code>PLANTILLA_NOVEDAD_DIRECCION</code></li>" +
-          "<li><code>PLANTILLA_NOVEDAD_OFICINA</code></li></ul>" +
-          "<p>Despues se configuran como variables de entorno en el servicio.</p>",
-      })
-    );
+  router.post("/guias/despachar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    const guia = String((req.body && req.body.guia) || "").trim();
+    const transportadora = String((req.body && req.body.transportadora) || "").trim() || null;
+    if (!codigo || !guia) {
+      return res.status(400).json({ ok: false, error: "Falta el pedido o el numero de guia." });
+    }
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
+
+      const r = dominioPedido.despachar({ pedido, guia, transportadora });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+
+      if (!r.yaEstaba) await repos.pedidos.reemplazar(r.pedido);
+      diario.anotar("panel_despachado", { codigo, guia, transportadora, yaEstaba: r.yaEstaba });
+      metricas.incrementar("panel_despachado");
+
+      return res.json({
+        ok: true,
+        aviso: r.yaEstaba
+          ? `El pedido ${codigo} ya estaba despachado con esa misma guia. No se duplico nada.`
+          : `Pedido ${codigo} despachado con la guia ${guia}.`,
+      });
+    } catch (e) {
+      log.error("panel_despachar_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
   });
 
+  // ----------------------------------------------------------------------
+  // Novedades de entrega
+  //
+  // Lo IMPLEMENTADO: registrar, listar y resolver novedades.
+  // Lo BLOQUEADO: avisar al cliente, que necesita plantillas aprobadas por
+  // Meta porque la ventana de 24h ya se cerro cuando llega una novedad.
+  // ----------------------------------------------------------------------
+  router.get("/novedades", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    try {
+      const { repos } = await piezas();
+      const pedidos = await repos.pedidos.listar({ limite: 2000 });
+      const d = analitica.despachos({ pedidos });
+      d.despachados = d.despachados.map((p) => ({
+        ...p,
+        _dias: analitica.diasDesde(p.despacho && p.despacho.despachadoEn),
+      }));
+      html(
+        res,
+        vistas.novedades({
+          datos: d,
+          tipos: Object.values(dominioPedido.TIPOS_DE_NOVEDAD),
+          envioManualActivo: config.panelEnvioManual,
+        })
+      );
+    } catch (e) {
+      log.error("panel_novedades_fallo", { detalle: e.message });
+      res.status(500).send(`No se pudo armar la pantalla de novedades: ${e.message}`);
+    }
+  });
+
+  router.post("/novedades/registrar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    const tipo = String((req.body && req.body.tipo) || "").trim();
+    const detalle = String((req.body && req.body.detalle) || "");
+    if (!codigo || !tipo) return res.status(400).json({ ok: false, error: "Falta el pedido o el tipo." });
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
+
+      const r = dominioPedido.registrarNovedad({ pedido, tipo, detalle });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+      if (!r.yaEstaba) await repos.pedidos.reemplazar(r.pedido);
+
+      diario.anotar("panel_novedad", { codigo, tipo, detalle, yaEstaba: r.yaEstaba });
+
+      // El aviso al cliente NO se intenta: necesita plantilla aprobada, y
+      // fuera de la ventana de 24h Meta acepta el texto libre y no lo
+      // entrega. Fingir el intento seria creer que el cliente se entero.
+      return res.json({
+        ok: true,
+        aviso: r.yaEstaba
+          ? `Ya habia una novedad "${tipo}" abierta en ${codigo}. No se duplico.`
+          : `Novedad "${tipo}" registrada en ${codigo}. El aviso al cliente necesita plantilla aprobada de Meta: todavia no se envia.`,
+      });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  router.post("/novedades/resolver", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    const id = String((req.body && req.body.id) || "").trim();
+    const comoSeResolvio = String((req.body && req.body.comoSeResolvio) || "");
+    if (!codigo || !id) return res.status(400).json({ ok: false, error: "Falta el pedido o la novedad." });
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
+
+      const r = dominioPedido.resolverNovedad({ pedido, id, comoSeResolvio });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+      if (!r.yaEstaba) await repos.pedidos.reemplazar(r.pedido);
+
+      diario.anotar("panel_novedad_resuelta", { codigo, id, comoSeResolvio });
+      return res.json({ ok: true, aviso: r.yaEstaba ? "Ya estaba resuelta." : "Novedad resuelta." });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // Auditoria: dias, embudo y atribucion
+  //
+  // El CALCULO esta implementado y probado con datos ficticios. Lo que
+  // falta de fuera es el dato -campanas que generen `referral`-, no la
+  // regla. La pantalla lo dice cuando todo sale como "directo".
+  // ----------------------------------------------------------------------
   router.get("/auditoria", async (req, res) => {
     if (!auth.exigirSesion(req, res, config)) return;
     try {
       const { repos } = await piezas();
-      const serie = await datos.serie(repos, { dias: 14 });
-      const hayDatos = serie.some((d) => d.pedidos > 0);
-      if (!hayDatos) {
-        return html(
-          res,
-          vistas.bloqueada({
-            titulo: "Auditoria, embudo y atribucion",
-            queFalta: "Datos reales: pedidos y, para la atribucion, campanas con <code>referral</code>.",
-            porQue:
-              "El embudo y la atribucion cruzan el origen del anuncio con los pedidos. NOVIKA todavia no tiene " +
-              "productos activos ni pedidos, asi que cualquier numero aqui seria inventado. " +
-              "Un dato comercial inventado que se cuela es una decision tomada sobre algo falso.",
-            comoSeDesbloquea:
-              "<p>Esta pantalla se enciende sola en cuanto haya pedidos. La atribucion necesita ademas anuncios " +
-              "de Click-to-WhatsApp activos, que es de donde Meta manda el <code>referral</code>.</p>",
-          })
-        );
-      }
-      const filas = serie
-        .map(
-          (d) => `<tr>
-  <td data-label="Dia">${vistas.esc(d.dia)}</td>
-  <td data-label="Pedidos">${d.pedidos}</td>
-  <td data-label="Unidades">${d.unidades}</td>
-  <td data-label="Importe">${vistas.esc(vistas.pesos(d.importe))}</td>
-  <td data-label="Cancelados">${d.cancelados}</td>
-</tr>`
-        )
-        .join("");
+      const dias = Math.min(90, Math.max(1, Number(req.query.dias) || 14));
+      const [serie, pedidos, conversaciones] = await Promise.all([
+        datos.serie(repos, { dias }),
+        repos.pedidos.listar({ limite: 5000 }),
+        repos.conversaciones.listar({ limite: 2000 }),
+      ]);
       html(
         res,
-        `<!doctype html><html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NOVIKA · auditoria</title><style>${vistas.ESTILO}</style></head><body><div class="envoltorio">
-<header><h1>NOVIKA</h1><span class="zona">Ultimos 14 dias · hora de Colombia</span>
-<div class="derecha"><a class="boton" href="/panel">Tablero</a></div></header>
-<table><thead><tr><th>Dia</th><th>Pedidos</th><th>Unidades</th><th>Importe</th><th>Cancelados</th></tr></thead>
-<tbody>${filas}</tbody></table></div></body></html>`
+        vistas.auditoria({
+          serie,
+          dias,
+          embudo: analitica.embudo({ conversaciones, pedidos }),
+          atribucion: analitica.atribucion({ conversaciones, pedidos }),
+        })
       );
     } catch (e) {
+      log.error("panel_auditoria_fallo", { detalle: e.message });
       res.status(500).send(`No se pudo armar la auditoria: ${e.message}`);
     }
   });

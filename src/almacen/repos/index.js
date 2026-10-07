@@ -26,6 +26,31 @@ const BACKENDS = { ARCHIVOS: "archivos", POSTGRES: "postgres" };
 const TABLAS_REQUERIDAS = ["contactos", "conversaciones", "pedidos", "pedidos_historial"];
 
 /**
+ * Columnas que el adaptador escribe y que NO estaban en la 001.
+ *
+ * --------------------------------------------------------------------------
+ * POR QUE NO BASTA COMPROBAR LAS TABLAS
+ * --------------------------------------------------------------------------
+ *
+ * Comprobar solo los nombres de las tablas deja pasar el caso realmente
+ * probable: la 001 aplicada y la 002 o la 003 no. Las tablas existen, el
+ * arranque pasa, y el primer "column does not exist" aparece A MITAD DE UNA
+ * VENTA, que es exactamente lo que esta comprobacion existe para evitar.
+ *
+ * Y ese caso no es hipotetico: las migraciones se aplican a mano con
+ * `npm run migrar`, asi que desplegar codigo nuevo contra una base migrada
+ * a medias es un orden de pasos equivocado, no un fallo raro.
+ *
+ * Solo se listan las que llegaron DESPUES de la 001. Las de la 001 no hace
+ * falta: si falta una de ellas, es que la tabla no se creo, y eso ya se
+ * detecta arriba.
+ */
+const COLUMNAS_REQUERIDAS = {
+  conversaciones: ["atencion", "mensajes"], // 002
+  pedidos: ["despacho", "novedades"], // 003
+};
+
+/**
  * Comprueba que el esquema este aplicado ANTES de atender a nadie.
  *
  * Sin esto, el primer error de "relation does not exist" aparece a mitad de
@@ -44,6 +69,31 @@ async function revisarEsquema(repos) {
       `La base de datos no tiene el esquema de NOVIKA. Faltan las tablas: ${faltan.join(", ")}. ` +
         "Aplica las migraciones con `npm run migrar` y vuelve a desplegar. " +
         "El servicio NO crea tablas por su cuenta a proposito."
+    );
+  }
+
+  const { rows: cols } = await repos._pool.query(
+    `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = ANY($1)`,
+    [Object.keys(COLUMNAS_REQUERIDAS)]
+  );
+  const porTabla = new Map();
+  for (const c of cols) {
+    if (!porTabla.has(c.table_name)) porTabla.set(c.table_name, new Set());
+    porTabla.get(c.table_name).add(c.column_name);
+  }
+
+  const columnasQueFaltan = [];
+  for (const [tabla, requeridas] of Object.entries(COLUMNAS_REQUERIDAS)) {
+    const hay = porTabla.get(tabla) || new Set();
+    for (const col of requeridas) if (!hay.has(col)) columnasQueFaltan.push(`${tabla}.${col}`);
+  }
+
+  if (columnasQueFaltan.length) {
+    throw new Error(
+      `La base de datos tiene las tablas de NOVIKA pero le faltan columnas: ${columnasQueFaltan.join(", ")}. ` +
+        "Hay migraciones sin aplicar. Ejecuta `npm run migrar` (las aplica todas, en orden) y vuelve a desplegar. " +
+        "Arrancar asi haria fallar la primera venta en vez del arranque."
     );
   }
 }
@@ -77,4 +127,4 @@ async function crearRepos({ dirDatos, databaseUrl = "", subcarpeta = "transaccio
   return repos;
 }
 
-module.exports = { crearRepos, revisarEsquema, BACKENDS, TABLAS_REQUERIDAS };
+module.exports = { crearRepos, revisarEsquema, BACKENDS, TABLAS_REQUERIDAS, COLUMNAS_REQUERIDAS };

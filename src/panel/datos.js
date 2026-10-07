@@ -189,11 +189,11 @@ async function conversacionCompleta(repos, contactoId) {
   const conv = await repos.conversaciones.obtener(contactoId);
   if (!conv) return null;
   const contacto = await repos.contactos.obtener(contactoId).catch(() => null);
-  // Los pedidos de ESTE cliente. Se filtra sobre una lista acotada en vez
-  // de pedir al repositorio un filtro por contacto para no ampliar el
-  // contrato por una pantalla.
-  const todos = await repos.pedidos.listar({ limite: 500 });
-  const pedidos = todos.filter((p) => p.contactoId === contactoId);
+  // `porContacto` ya estaba en el contrato desde la Fase 2: en PostgreSQL es
+  // una consulta con indice. Traerse 500 pedidos para filtrar en memoria
+  // habria funcionado igual hoy -y habria sido una pantalla que no carga el
+  // dia que haya volumen-.
+  const pedidos = await repos.pedidos.porContacto(contactoId);
   return {
     conversacion: conv,
     contacto,

@@ -35,7 +35,7 @@
 /** Firma esperada de un repositorio completo. */
 const METODOS = {
   contactos: ["obtener", "guardar"],
-  conversaciones: ["obtener", "guardar"],
+  conversaciones: ["obtener", "guardar", "listar"],
   pedidos: [
     "crearSiNoExiste",
     "obtener",
@@ -43,6 +43,8 @@ const METODOS = {
     "porContacto",
     "activoDeContacto",
     "porClaveDeEvento",
+    // Para el panel. Siempre con tope: una pantalla no puede pedir "todo".
+    "listar",
   ],
   // Operaciones transversales
   raiz: ["cerrar", "estado"],

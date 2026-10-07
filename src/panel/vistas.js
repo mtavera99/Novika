@@ -246,6 +246,9 @@ function cabecera({ titulo, dia = null, extra = "" }) {
   <div class="derecha">
     <a class="boton" href="/panel">Tablero</a>
     <a class="boton" href="/panel/buscar">Buscar</a>
+    <a class="boton" href="/panel/guias">Guías</a>
+    <a class="boton" href="/panel/novedades">Novedades</a>
+    <a class="boton" href="/panel/auditoria">Auditoría</a>
     <form method="post" action="/panel/salir" style="display:inline">
       <button type="submit">Salir</button>
     </form>
@@ -587,6 +590,245 @@ function ventaManual({ aviso = null, productos = [], valores = {} }) {
   );
 }
 
+/** Aviso para una parte de una pantalla que SI funciona a medias. */
+function bloqueParcial({ titulo, texto, comoSeDesbloquea = "" }) {
+  return `<div style="background:#1a2435;border:1px solid #2b3f5c;border-radius:12px;padding:14px;margin:16px 0">
+  <b style="color:#b8cdf0">${titulo}</b>
+  <p style="margin:6px 0 0;font-size:14px;color:var(--suave)">${texto}</p>
+  ${comoSeDesbloquea ? `<p style="margin:8px 0 0;font-size:13px;color:var(--suave)">${comoSeDesbloquea}</p>` : ""}
+</div>`;
+}
+
+/** GUIAS Y DESPACHOS */
+function guias({ datos: d, transportadoras = [], aviso = null }) {
+  const filaPorDespachar = (p) => {
+    const listo = p._listo;
+    return `<tr>
+  <td data-label="Codigo">${esc(p.id)}</td>
+  <td data-label="Cliente">${esc((p.destinatario && p.destinatario.nombre) || "")}</td>
+  <td data-label="Ciudad">${esc((p.destinatario && p.destinatario.ciudad) || "")}</td>
+  <td data-label="Total">${esc(pesos((p.cotizacion && p.cotizacion.total) || 0))}</td>
+  <td data-label="Estado">${
+    listo && listo.ok
+      ? `<span class="pastilla atendida">listo</span>`
+      : `<span class="pastilla urgente">${esc((listo && listo.motivo) || "no listo")}</span>`
+  }</td>
+  <td class="acciones" data-label="Guia">
+    ${
+      listo && listo.ok
+        ? `<input id="g-${esc(p.id)}" placeholder="numero de guia" style="max-width:190px" autocomplete="off">
+           <select id="t-${esc(p.id)}" style="max-width:170px">
+             ${transportadoras.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
+           </select>
+           <button class="primario" onclick="despachar('${esc(p.id)}')">Despachar</button>`
+        : `<span style="font-size:13px;color:var(--suave)">hay que completar los datos antes</span>`
+    }
+  </td>
+</tr>`;
+  };
+
+  const filaDespachado = (p) => {
+    const abiertas = (p.novedades || []).filter((n) => !n.resueltaEn);
+    return `<tr>
+  <td data-label="Codigo">${esc(p.id)}</td>
+  <td data-label="Cliente">${esc((p.destinatario && p.destinatario.nombre) || "")}</td>
+  <td data-label="Guia">${esc((p.despacho && p.despacho.guia) || "")}</td>
+  <td data-label="Transportadora">${esc((p.despacho && p.despacho.transportadora) || "—")}</td>
+  <td data-label="Despachado">${esc(fecha.fechaYHoraBogota(p.despacho && p.despacho.despachadoEn))}</td>
+  <td data-label="Novedades">${
+    abiertas.length
+      ? abiertas.map((n) => `<span class="pastilla urgente">${esc(n.tipo)}</span>`).join(" ")
+      : `<span class="pastilla atendida">sin novedad</span>`
+  }</td>
+</tr>`;
+  };
+
+  return (
+    cabecera({ titulo: "Guías y despachos" }) +
+    (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
+    `<div class="kpis">
+  <div class="kpi"><b>${d.porDespachar.length}</b><span>por despachar</span></div>
+  <div class="kpi"><b>${d.despachados.length}</b><span>despachados</span></div>
+  <div class="kpi"><b>${d.conNovedad.length}</b><span>con novedad abierta</span></div>
+</div>` +
+    `<h2 style="font-size:16px;margin:20px 0 10px">Por despachar</h2>` +
+    (d.porDespachar.length
+      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Ciudad</th><th>Total</th><th>Estado</th><th>Guía</th></tr></thead>
+<tbody>${d.porDespachar.map(filaPorDespachar).join("")}</tbody></table>`
+      : `<div class="vacio">Nada pendiente de despachar.</div>`) +
+    `<h2 style="font-size:16px;margin:24px 0 10px">Despachados</h2>` +
+    (d.despachados.length
+      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Transportadora</th><th>Despachado</th><th>Novedades</th></tr></thead>
+<tbody>${d.despachados.map(filaDespachado).join("")}</tbody></table>`
+      : `<div class="vacio">Todavía no hay despachos.</div>`) +
+    bloqueParcial({
+      titulo: "Lo que falta: partir el PDF de la transportadora automáticamente",
+      texto:
+        "Registrar la guía a mano <b>funciona</b> y es lo que ves arriba. Lo que no está es leer un PDF con " +
+        "muchas guías y repartir cada una a su cliente: ese lector se ajusta al formato exacto del PDF de la " +
+        "transportadora, y sin un ejemplo real sería código que no se puede verificar. Una guía asignada al " +
+        "cliente equivocado manda el paquete a otra persona.",
+      comoSeDesbloquea: "Para desbloquearlo: elegir transportadora y pasarme un PDF de guías de verdad.",
+    }) +
+    pie(`
+async function despachar(codigo) {
+  var guia = (document.getElementById("g-" + codigo) || {}).value || "";
+  var transportadora = (document.getElementById("t-" + codigo) || {}).value || "";
+  if (!guia.trim()) { avisar("Falta el número de guía: sin él el pedido no se puede rastrear.", "mal"); return; }
+  var r = await pedir("/panel/guias/despachar", { codigo: codigo, guia: guia, transportadora: transportadora });
+  if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error, "mal");
+}
+`)
+  );
+}
+
+/** NOVEDADES DE ENTREGA */
+function novedades({ datos: d, tipos = [], envioManualActivo = false, aviso = null }) {
+  const fila = (p) => {
+    const abiertas = (p.novedades || []).filter((n) => !n.resueltaEn);
+    return `<tr>
+  <td data-label="Codigo">${esc(p.id)}</td>
+  <td data-label="Cliente">${esc((p.destinatario && p.destinatario.nombre) || "")}</td>
+  <td data-label="Guia">${esc((p.despacho && p.despacho.guia) || "")}</td>
+  <td data-label="Dias">${esc(String(p._dias === null || p._dias === undefined ? "—" : p._dias))}</td>
+  <td data-label="Abiertas">${
+    abiertas.length
+      ? abiertas
+          .map(
+            (n) =>
+              `<span class="pastilla urgente">${esc(n.tipo)}</span>
+               <button onclick="resolver('${esc(p.id)}','${esc(n.id)}')" style="min-height:36px;padding:0 10px;font-size:13px">Resolver</button>`
+          )
+          .join(" ")
+      : `<span class="pastilla atendida">ninguna</span>`
+  }</td>
+  <td class="acciones" data-label="Registrar">
+    <select id="n-${esc(p.id)}" style="max-width:160px">
+      ${tipos.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
+    </select>
+    <button onclick="registrar('${esc(p.id)}')">Registrar</button>
+  </td>
+</tr>`;
+  };
+
+  return (
+    cabecera({ titulo: "Novedades de entrega" }) +
+    (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
+    `<div class="kpis">
+  <div class="kpi"><b>${d.conNovedad.length}</b><span>con novedad abierta</span></div>
+  ${Object.entries(d.porTipo)
+    .map(([t, n]) => `<div class="kpi"><b>${n}</b><span>${esc(t)}</span></div>`)
+    .join("")}
+</div>` +
+    (d.despachados.length
+      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Días</th><th>Abiertas</th><th>Registrar</th></tr></thead>
+<tbody>${d.despachados.map(fila).join("")}</tbody></table>`
+      : `<div class="vacio">No hay pedidos despachados todavía. Una novedad solo existe sobre un paquete que salió.</div>`) +
+    bloqueParcial({
+      titulo: "Lo que falta: avisar al cliente por WhatsApp",
+      texto:
+        "Registrar y resolver novedades <b>funciona</b>. Lo que no se puede todavía es avisar al cliente: una " +
+        "novedad se reporta días después del pedido, cuando la ventana de 24 h de Meta ya se cerró, y fuera de " +
+        "esa ventana Meta <b>solo entrega plantillas aprobadas</b>. Con texto libre acepta el mensaje y no lo " +
+        "entrega: el cliente no se enteraría y nosotros creeríamos que sí.",
+      comoSeDesbloquea:
+        "Hay que crear en Meta Business Manager y esperar aprobación: " +
+        "<code>PLANTILLA_NOVEDAD_AUSENTE</code>, <code>PLANTILLA_NOVEDAD_DIRECCION</code> y " +
+        "<code>PLANTILLA_NOVEDAD_OFICINA</code>.",
+    }) +
+    pie(`
+async function registrar(codigo) {
+  var tipo = (document.getElementById("n-" + codigo) || {}).value || "";
+  var detalle = prompt("Detalle de la novedad (lo que reportó la transportadora):") || "";
+  var r = await pedir("/panel/novedades/registrar", { codigo: codigo, tipo: tipo, detalle: detalle });
+  if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error, "mal");
+}
+async function resolver(codigo, id) {
+  var como = prompt("¿Cómo se resolvió?") || "";
+  var r = await pedir("/panel/novedades/resolver", { codigo: codigo, id: id, comoSeResolvio: como });
+  if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error, "mal");
+}
+`)
+  );
+}
+
+/** AUDITORIA: dias, embudo y atribucion */
+function auditoria({ serie = [], embudo: emb, atribucion: atr, dias = 14 }) {
+  const filasSerie = serie
+    .map(
+      (d) => `<tr>
+  <td data-label="Dia">${esc(d.dia)}</td>
+  <td data-label="Pedidos">${d.pedidos}</td>
+  <td data-label="Unidades">${d.unidades}</td>
+  <td data-label="Importe">${esc(pesos(d.importe))}</td>
+  <td data-label="Cancelados">${d.cancelados}</td>
+</tr>`
+    )
+    .join("");
+
+  const filasEmbudo = emb.filas
+    .map(
+      (f) => `<tr>
+  <td data-label="Etapa">${esc(f.etiqueta)}</td>
+  <td data-label="Llegaron">${f.cuantos}</td>
+  <td data-label="Del total">${f.conversionDesdeArriba === null ? "—" : esc(f.conversionDesdeArriba) + "%"}</td>
+  <td data-label="Del paso">${f.conversionDelPaso === null ? "—" : esc(f.conversionDelPaso) + "%"}</td>
+  <td data-label="Se cayeron">${f.perdidosEnElPaso}</td>
+  <td data-label="Se quedaron aqui">${f.seQuedaronAqui}</td>
+</tr>`
+    )
+    .join("");
+
+  const filasAtr = atr.filas
+    .map(
+      (f) => `<tr>
+  <td data-label="Origen">${esc(f.fuente)}</td>
+  <td data-label="Conversaciones">${f.conversaciones}</td>
+  <td data-label="Pedidos">${f.pedidos}</td>
+  <td data-label="Conversion">${f.conversion === null ? "—" : esc(f.conversion) + "%"}</td>
+  <td data-label="Unidades">${f.unidades}</td>
+  <td data-label="Importe">${esc(pesos(f.importe))}</td>
+  <td data-label="Ticket medio">${f.ticketMedio === null ? "—" : esc(pesos(f.ticketMedio))}</td>
+  <td data-label="Cancelados">${f.cancelados}</td>
+</tr>`
+    )
+    .join("");
+
+  return (
+    cabecera({ titulo: `Auditoría · últimos ${dias} días` }) +
+    `<h2 style="font-size:16px;margin:0 0 10px">Por día</h2>` +
+    (serie.some((d) => d.pedidos > 0)
+      ? `<table><thead><tr><th>Día</th><th>Pedidos</th><th>Unidades</th><th>Importe</th><th>Cancelados</th></tr></thead><tbody>${filasSerie}</tbody></table>`
+      : `<div class="vacio">Sin pedidos en los últimos ${dias} días.</div>`) +
+    `<h2 style="font-size:16px;margin:24px 0 10px">Embudo</h2>` +
+    (emb.hayDatos
+      ? `<table><thead><tr><th>Etapa</th><th>Llegaron</th><th>Del total</th><th>Del paso</th><th>Se cayeron</th><th>Se quedaron aquí</th></tr></thead><tbody>${filasEmbudo}</tbody></table>
+<p style="font-size:13px;color:var(--suave);margin-top:8px">
+  Las etapas son acumulativas: quien confirmó también cuenta en "recibió cotización".
+  <b>Del paso</b> es sobre la etapa anterior — es la columna que dice dónde arreglar algo.
+</p>`
+      : `<div class="vacio">Sin conversaciones todavía.</div>`) +
+    `<h2 style="font-size:16px;margin:24px 0 10px">Atribución</h2>` +
+    (atr.hayDatos
+      ? `<table><thead><tr><th>Origen</th><th>Conversaciones</th><th>Pedidos</th><th>Conversión</th><th>Unidades</th><th>Importe</th><th>Ticket medio</th><th>Cancelados</th></tr></thead><tbody>${filasAtr}</tbody></table>` +
+        (!atr.hayAtribucionReal
+          ? bloqueParcial({
+              titulo: "Todo aparece como «directo» o «panel»",
+              texto:
+                "El cálculo está implementado y probado, pero no hay nada que atribuir: Meta manda el " +
+                "<code>referral</code> solo cuando el cliente entra por un anuncio de Click-to-WhatsApp. " +
+                "Mientras no haya campañas activas, estas ventas son de origen desconocido — y no se reparten " +
+                "entre campañas inventadas, porque con esto se decide gasto de publicidad.",
+            })
+          : "")
+      : `<div class="vacio">Sin datos de origen todavía.</div>`) +
+    pie()
+  );
+}
+
 /** Pantalla honesta para lo que necesita configuracion externa. */
 function bloqueada({ titulo, queFalta, porQue, comoSeDesbloquea }) {
   return (
@@ -604,4 +846,18 @@ function bloqueada({ titulo, queFalta, porQue, comoSeDesbloquea }) {
   );
 }
 
-module.exports = { esc, pesos, ETIQUETAS, ESTILO, tablero, chat, buscar, ventaManual, bloqueada };
+module.exports = {
+  esc,
+  pesos,
+  ETIQUETAS,
+  ESTILO,
+  tablero,
+  chat,
+  buscar,
+  ventaManual,
+  guias,
+  novedades,
+  auditoria,
+  bloqueParcial,
+  bloqueada,
+};

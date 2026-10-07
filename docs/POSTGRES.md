@@ -78,7 +78,17 @@ Moverla tendrá sentido el día que se quiera quitar el disco — y con el disco
 
 ## Migraciones
 
-Archivos en `/migraciones`, aplicados por `npm run migrar`. Tres reglas:
+Archivos en `/migraciones`, aplicados por `npm run migrar`.
+
+| Migración | Qué añade | De qué fase |
+|---|---|---|
+| `001-esquema-inicial.sql` | `contactos`, `conversaciones`, `pedidos`, `pedidos_historial` y los dos índices de idempotencia | Fase 3A |
+| `002-panel-operativo.sql` | `conversaciones.atencion` (de ella depende que el bot se calle) y `conversaciones.mensajes` | Panel |
+| `003-despacho-y-novedades.sql` | `pedidos.despacho`, `pedidos.guia` **generada e indexada**, `pedidos.novedades`, y el invariante *despachado ⇒ tiene guía* | Panel |
+
+> **El código del panel no arranca sobre PostgreSQL sin la 002 y la 003.** El servicio comprueba el esquema al arrancar y se niega si falta algo — no crea columnas por su cuenta. Así que si algún día se activa `DATABASE_URL`, hay que migrar **antes** de desplegar el panel. Es el candado funcionando, pero el síntoma es producción caída.
+
+Tres reglas:
 
 **No se ejecutan al arrancar.** Un servicio que toca el esquema al arrancar hace cambios de estructura en un momento que nadie está mirando, y si el despliegue reinicia tres veces lo intenta tres veces. Migrar es una decisión.
 
@@ -282,8 +292,19 @@ Y por eso existe `npm run comprobar-postgres`: comprueba conectividad, versión,
 DATABASE_URL="..." npm run comprobar-postgres
 #    cada paso termina diciendo cuál es el siguiente
 
-# 1. crear el esquema
+# 1. crear el esquema  ·  APLICA LAS TRES MIGRACIONES
 DATABASE_URL="..." npm run migrar
+#    001-esquema-inicial.sql      contactos, conversaciones, pedidos, historial
+#    002-panel-operativo.sql      conversaciones.atencion y .mensajes
+#    003-despacho-y-novedades.sql pedidos.despacho, .guia (indexada) y .novedades
+#
+#    `npm run migrar` las aplica TODAS las pendientes, en orden y cada una en
+#    su transaccion. No hay que nombrarlas.
+#
+#    Si el panel se despliega y la 002 no esta aplicada, el arranque falla
+#    por esquema incompleto -no crea columnas por su cuenta-. Es el candado
+#    funcionando, pero el resultado es produccion caida: migrar va ANTES de
+#    poner DATABASE_URL en el servicio.
 
 # 2. congelar las escrituras
 DATA_DIR=/var/data npm run congelar

@@ -489,6 +489,139 @@ describe("PostgreSQL: garantias del motor", { skip: sinBase ? motivoSalto : fals
       await c.end();
     }
   });
+
+  test("y falla tambien si estan las tablas pero FALTA UNA COLUMNA", async () => {
+    // El caso realmente probable: la 001 aplicada y la 002 o la 003 no.
+    //
+    // Comprobar solo los nombres de las tablas lo deja pasar: las tablas
+    // existen, el arranque pasa, y el primer "column does not exist"
+    // aparece A MITAD DE UNA VENTA. Y no es hipotetico, porque las
+    // migraciones se aplican a mano: desplegar codigo nuevo contra una base
+    // migrada a medias es un orden de pasos equivocado, no un fallo raro.
+    await listoParaGarantias();
+    const { crearRepos: fabrica } = require("../src/almacen/repos");
+
+    for (const [tabla, columna] of [
+      ["conversaciones", "atencion"],
+      ["conversaciones", "mensajes"],
+      ["pedidos", "novedades"],
+    ]) {
+      const c = await clienteCrudo();
+      try {
+        await c.query(`ALTER TABLE ${tabla} RENAME COLUMN ${columna} TO ${columna}_escondida`);
+        await assert.rejects(
+          () => fabrica({ databaseUrl: DSN }),
+          /faltan columnas|npm run migrar/i,
+          `no detecto que falta ${tabla}.${columna}`
+        );
+      } finally {
+        await c
+          .query(`ALTER TABLE ${tabla} RENAME COLUMN ${columna}_escondida TO ${columna}`)
+          .catch(() => {});
+        await c.end();
+      }
+    }
+  });
+
+  test("despacho y novedades se recuperan igual: guia, transportadora y la lista", async () => {
+    await listoParaGarantias();
+    const dominioPedido = require("../src/dominio/pedido");
+
+    const repos = await crearRepos();
+    try {
+      const p = pedidoDeEjemplo({ claveDeEvento: "ev-despacho-pg", claveDeOferta: "of-despacho-pg" });
+      await repos.contactos.guardar({ id: p.contactoId });
+      await repos.pedidos.crearSiNoExiste(p);
+
+      const despachado = dominioPedido.despachar({
+        pedido: await repos.pedidos.obtener(p.id),
+        guia: "PG-987654",
+        transportadora: "Coordinadora",
+      });
+      assert.equal(despachado.ok, true, despachado.motivo);
+      await repos.pedidos.reemplazar(despachado.pedido);
+
+      const conNovedad = dominioPedido.registrarNovedad({
+        pedido: await repos.pedidos.obtener(p.id),
+        tipo: "ausente",
+        detalle: "nadie en la direccion",
+      });
+      assert.equal(conNovedad.ok, true, conNovedad.motivo);
+      await repos.pedidos.reemplazar(conNovedad.pedido);
+
+      const leido = await repos.pedidos.obtener(p.id);
+      assert.equal(leido.estado, "despachado");
+      assert.equal(leido.despacho.guia, "PG-987654");
+      assert.equal(leido.despacho.transportadora, "Coordinadora");
+      assert.equal(leido.novedades.length, 1);
+      assert.equal(leido.novedades[0].tipo, "ausente");
+      assert.equal(leido.novedades[0].detalle, "nadie en la direccion");
+      assert.equal(leido.novedades[0].resueltaEn, null);
+    } finally {
+      await repos.cerrar();
+    }
+  });
+
+  test("la guia es una columna GENERADA e indexada: se puede buscar por ella", async () => {
+    // Es la consulta del dia a dia: la transportadora llama diciendo "la
+    // guia 123456 tiene una novedad" y hay que encontrar el pedido.
+    await listoParaGarantias();
+    const dominioPedido = require("../src/dominio/pedido");
+
+    const repos = await crearRepos();
+    let p;
+    try {
+      p = pedidoDeEjemplo({ claveDeEvento: "ev-guia-idx", claveDeOferta: "of-guia-idx" });
+      await repos.contactos.guardar({ id: p.contactoId });
+      await repos.pedidos.crearSiNoExiste(p);
+      const r = dominioPedido.despachar({ pedido: await repos.pedidos.obtener(p.id), guia: "BUSCAME-1" });
+      assert.equal(r.ok, true, r.motivo);
+      await repos.pedidos.reemplazar(r.pedido);
+    } finally {
+      await repos.cerrar();
+    }
+
+    const c = await clienteCrudo();
+    try {
+      const { rows } = await c.query("SELECT codigo, guia FROM pedidos WHERE guia = $1", ["BUSCAME-1"]);
+      assert.equal(rows.length, 1, "la columna generada no se relleno");
+      assert.equal(rows[0].codigo, p.id);
+
+      // Filtrado por el esquema ACTUAL: cada archivo de prueba trabaja en
+      // el suyo y todos tienen el indice, asi que sin el filtro la consulta
+      // devuelve uno por esquema y contarlos no dice nada.
+      const { rows: idx } = await c.query(
+        `SELECT indexname FROM pg_indexes
+          WHERE schemaname = current_schema() AND tablename = 'pedidos' AND indexname = 'pedidos_guia_idx'`
+      );
+      assert.equal(idx.length, 1, "falta el indice de la guia");
+    } finally {
+      await c.end();
+    }
+  });
+
+  test("el MOTOR rechaza un despachado sin guia, aunque alguien evite el adaptador", async () => {
+    await listoParaGarantias();
+    const c = await clienteCrudo();
+    try {
+      await assert.rejects(
+        () =>
+          c.query(`
+            INSERT INTO pedidos (codigo, estado, clave_de_evento, clave_de_oferta, contacto_id, oferta_id,
+                                 wamid_confirmacion, producto_id, producto_nombre, cantidad,
+                                 subtotal_pesos, envio_pesos, total_pesos, destinatario, cotizacion,
+                                 politica_version, version_catalogo)
+            VALUES ('NOV-SINGUIA','despachado','ev-sg','of-sg','573009993333','of-1','w','p','P',1,
+                    1000,0,1000,'{}'::jsonb,'{}'::jsonb,'v','v')
+          `),
+        /pedidos_despachado_tiene_guia/,
+        "el motor acepto un despachado sin guia"
+      );
+    } finally {
+      await c.query("DELETE FROM pedidos WHERE codigo = 'NOV-SINGUIA'").catch(() => {});
+      await c.end();
+    }
+  });
 });
 
 // --------------------------------------------------------------------------

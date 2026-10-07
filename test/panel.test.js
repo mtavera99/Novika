@@ -623,16 +623,43 @@ describe("7 · recorridos por HTTP", () => {
     }
   });
 
-  test("las pantallas sin configuracion externa lo DICEN", async () => {
+  test("guias y novedades cargan, y separan lo que funciona de lo que falta", async () => {
+    // Ya NO son pantallas bloqueadas enteras: registrar guia a mano y
+    // registrar/resolver novedades funcionan. Lo que sigue bloqueado -el
+    // lector de PDF y el aviso por plantilla- se dice DENTRO de la
+    // pantalla, en vez de tapar todo lo demas.
     const s = await levantar();
     try {
       const cookie = await s.entrar();
-      for (const ruta of ["/panel/guias", "/panel/novedades"]) {
-        const r = await fetch(`${s.url}${ruta}`, { headers: { cookie } });
-        const html = await r.text();
-        assert.match(html, /no esta operativa/, `${ruta} se presenta como si funcionara`);
-        assert.match(html, /Como se desbloquea/, `${ruta} no dice como desbloquearlo`);
-      }
+
+      const g = await fetch(`${s.url}/panel/guias`, { headers: { cookie } });
+      assert.equal(g.status, 200);
+      const htmlG = await g.text();
+      assert.match(htmlG, /por despachar/i, "la parte que funciona tiene que estar");
+      assert.match(htmlG, /partir el PDF/i, "y tiene que decir que falta el lector de PDF");
+      assert.match(htmlG, /PDF de guías de verdad/i, "y como se desbloquea");
+
+      const n = await fetch(`${s.url}/panel/novedades`, { headers: { cookie } });
+      assert.equal(n.status, 200);
+      const htmlN = await n.text();
+      assert.match(htmlN, /con novedad abierta/i);
+      assert.match(htmlN, /plantillas aprobadas|plantilla aprobada/i, "tiene que decir que el aviso no sale");
+      assert.match(htmlN, /PLANTILLA_NOVEDAD_AUSENTE/);
+    } finally {
+      await s.cerrar();
+    }
+  });
+
+  test("la auditoria trae embudo y atribucion", async () => {
+    const s = await levantar();
+    try {
+      const cookie = await s.entrar();
+      const r = await fetch(`${s.url}/panel/auditoria`, { headers: { cookie } });
+      assert.equal(r.status, 200);
+      const html = await r.text();
+      assert.match(html, /Embudo/);
+      assert.match(html, /Atribución/);
+      assert.match(html, /Por día/);
     } finally {
       await s.cerrar();
     }

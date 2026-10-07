@@ -99,7 +99,7 @@ const CAMPOS_PEDIDO_CONOCIDOS = new Set([
   "id", "version", "estado", "claveDeEvento", "claveDeOferta", "contactoId", "conversacionId",
   "ofertaId", "wamidConfirmacion", "producto", "cantidad", "destinatario", "cotizacion",
   "firmaDeCondiciones", "origen", "revisiones", "historial", "creadoEn", "actualizadoEn",
-  "canceladoEn", "motivoCancelacion",
+  "canceladoEn", "motivoCancelacion", "despacho", "novedades",
 ]);
 
 /**
@@ -176,6 +176,8 @@ function pedidoAFila(p) {
     // La restriccion `cancelacion_coherente` exige que vayan de la mano.
     cancelado_en: p.estado === "cancelado" ? p.canceladoEn || new Date().toISOString() : null,
     motivo_cancelacion: p.estado === "cancelado" ? p.motivoCancelacion || "sin motivo registrado" : null,
+    despacho: p.despacho || null,
+    novedades: p.novedades || [],
     extra: sobrantes(p, CAMPOS_PEDIDO_CONOCIDOS),
   };
 }
@@ -209,6 +211,8 @@ function filaAPedido(f, historial = []) {
     actualizadoEn: aIso(f.actualizado_en),
     canceladoEn: aIso(f.cancelado_en),
     motivoCancelacion: f.motivo_cancelacion,
+    despacho: f.despacho || null,
+    novedades: f.novedades || [],
   };
 }
 
@@ -259,10 +263,15 @@ const COLUMNAS_PEDIDO = [
   "subtotal_pesos", "envio_pesos", "descuento_pesos", "total_pesos", "moneda",
   "destinatario", "cotizacion", "firma_condiciones", "politica_version", "version_catalogo",
   "origen", "revisiones", "creado_en", "actualizado_en", "cancelado_en", "motivo_cancelacion",
+  // `guia` NO va aqui: es una columna GENERADA a partir de despacho->>'guia'
+  // y PostgreSQL rechaza que se escriba. Existe solo para poder indexarla.
+  "despacho", "novedades",
   "extra",
 ];
 
-const JSONB_PEDIDO = new Set(["variante", "destinatario", "cotizacion", "origen", "revisiones", "extra"]);
+const JSONB_PEDIDO = new Set([
+  "variante", "destinatario", "cotizacion", "origen", "revisiones", "despacho", "novedades", "extra",
+]);
 
 function valoresDePedido(fila) {
   return COLUMNAS_PEDIDO.map((c) => (JSONB_PEDIDO.has(c) ? (fila[c] === null ? null : JSON.stringify(fila[c])) : fila[c]));
