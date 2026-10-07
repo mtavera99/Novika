@@ -318,7 +318,47 @@ async function crearReposDeArchivos({ dir }) {
     return crearReposDeArchivos({ dir: DIR });
   }
 
-  return { tipo: TIPO, contactos, conversaciones, pedidos, estado, cerrar, reabrir };
+  /**
+   * TODO lo que hay en disco. FUERA DEL CONTRATO, solo para el cutover.
+   *
+   * Lleva prefijo `_` y no esta en contrato.js a proposito: el sistema en
+   * marcha nunca necesita leer todos los pedidos de golpe, y una operacion
+   * asi es exactamente la que alguien usaria por comodidad en un camino
+   * caliente. Que no forme parte del contrato significa que el adaptador de
+   * PostgreSQL no tiene que implementarla, y que nadie puede depender de
+   * ella sin darse cuenta de que esta pisando terreno de migracion.
+   */
+  async function _inventario() {
+    const leerCarpeta = async (carpeta) => {
+      let nombres = [];
+      try {
+        nombres = (await fsp.readdir(carpeta)).filter((n) => n.endsWith(".json") && !n.startsWith("_"));
+      } catch (e) {
+        if (e.code !== "ENOENT") throw e;
+      }
+      const salida = [];
+      for (const nombre of nombres) {
+        try {
+          const dato = await leerJson(path.join(carpeta, nombre));
+          if (dato) salida.push(dato);
+        } catch (e) {
+          if (!e.corrupto) throw e;
+          // Un archivo corrupto ya quedo apartado por leerJson. No se
+          // inventa su contenido: se deja fuera y el conteo final del
+          // cutover lo delatara.
+        }
+      }
+      return salida;
+    };
+
+    return {
+      contactos: await leerCarpeta(DIR_CONTACTOS),
+      conversaciones: await leerCarpeta(DIR_CONVERSACIONES),
+      pedidos: await leerCarpeta(DIR_PEDIDOS),
+    };
+  }
+
+  return { tipo: TIPO, contactos, conversaciones, pedidos, estado, cerrar, reabrir, _inventario };
 }
 
 module.exports = { crearReposDeArchivos, TIPO, claveDeArchivo };

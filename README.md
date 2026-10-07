@@ -28,7 +28,7 @@ E-commerce colombiano **multiproducto y multicategoría**: hogar, tecnología, b
 | Modo sombra + métricas | ✅ |
 | Productos reales en el catálogo | ❌ pendiente de la ficha |
 | Proveedor de IA configurado | ❌ funciona sin él |
-| PostgreSQL | ❌ interfaces y esquema listos |
+| PostgreSQL | ⏳ adaptador listo y verificado, **sin activar** |
 | **Respuestas a clientes** | ❌ **`RESPUESTA_AUTOMATICA=0`** |
 
 **No hay productos, precios, promesas ni políticas definidas.** A propósito: el catálogo solo tiene la plantilla. Un dato comercial inventado que se cuela es un cobro incorrecto.
@@ -79,6 +79,19 @@ La línea que hay que mirar en `/metricas`:
 respuesta_preparada   puede subir
 respuesta_enviada     tiene que quedarse en 0
 ``` Qué se guarda, qué se pierde en un redeploy y a dónde va a migrar: [`docs/PERSISTENCIA.md`](docs/PERSISTENCIA.md).
+
+## Almacenamiento transaccional
+
+Hoy: **archivos** sobre el Render Disk. Preparado y verificado: **PostgreSQL**, con el mismo contrato y las mismas pruebas.
+
+```
+repos/index.js  --+- archivos/   <- hoy (DATABASE_URL vacia)
+                  +- postgres/   <- verificado, sin activar
+```
+
+Lo que aporta la base: la idempotencia de pedidos deja de depender de un indice en disco y pasa a dos indices `UNIQUE` del motor; la concurrencia por contacto deja de depender de una cola en memoria y pasa a `pg_advisory_xact_lock`.
+
+Lo que **no** se mueve: la bitacora de trabajo del webhook se queda en el disco, porque es lo unico que tiene que funcionar cuando la base no responda. Detalle y que hay que crear en Render: [`docs/POSTGRES.md`](docs/POSTGRES.md).
 
 ## Almacenamiento
 

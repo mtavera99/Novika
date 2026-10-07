@@ -96,7 +96,9 @@ Detalle en `docs/CEREBRO.md`.
 El sistema de archivos de un Web Service de Render es **efímero**. Nada crítico —deduplicación, diario, y más adelante pedidos, conversaciones y estados— puede depender de almacenamiento que desaparezca en un despliegue.
 
 - **Fase 1:** Render Disk de 1 GB en `/var/data`. El servidor **comprueba** que el disco exista (comparando sistemas de archivos) en vez de confiar en `DATA_DIR`, y lleva un contador de arranques como prueba empírica.
-- **Fase 2:** Render Postgres **de pago**. Nunca el gratuito: expira 30 días después de crearse y luego se elimina con sus datos.
+- **Fase 3A (hecha):** adaptador de PostgreSQL listo y verificado contra una base real, pasando **las mismas** pruebas de contrato que el de archivos. Sin activar: `DATABASE_URL` vacía en producción. Render Postgres **de pago**; nunca el gratuito, que expira a los 30 días y luego se elimina con sus datos.
+- **La bitácora de trabajo del webhook NO se mueve a Postgres.** Es lo único que tiene que funcionar cuando la base no responda: de ella depende contestar 200 a Meta sin perder el mensaje. Si el reclamo dependiera de la base, una caída obligaría a devolver 503 y Meta acabaría desactivando la suscripción.
+- **Las migraciones no se aplican al arrancar.** `npm run migrar` es una decisión, no un efecto secundario de desplegar. Si falta el esquema, el arranque falla y lo dice.
 - Todo el acceso a almacenamiento pasa por `src/almacen/diario.js` y `src/almacen/vistos.js`. Ningún otro módulo abre un archivo, para que migrar sea un cambio y no una reescritura.
 - `esNuevo(id)` marca y pregunta en una sola operación, porque en Postgres eso es un `INSERT ... ON CONFLICT` atómico. Dos llamadas separadas heredarían una carrera.
 - Con almacenamiento efímero, `RESPUESTA_AUTOMATICA=1` **bloquea el arranque**.
