@@ -98,6 +98,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       ofertaId: null,
       cotizacion: null,
       resumenMostrado: false,
+      // Si ya se le dijo el precio de una unidad. Evita repetir la misma
+      // frase en cada turno. Sin columna propia: viaja en `extra`.
+      precioInformado: false,
       ficha: campos.fichaVacia(),
       ventana: [], // ultimos mensajes, para resolver producto si se rota
       creadoEn: new Date().toISOString(),
@@ -450,8 +453,29 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
       // "si" / "ok" / "gracias" sobre un pedido ya confirmado. NO se cotiza,
       // NO se crea pedido. Esta es la regla que pidio Marco.
-      situacion = "ya_confirmado";
-      traza.pedido = pedidoActivo ? { id: pedidoActivo.id, estado: pedidoActivo.estado } : null;
+      //
+      // PERO BLINDADO NO SIEMPRE SIGNIFICA QUE HAYA UN PEDIDO.
+      //
+      // ESCALADO tambien esta blindado -con razon: si una persona entro, el
+      // bot no puede seguir cotizando por su cuenta- y se llega a ESCALADO
+      // sin pedido alguno. El caso real: la clienta pide 2 unidades, no hay
+      // precio aprobado para 2, se escala. A partir de ahi, cualquier
+      // mensaje suyo caia aqui y el bot le contestaba "Tu pedido ya está
+      // confirmado", que es falso: no existia ningun pedido.
+      //
+      // Decirle a alguien que su pedido esta confirmado cuando no lo esta es
+      // peor que no contestarle. Sin pedido, esto es un escalado y se dice
+      // como tal: una persona le responde.
+      if (pedidoActivo) {
+        situacion = "ya_confirmado";
+        traza.pedido = { id: pedidoActivo.id, estado: pedidoActivo.estado };
+      } else {
+        situacion = "escalado";
+        traza.pedido = null;
+        traza.avisos.push(
+          `estado "${conversacion.estado}" blindado sin pedido: se responde como escalado, no como confirmado`
+        );
+      }
       estadoDestino = conversacion.estado;
     } else if (decision.accion === confirmacion.ACCIONES.RESPONDER_ESTADO && pedidoActivo) {
       situacion = "ya_confirmado";
@@ -477,10 +501,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       }
     } else {
       // Flujo normal: identificar, cotizar, pedir lo que falte.
-      const r = avanzarVenta({ conversacion, producto, resolucion, candidato });
+      const r = avanzarVenta({ conversacion, producto, resolucion, candidato, evento });
       situacion = r.situacion;
       estadoDestino = r.estadoDestino;
       traza.cotizacion = r.cotizacion;
+      traza.cotizacionInformativa = r.cotizacionInformativa || null;
       traza.faltan = r.faltan;
     }
 
@@ -502,6 +527,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     const preparada = responder.preparar({
       situacion,
       cotizacion: conversacion.cotizacion,
+      cotizacionInformativa: traza.cotizacionInformativa || null,
       faltan: traza.faltan || [],
       opciones: (resolucion.opciones || []).map((id) => {
         const p = catalogo.porId.get(id);
@@ -559,14 +585,39 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // no repetirlas. Aqui solo se decide CUANDO tiene sentido ofrecerlas.
     // ------------------------------------------------------------------
     const productoParaFotos = producto || candidato;
+
+    // ------------------------------------------------------------------
+    // CUANDO TIENE SENTIDO MANDAR LAS FOTOS
+    //
+    // Antes la condicion era `producto_en_borrador || cotizacion`, y tenia
+    // DOS fallos que solo se veian al activar un producto:
+    //
+    //   1. "cotizacion" no existe. `avanzarVenta` nunca devuelve esa
+    //      situacion -devuelve faltan_datos o resumen-, asi que esa mitad
+    //      de la condicion nunca se cumplia.
+    //   2. Por tanto, con el producto ACTIVO las fotos no salian nunca. El
+    //      mismo mensaje que las recibia en borrador ("muestrame fotos del
+    //      cinturon") cae en faltan_datos al activarlo, y activar el
+    //      producto habria apagado las fotos sin que nadie lo notara.
+    //
+    // Ahora manda el cliente, no el punto de la venta: si pide ver el
+    // producto, se le muestra. Sigue mandandolas sin pedirlas mientras el
+    // producto esta en borrador, porque ahi el texto se las promete.
+    //
+    // Lo que NO se hace: mandarlas cuando no se sabe de que producto se
+    // habla. Con dos candidatos o ninguno, cinco fotos del producto
+    // equivocado confunden mas que preguntar.
+    // ------------------------------------------------------------------
+    const pidioVerlo = texto.pideFotos(evento.texto || "");
+    const sabemosDeQueProducto = situacion !== "producto_ambiguo" && situacion !== "producto_desconocido";
+
     if (
       emisor &&
       config.respuestaAutomatica &&
       productoParaFotos &&
       (productoParaFotos.imagenes || []).length &&
-      // Solo si el texto las menciona o el cliente las pidio. Mandar fotos
-      // en medio de una captura de datos interrumpe el hilo.
-      (situacion === "producto_en_borrador" || situacion === "cotizacion")
+      sabemosDeQueProducto &&
+      (situacion === "producto_en_borrador" || pidioVerlo)
     ) {
       const informeFotos = await fotos.enviarFotosDeProducto({
         emisor,
@@ -593,6 +644,8 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     // Guardar
     // ------------------------------------------------------------------
+    if (traza.cotizacionInformativa && traza.enviada) conversacion.precioInformado = true;
+
     conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
     conversacion.ultimoWamid = evento.wamid;
 
@@ -658,7 +711,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
   // Sub-acciones
   // ----------------------------------------------------------------------
 
-  function avanzarVenta({ conversacion, producto, resolucion, candidato = null }) {
+  function avanzarVenta({ conversacion, producto, resolucion, candidato = null, evento = {} }) {
     if (resolucion.ambiguo) {
       return { situacion: "producto_ambiguo", estadoDestino: estados.ESTADOS.EXPLORANDO, cotizacion: null, faltan: [] };
     }
@@ -687,10 +740,47 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // Faltan datos: se piden, no se inventan.
       const requeridos = [...new Set([...REQUERIDOS_BASE, ...(producto.datosRequeridos || []), "cantidad"])];
       const faltan = [...new Set([...(cot.falta || []), ...campos.faltantes(conversacion.ficha, requeridos)])];
+
+      // ----------------------------------------------------------------
+      // PRECIO DE UNA UNIDAD, A TITULO INFORMATIVO
+      //
+      // Si lo unico que impide cotizar es que no se sabe CUANTAS quiere,
+      // el precio de una unidad si se puede decir, y hay que decirlo: a
+      // "¿cuánto cuesta?" el bot contestaba "me falta la ciudad y la
+      // direccion", que es pedirle los datos a alguien que todavia no
+      // sabe el precio.
+      //
+      // Se calcula con el cotizador -nunca a mano- para que la cifra
+      // venga del catalogo y entre en la lista de importes autorizados.
+      //
+      // NO se guarda en la conversacion y NO crea ofertaId ni marca
+      // resumenMostrado. Es la diferencia entre informar y ofertar: un
+      // "si" a este mensaje no confirma nada, porque la confirmacion
+      // exige un resumen mostrado.
+      // ----------------------------------------------------------------
+      // Se informa UNA vez, no en cada turno: repetir la misma frase ante
+      // tres preguntas distintas parece un bot averiado. Salvo que vuelvan a
+      // preguntar el precio, que entonces hay que volver a decirlo.
+      const vuelveAPreguntar = texto.preguntaPrecio(evento.texto || "");
+      let cotizacionInformativa = null;
+      if (faltan.includes("cantidad") && (!conversacion.precioInformado || vuelveAPreguntar)) {
+        const datos = campos.soloConfirmado(conversacion.ficha);
+        const una = cotizador.cotizar({
+          producto,
+          cantidad: 1,
+          destino: datos.ciudad ? { ciudad: datos.ciudad, departamento: datos.departamento || null } : null,
+          variante: datos.variante || null,
+        });
+        // Si no sale, no se informa nada. Un producto cuyo envio depende del
+        // destino no puede dar un precio antes de saber la ciudad.
+        if (una.ok) cotizacionInformativa = una.cotizacion;
+      }
+
       return {
         situacion: faltan.length ? "faltan_datos" : "escalado",
         estadoDestino: conversacion.cotizacion ? estados.ESTADOS.CAPTURANDO_DATOS : estados.ESTADOS.PRODUCTO_IDENTIFICADO,
         cotizacion: conversacion.cotizacion,
+        cotizacionInformativa,
         faltan,
       };
     }

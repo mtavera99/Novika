@@ -406,79 +406,104 @@ test(
 // El producto inactivo no se puede vender
 // --------------------------------------------------------------------------
 
-test("el cinturon del repositorio esta INACTIVO y no entra en los activos", () => {
-  const { cargarCatalogo } = require("../src/catalogo");
-  const catalogo = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+// --------------------------------------------------------------------------
+// UN BORRADOR SE IDENTIFICA, PERO NO SE VENDE
+//
+// Estas pruebas miraban el cinturon del repositorio y exigian que estuviera
+// INACTIVO. Servia mientras el cinturon era el unico producto y estaba en
+// borrador; Marco cerro su ficha el 2026-10-07 y ya esta activo.
+//
+// La garantia NO era "el cinturon esta inactivo", era "un producto sin ficha
+// se reconoce pero no se puede cobrar". Eso hay que seguir vigilandolo,
+// porque se repite con cada producto nuevo: siempre entran antes las fotos y
+// el nombre que los precios aprobados.
+//
+// Asi que ahora se comprueba sobre un BORRADOR SINTETICO, escrito a disco y
+// cargado por el cargador de verdad -con sus alias compilados igual que los
+// reales-. Ademas de seguir cubriendo la garantia, la prueba deja de
+// depender del estado comercial de un producto de la tienda.
+// --------------------------------------------------------------------------
 
-  const cinturon = catalogo.porId.get("cinturon-termico-colicos");
-  assert.ok(cinturon, "el borrador del cinturon tiene que existir en el catalogo");
-  assert.equal(cinturon.activo, false);
-  assert.ok(cinturon.pendientes.length > 0, "un borrador sin pendientes podria activarse por descuido");
+const ID_BORRADOR = "producto-en-borrador-de-prueba";
+
+/** Carpeta de catalogo con UN borrador. Devuelve el catalogo ya cargado. */
+function catalogoConBorrador() {
+  const { cargarCatalogo } = require("../src/catalogo");
+  const carpeta = carpetaNueva();
+  fs.writeFileSync(
+    path.join(carpeta, `${ID_BORRADOR}.json`),
+    JSON.stringify({
+      id: ID_BORRADOR,
+      nombre: "",
+      categoria: "bienestar",
+      activo: false,
+      aliases: [
+        { patron: "\\bmanta\\s+termic", confianza: "alta", senal: "manta termica" },
+        { patron: "\\bmanta(s)?\\b", confianza: "media", senal: "manta" },
+      ],
+      descripcionAutorizada: "",
+      motorDePrecio: "tabla",
+      precios: {},
+      claimsProhibidos: ["cura el dolor"],
+      pendientes: ["precio", "descripcion autorizada"],
+    })
+  );
+  return cargarCatalogo({ carpeta, refrescar: true });
+}
+
+test("un borrador existe en el catalogo pero no entra en los activos", () => {
+  const catalogo = catalogoConBorrador();
+  const borrador = catalogo.porId.get(ID_BORRADOR);
+
+  assert.ok(borrador, "el borrador tiene que existir en el catalogo");
+  assert.equal(borrador.activo, false);
+  assert.ok(borrador.pendientes.length > 0, "un borrador sin pendientes podria activarse por descuido");
 
   assert.equal(catalogo.activos.length, 0);
-  assert.equal(catalogo.activos.find((p) => p.id === "cinturon-termico-colicos"), undefined);
   assert.equal(catalogo.productoPorDefecto, null);
 });
 
 test("las señales SI identifican un borrador, pero lo marcan como no vendible", () => {
-  // ESTA PRUEBA ANTES AFIRMABA LO CONTRARIO, Y ESTABA MAL.
-  //
-  // Decia: "las señales NUNCA proponen un producto inactivo", y comprobaba
-  // que senalesEnTexto("cinturon termico") devolvia cero señales. La
-  // intencion era buena -que no se venda un borrador- pero la asercion
-  // confundia IDENTIFICAR con OFRECER, y por eso bloqueaba lo que no debia.
-  //
-  // Lo que provocaba en produccion: con el unico producto del catalogo en
-  // borrador, NINGUN mensaje podia identificar nada. La clienta escribia
-  // "muestrame fotos del cinturon" y el bot volvia a preguntar que producto
-  // queria, en cada turno, para siempre. No perdia una venta por prudencia:
-  // la perdia por no saber de que le estaban hablando.
-  //
-  // Lo que se comprueba ahora es la propiedad que de verdad protege al
-  // cliente, y es mas fuerte que la anterior: el borrador se RECONOCE, y a
-  // la vez viene marcado como no vendible para que nadie lo cotice.
-  const { cargarCatalogo } = require("../src/catalogo");
+  // La version original de esta prueba afirmaba lo contrario -"las señales
+  // NUNCA proponen un producto inactivo"- y estaba mal: confundia
+  // IDENTIFICAR con OFRECER. Con el unico producto en borrador, NINGUN
+  // mensaje podia identificar nada, y el bot preguntaba que producto queria
+  // en cada turno, para siempre. No perdia la venta por prudencia: la perdia
+  // por no saber de que le hablaban.
   const senales = require("../src/catalogo/senales");
-  const catalogo = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  const catalogo = catalogoConBorrador();
 
-  // Con tilde y sin tilde: la clienta escribe desde el movil, y el teclado
+  // Con tilde y sin tilde: la clienta escribe desde el movil y el teclado
   // pone la tilde sola.
-  for (const frase of [
-    "quiero el cinturon termico",
-    "muéstrame fotos del cinturón",
-    "algo para los colicos menstruales",
-  ]) {
+  for (const frase of ["quiero la manta termica", "muéstrame fotos de la manta", "tienes mantas térmicas?"]) {
     const encontradas = senales.senalesEnTexto(frase, catalogo);
     assert.equal(encontradas.length, 1, `"${frase}" no identifico el producto del que habla la clienta`);
-    assert.equal(encontradas[0].productoId, "cinturon-termico-colicos");
+    assert.equal(encontradas[0].productoId, ID_BORRADOR);
 
-    // La marca que sostiene todo lo demas: quien recibe la señal sabe que
-    // no se puede vender sin tener que volver a consultar el catalogo.
+    // La marca que sostiene todo lo demas: quien recibe la señal sabe que no
+    // se puede vender sin volver a consultar el catalogo.
     assert.equal(encontradas[0].activo, false, `"${frase}" presento un borrador como vendible`);
 
     const r = senales.resolver({ texto: frase, catalogo });
-    assert.equal(r.productoId, "cinturon-termico-colicos");
+    assert.equal(r.productoId, ID_BORRADOR);
     assert.equal(catalogo.porId.get(r.productoId).activo, false);
   }
 
-  // Y el limite sigue en pie: identificarlo no lo mete en los activos, que
-  // es la lista de la que se vende.
+  // Identificarlo no lo mete en los activos, que es la lista de la que se
+  // vende.
   assert.equal(catalogo.activos.length, 0);
-  assert.equal(catalogo.productoPorDefecto, null);
 });
 
-test("identificar un borrador no abre ninguna puerta: no se cotiza ni se pide", () => {
-  // La contraparte de la prueba anterior. Si la señal ahora llega hasta un
-  // borrador, hay que demostrar que el camino se corta DESPUES, en el
-  // candado real, y no por la señal.
-  const { cargarCatalogo } = require("../src/catalogo");
+test("identificar un borrador no abre ninguna puerta: no se cotiza", () => {
+  // La contraparte: si la señal llega hasta un borrador, hay que demostrar
+  // que el camino se corta DESPUES, en el candado real.
   const { cotizar } = require("../src/dominio/cotizador");
-  const catalogo = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
-  const cinturon = catalogo.porId.get("cinturon-termico-colicos");
+  const borrador = catalogoConBorrador().porId.get(ID_BORRADOR);
 
   for (const cantidad of [1, 2, 3]) {
-    const r = cotizar({ producto: cinturon, cantidad });
+    const r = cotizar({ producto: borrador, cantidad });
     assert.equal(r.ok, false, `se cotizo un borrador para cantidad ${cantidad}`);
+    assert.match(r.motivo, /no esta activo/);
     assert.equal(r.total, undefined);
   }
 });

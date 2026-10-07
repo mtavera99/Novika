@@ -255,11 +255,28 @@ test("los alias usan raices, asi que absorben erratas y plurales", () => {
 // El catalogo que esta en el repositorio
 // --------------------------------------------------------------------------
 
-test("el catalogo del repositorio es valido y todavia no tiene productos activos", () => {
+test("el catalogo del repositorio es valido y todo lo activo tiene ficha aprobada", () => {
   const catalogo = cargarCatalogo({ carpeta: path.join(__dirname, "..", "catalogo", "productos") });
   assert.deepEqual(catalogo.problemas, [], `el catalogo tiene problemas: ${catalogo.problemas.join(" | ")}`);
-  // Los productos reales de NOVIKA todavia no estan definidos. Si esta
-  // asercion falla es porque alguien activo un producto: revisa que sus
-  // precios y politicas esten aprobados por el dueno, y entonces actualizala.
-  assert.equal(catalogo.activos.length, 0);
+
+  // ANTES ESTA PRUEBA EXIGIA CERO ACTIVOS, y su propio comentario decia que
+  // al activar un producto habia que revisar la ficha y actualizarla. Es lo
+  // que paso el 2026-10-07 con el cinturon.
+  //
+  // Lo que se comprueba ahora es mas util que un conteo: que NINGUN producto
+  // activo tenga un hueco en lo que hace falta para cobrar. Vale para el
+  // cinturon y para los que vengan, sin volver a tocarla.
+  for (const p of catalogo.activos) {
+    assert.deepEqual(p.pendientes || [], [], `${p.id} esta activo con pendientes sin resolver`);
+    assert.ok(p.nombre, `${p.id} esta activo sin nombre comercial`);
+    assert.ok(p.descripcionAutorizada, `${p.id} esta activo sin descripcion autorizada`);
+    assert.ok(p.pago && p.pago.metodo, `${p.id} esta activo sin declarar como se cobra`);
+    assert.ok(
+      p.logistica && p.logistica.politicaEnvio && p.logistica.politicaEnvio.tipo,
+      `${p.id} esta activo sin politica de envio`
+    );
+    if (p.motorDePrecio === "tabla") {
+      assert.ok(p.precios && p.precios["1"], `${p.id} esta activo sin precio para 1 unidad`);
+    }
+  }
 });

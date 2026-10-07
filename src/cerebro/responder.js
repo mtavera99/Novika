@@ -106,7 +106,7 @@ function lineasDeCondiciones(cotizacion) {
  * cotizacion o del catalogo. Si manana cambia un precio, aqui no se toca
  * nada.
  */
-function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones = [], pedido = null, producto = null }) {
+function textoDeterminista({ situacion, cotizacion = null, cotizacionInformativa = null, faltan = [], opciones = [], pedido = null, producto = null }) {
   switch (situacion) {
     case "producto_desconocido":
       return "Para ayudarte bien, ¿me confirmas cuál producto te interesa?";
@@ -173,8 +173,30 @@ function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones
         cantidad: "cuántas unidades quieres",
       };
       const pide = faltan.map((f) => nombres[f] || f);
-      if (!pide.length) return "¿Me confirmas los datos de envío?";
-      return `Para continuar me falta ${pide.join(", ")}.`;
+      const peticion = pide.length ? `Para continuar me falta ${pide.join(", ")}.` : "¿Me confirmas los datos de envío?";
+
+      // ----------------------------------------------------------------------
+      // EL PRECIO VA ANTES DE PEDIR LA DIRECCION
+      //
+      // Sin esto, a "¿cuánto cuesta?" el bot contestaba "me falta la ciudad y
+      // la dirección": pedirle los datos a alguien que todavia no sabe el
+      // precio. Es la forma mas rapida de perder la venta, y pasaba aunque el
+      // precio estuviera en el catalogo, solo porque faltaba la cantidad.
+      //
+      // La cifra la calcula el cotizador para UNA unidad; aqui no se
+      // multiplica nada. Y es informativa a proposito: no crea oferta ni
+      // marca resumen mostrado, asi que un "si" a este mensaje no confirma
+      // ningun pedido.
+      // ----------------------------------------------------------------------
+      if (cotizacionInformativa) {
+        const condiciones = lineasDeCondiciones(cotizacionInformativa);
+        const precio = `Una unidad cuesta ${pesos(cotizacionInformativa.total)}${
+          condiciones.length ? `, con ${condiciones[0].toLowerCase().replace(" · ", " y ")}` : ""
+        }.`;
+        return `${precio}\n${peticion}`;
+      }
+
+      return peticion;
     }
 
     case "resumen": {
@@ -218,8 +240,17 @@ function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones
  *
  * @returns {{texto: string, origen: "determinista"|"ia", bloqueos: object[]}}
  */
-function preparar({ situacion, cotizacion = null, faltan = [], opciones = [], pedido = null, producto = null, borradorIA = null }) {
-  const determinista = textoDeterminista({ situacion, cotizacion, faltan, opciones, pedido, producto });
+function preparar({
+  situacion,
+  cotizacion = null,
+  cotizacionInformativa = null,
+  faltan = [],
+  opciones = [],
+  pedido = null,
+  producto = null,
+  borradorIA = null,
+}) {
+  const determinista = textoDeterminista({ situacion, cotizacion, cotizacionInformativa, faltan, opciones, pedido, producto });
   const bloqueos = [];
 
   // --------------------------------------------------------------------------
@@ -242,7 +273,12 @@ function preparar({ situacion, cotizacion = null, faltan = [], opciones = [], pe
     return { texto: determinista, origen: "determinista", bloqueos: [{ tipo: BLOQUEOS.SIN_BORRADOR }] };
   }
 
-  const autorizados = cotizacion ? cotizacion.importesAutorizados : [];
+  // Los importes de la informativa tambien cuentan: si no, un borrador que
+  // repite el precio correcto se bloquearia por decir la verdad.
+  const autorizados = [
+    ...((cotizacion && cotizacion.importesAutorizados) || []),
+    ...((cotizacionInformativa && cotizacionInformativa.importesAutorizados) || []),
+  ];
   const importes = revisarImportes(borradorIA, autorizados);
   if (!importes.ok) {
     bloqueos.push({
