@@ -17,7 +17,8 @@
     "cutover": "node src/cutover.js",
     "congelar": "node src/congelar.js congelar",
     "descongelar": "node src/congelar.js descongelar",
-    "congelado": "node src/congelar.js estado"
+    "congelado": "node src/congelar.js estado",
+    "comprobar-postgres": "node src/comprobar-postgres.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

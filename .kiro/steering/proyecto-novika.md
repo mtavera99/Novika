@@ -87,7 +87,7 @@ Detalle en `docs/CEREBRO.md`.
 - Pruebas con `node:test`. `npm test`. Sin credenciales, sin red, sin escribir fuera de `/tmp`.
 - Código y comentarios en español, sin acentos en el código fuente (sí en la documentación).
 - Un único módulo lee `process.env`: `src/config.js`. **Ningún secreto tiene valor por defecto**; si falta, el proceso no arranca.
-- Nombres por lo que hacen: `vistos.esNuevo()`, `diario.anotar()`, `revisarFirma()`.
+- Nombres por lo que hacen: `trabajo.reclamar()`, `diario.anotar()`, `revisarFirma()`.
 - Los comentarios explican **por qué**, no qué. Si una decisión viene de un incidente, se cita el incidente.
 - Los datos de clientes se enmascaran en los logs salvo `LOG_PII=1`. El log **no** es la base de datos.
 
@@ -101,18 +101,33 @@ El sistema de archivos de un Web Service de Render es **efímero**. Nada crític
 - **El cutover exige congelar las escrituras y lo VERIFICA con una huella** del origen antes y después. Un cutover que copia un origen en movimiento se declara exitoso dejando pedidos fuera; se midió. Congelado, el webhook sigue contestando 200 y reclamando en el disco, pero no procesa: el recuperador vacía la cola al reiniciar.
 - **El punto de no retorno** es el reinicio con `DATABASE_URL` puesta y las escrituras descongeladas. Antes: quitar la variable es seguro. Después: hay que hacer el cutover inverso (`npm run cutover -- --inverso`), porque quitar la variable perdería lo escrito en PostgreSQL.
 - **Las migraciones no se aplican al arrancar.** `npm run migrar` es una decisión, no un efecto secundario de desplegar. Si falta el esquema, el arranque falla y lo dice.
-- Todo el acceso a almacenamiento pasa por `src/almacen/diario.js` y `src/almacen/vistos.js`. Ningún otro módulo abre un archivo, para que migrar sea un cambio y no una reescritura.
-- `esNuevo(id)` marca y pregunta en una sola operación, porque en Postgres eso es un `INSERT ... ON CONFLICT` atómico. Dos llamadas separadas heredarían una carrera.
+- Todo el acceso a almacenamiento pasa por `src/almacen/` (`diario.js`, `trabajo.js`, `repos/`). Ningún otro módulo abre un archivo ni habla con la base, para que cambiar de backend sea un cambio y no una reescritura.
+- **Hay un solo mecanismo de deduplicación: `src/almacen/trabajo.js`.** El `almacen/vistos.js` de la Fase 1 se eliminó al construirlo — no lo recrees. Dos registros de "esto ya pasó" son dos fuentes de verdad, y el día que discrepen una deja pasar un pedido duplicado. Se deduplica por `terminado`, no por "visto": lo que quede en `reclamado` al arrancar se reprocesa.
+- `trabajo.reclamar(id)` marca y pregunta en una sola operación, porque en Postgres eso es un `INSERT ... ON CONFLICT` atómico. Dos llamadas separadas heredarían una carrera.
 - Con almacenamiento efímero, `RESPUESTA_AUTOMATICA=1` **bloquea el arranque**.
 
 Detalle en `docs/PERSISTENCIA.md`.
 
 ## Estado
 
-Fase 1 (recepción) completa: webhook verificable, firma obligatoria, deduplicación persistida, diario en disco, esquema de catálogo.
+- **Fase 1 · recepción — completa y desplegada.** Webhook verificado en Meta, firma obligatoria, deduplicación persistida, diario en disco, disco persistente comprobado empíricamente.
+- **Fase 2 · cerebro — completa, en modo sombra.** Dominio puro, cotizador, máquina de estados, IA desacoplada, capa transaccional y recuperación durable tras crash (verificada con `SIGKILL`).
+- **Fase 3A · PostgreSQL — preparada y verificada, SIN activar.** `DATABASE_URL` vacía en producción; el servicio sigue sobre archivos. Cutover, congelación de escrituras y rollback inverso implementados y probados contra una base real.
 
-Pendiente: definir productos reales, envío de mensajes, flujo conversacional, cotización, pedidos, panel.
+Pendiente: definir los productos reales, el cutover real a PostgreSQL, y el panel.
 
-`RESPUESTA_AUTOMATICA=0`: **NOVIKA no le escribe a ningún cliente todavía.** No cambiar sin autorización explícita del dueño. Las pruebas de respuesta usan dobles; nunca mensajes reales.
+`RESPUESTA_AUTOMATICA=0`: **NOVIKA no le ha escrito a ningún cliente todavía.** No cambiar sin autorización explícita del dueño. Las pruebas de respuesta usan dobles; nunca mensajes reales.
 
-Fase 2 (cerebro) completa en modo sombra: 372 pruebas en verde, sin credenciales y sin red.
+## Comandos
+
+```
+npm start               arrancar
+npm test                batería completa (sin red, sin credenciales)
+npm run comprobar-config    qué falta en la configuración
+npm run comprobar-postgres  revisión de SOLO LECTURA de la base
+npm run migrar              aplicar el esquema  (· --estado para solo mirar)
+npm run congelar            frenar las escrituras  (· descongelar · congelado)
+npm run cutover             archivos → postgres  (· --simular · --inverso)
+```
+
+El cutover se ejecuta **desde el Shell de `novika-bot`** en Render: la Internal Database URL solo resuelve dentro de su red privada, y el cutover necesita el disco y la base a la vez. Detalle en `docs/POSTGRES.md`.

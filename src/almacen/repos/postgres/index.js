@@ -54,6 +54,31 @@ const ESTADOS_MUERTOS = new Set(["cancelado"]);
  * (con TLS obligatorio). Se detecta por la propia URL en vez de obligar a
  * configurar una variable mas que alguien olvidara.
  */
+/**
+ * Host y base, SIN usuario ni contrasena.
+ *
+ * Existe para poder decir DONDE se va a escribir sin filtrar la credencial:
+ * estas salidas se pegan en chats y en informes. Una sola implementacion
+ * para los cuatro comandos, porque una copia que se olvide de recortar la
+ * contrasena la publica.
+ */
+function describirDestino(dsn) {
+  const texto = String(dsn || "");
+  try {
+    const u = new URL(texto);
+    const host = u.hostname || u.searchParams.get("host") || "socket local";
+    return `${host}${u.port ? `:${u.port}` : ""}${u.pathname}`;
+  } catch {
+    // Las URLs con socket unix (sin host) no las parsea URL. Se recorta a
+    // mano, siempre quitando lo que haya antes de la arroba.
+    const sinCredencial = texto.replace(/^[a-z]+:\/\/[^@/]*@/i, "");
+    const base = (sinCredencial.match(/\/([^/?]+)/) || [])[1] || "";
+    const socket = (texto.match(/host=([^&]+)/) || [])[1] || "";
+    if (base || socket) return `${socket ? `socket ${socket}` : "local"}/${base}`;
+    return "(destino no interpretable)";
+  }
+}
+
 function opcionesDeSsl(dsn) {
   const texto = String(dsn || "");
   if (/sslmode=disable/.test(texto)) return false;
@@ -639,6 +664,7 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
 module.exports = {
   crearReposDePostgres,
   TIPO,
+  describirDestino,
   opcionesDeSsl,
   sobrantes,
   pedidoAFila,

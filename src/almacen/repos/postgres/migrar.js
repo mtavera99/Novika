@@ -121,7 +121,7 @@ async function migrar({ cliente, carpeta = CARPETA, log = null } = {}) {
         continue;
       }
 
-      decir("info", "migracion_aplicando", { nombre: m.nombre });
+      decir("info", "migracion_aplicando", { migracion: m.nombre });
 
       // La migracion y su registro, en la misma transaccion.
       await cliente.query("BEGIN");
@@ -135,7 +135,7 @@ async function migrar({ cliente, carpeta = CARPETA, log = null } = {}) {
       }
 
       resultado.aplicadas.push(m.nombre);
-      decir("info", "migracion_aplicada", { nombre: m.nombre });
+      decir("info", "migracion_aplicada", { migracion: m.nombre });
     }
   } finally {
     await cliente.query("SELECT pg_advisory_unlock($1)", [CERROJO_MIGRACIONES]).catch(() => {});

@@ -14,18 +14,7 @@ const { config } = require("./config");
 const log = require("./log");
 const { migrar, estado } = require("./almacen/repos/postgres/migrar");
 
-/** Host y base, sin usuario ni contrasena. Para saber DONDE se va a migrar. */
-/** Host y base, SIN usuario ni contrasena. Para saber DONDE se va a migrar. */
-function describirDestino(dsn) {
-  try {
-    const u = new URL(dsn);
-    const host = u.hostname || u.searchParams.get("host") || "socket local";
-    return `${host}${u.port ? `:${u.port}` : ""}${u.pathname}`;
-  } catch {
-    // Nunca se devuelve el DSN crudo: lleva la contrasena dentro.
-    return "(destino no interpretable)";
-  }
-}
+const { describirDestino } = require("./almacen/repos/postgres");
 
 async function principal() {
   const soloMirar = process.argv.includes("--estado");

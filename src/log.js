@@ -35,6 +35,11 @@ function enmascararTelefono(valor) {
 }
 
 const CLAVES_SENSIBLES = new Set(["telefono", "de", "para", "idCliente", "owner", "wa_id"]);
+// "nombre" esta aqui porque suele ser el nombre de un cliente. Si alguna vez
+// enmascara algo que no es PII -el nombre de un archivo, de una migracion-,
+// la respuesta correcta es renombrar ESA clave en quien registra, no sacar
+// "nombre" de la lista: un falso positivo molesta, un falso negativo publica
+// el nombre de un cliente en los logs del hosting.
 const CLAVES_DE_TEXTO = new Set(["texto", "cuerpo", "mensaje", "nombre", "direccion"]);
 
 function limpiar(datos) {

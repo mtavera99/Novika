@@ -148,9 +148,46 @@ La huella detecta las tres formas de cambiar, incluida la que un conteo no ve:
 
 Es lo que convierte *"creemos que nadie escribió"* en *"sabemos que nadie escribió"*. Y si salta, el problema es recuperable: el cutover es idempotente, así que basta repetirlo.
 
+### Dónde se ejecuta esto
+
+**En el Shell de `novika-bot`** (Render → `novika-bot` → *Shell*). No es un detalle de comodidad, es el único sitio donde se puede:
+
+| | |
+|---|---|
+| La **Internal Database URL** solo resuelve **dentro** de la red privada de Render | desde tu portátil no conecta |
+| El cutover necesita **leer el disco** (`/var/data`) y **escribir en la base** a la vez | el disco solo está montado en el servicio |
+
+La External URL sí sale a internet, pero no sirve para el cutover: desde fuera no hay disco que copiar.
+
+> El Shell corre **en la misma instancia** que atiende los webhooks. Por eso congelar funciona: la marca que deja `npm run congelar` en `/var/data` la ve el proceso que está sirviendo.
+
+### La trampa del orden
+
+Hay una forma de tumbar producción en este procedimiento, y es poner `DATABASE_URL` en el servicio **antes** de aplicar el esquema:
+
+```
+DATABASE_URL puesta + tablas que no existen  →  el arranque falla a propósito
+                                             →  novika-bot no levanta
+                                             →  producción caída
+```
+
+Es el candado de la Fase 3A funcionando (el servicio no crea tablas por su cuenta), pero el resultado es el mismo: el bot deja de contestar. **El arreglo es quitar la variable** y volver a desplegar; nada se corrompe.
+
+Por eso `DATABASE_URL` va en el entorno **de cada comando**, no en el servicio, hasta el paso 5:
+
+```bash
+DATABASE_URL="..." npm run migrar     # ← así
+```
+
+Y por eso existe `npm run comprobar-postgres`: comprueba conectividad, versión, permisos, migraciones, índices y cuántos datos hay a cada lado **sin escribir una fila**, antes de que nada pueda romperse.
+
 ### Procedimiento
 
 ```bash
+# 0. comprobar antes de tocar nada (solo lectura)
+DATABASE_URL="..." npm run comprobar-postgres
+#    cada paso termina diciendo cuál es el siguiente
+
 # 1. crear el esquema
 DATABASE_URL="..." npm run migrar
 
@@ -310,13 +347,19 @@ Dime que está creada. **No me pegues la URL en el chat** — lleva la contrase�
 
 ### 3. Cuando hagamos el cutover
 
-Copia la **Internal Database URL** (la interna, no la externa: no sale a internet) y úsala en los comandos de los pasos 1-3 de arriba. Yo te acompaño en el orden.
+Abre **Render → `novika-bot` → Shell**, copia la **Internal Database URL** y empieza por la comprobación de solo lectura:
+
+```bash
+DATABASE_URL="<internal url>" npm run comprobar-postgres
+```
+
+**Pégame esa salida.** No lleva secretos: imprime el host y el nombre de la base, nunca el usuario ni la contraseña. Con eso te doy el resto de los comandos sabiendo lo que hay realmente al otro lado.
 
 ### 4. Solo al final
 
 Render → `novika-bot` → Environment → `DATABASE_URL` = la Internal Database URL.
 
-Hasta ese momento, producción no toca la base.
+Hasta ese momento, producción no toca la base. Y antes de ese momento el esquema **ya tiene que estar aplicado** — ver *La trampa del orden*.
 
 ---
 

@@ -56,17 +56,7 @@ const { config } = require("./config");
 const { crearReposDeArchivos } = require("./almacen/repos/archivos");
 const congelacion = require("./almacen/congelar");
 
-/** Host y base, SIN usuario ni contrasena. Para saber DONDE se va a migrar. */
-function describirDestino(dsn) {
-  try {
-    const u = new URL(dsn);
-    const host = u.hostname || u.searchParams.get("host") || "socket local";
-    return `${host}${u.port ? `:${u.port}` : ""}${u.pathname}`;
-  } catch {
-    // Nunca se devuelve el DSN crudo: lleva la contrasena dentro.
-    return "(destino no interpretable)";
-  }
-}
+const { describirDestino } = require("./almacen/repos/postgres");
 
 /**
  * Huella del contenido de un almacen.
