@@ -59,6 +59,25 @@ const congelacion = require("./almacen/congelar");
 const { describirDestino } = require("./almacen/repos/postgres");
 
 /**
+ * Barrera de reposo: cuanto se espera entre dos miradas al origen.
+ *
+ * 2 segundos porque un turno pasa por catalogo, cotizador y pedido, todo
+ * sobre disco local, y eso se mide en decenas de milisegundos. 2 s da dos
+ * ordenes de magnitud de margen sin alargar una operacion que ya exige
+ * tener el bot congelado.
+ */
+const REPOSO_MS = 2000;
+
+/**
+ * Cuantas veces se vuelve a esperar si el origen seguia moviendose.
+ *
+ * Tres, no infinitas: si despues de 6 segundos congelado alguien sigue
+ * escribiendo, no es un turno drenando. Es que la congelacion no esta
+ * puesta donde creemos, y seguir esperando solo retrasa el diagnostico.
+ */
+const INTENTOS_DE_REPOSO = 3;
+
+/**
  * Huella del contenido de un almacen.
  *
  * Incluye los identificadores Y las marcas de actualizacion, para que
@@ -109,6 +128,12 @@ async function copiar({
   exigirCongelacion = true,
   dirDatos = null,
   contar = null,
+  // Barrera de reposo: cuanto se espera entre dos miradas al origen para
+  // dar por drenados los turnos que ya estaban en curso al congelar, y
+  // cuantas veces se reintenta. 0 la desactiva (las pruebas que no la
+  // ejercitan la apagan para no dormir en cada caso).
+  reposoMs = REPOSO_MS,
+  intentosDeReposo = INTENTOS_DE_REPOSO,
 }) {
   const informe = {
     simulado: simular,
@@ -133,9 +158,71 @@ async function copiar({
     avisar(`escrituras congeladas desde ${estadoCongelacion.desde}`);
   }
 
+  // --- 0.b BARRERA DE REPOSO ----------------------------------------------
+  //
+  // Congelar frena los turnos NUEVOS. No frena los que ya estaban en curso.
+  //
+  // El webhook contesta 200 a Meta y procesa DESPUES, de forma asincrona. Un
+  // turno que ya habia pasado la compuerta cuando se congelo sigue su
+  // camino: identifica el producto, cotiza, y puede GUARDAR UN PEDIDO varios
+  // cientos de milisegundos despues de que la marca de congelacion exista.
+  //
+  // Es decir: "congelado" no significa "quieto" en el instante en que se
+  // congela. Significa "no entra trabajo nuevo". Y el cutover no necesita lo
+  // primero, necesita lo segundo.
+  //
+  // La huella de antes/despues ya detectaba esto, pero solo DESPUES de haber
+  // copiado: el cutover fallaba y habia que repetirlo, sin decir por que. Y
+  // repetirlo podia volver a caer en la misma ventana.
+  //
+  // Esta barrera lo resuelve antes: se mira el origen, se espera, y se
+  // vuelve a mirar. Si las dos huellas coinciden, nadie esta escribiendo y
+  // se puede copiar. Si no coinciden, hay turnos drenando y se espera otra
+  // vez. No hace falta coordinar procesos ni leer memoria ajena -el cutover
+  // es otro proceso-: el disco ya dice la verdad.
+  //
+  // Se usa la ultima muestra como huella de partida, asi no se lee dos veces
+  // para nada.
+  // ------------------------------------------------------------------------
+  let antes = await origen._inventario();
+  let huellaAntes = huella(antes);
+  const muestras = [huellaAntes.resumen];
+
+  if (reposoMs > 0) {
+    let quieto = false;
+    for (let intento = 1; intento <= intentosDeReposo; intento++) {
+      await new Promise((listo) => setTimeout(listo, reposoMs));
+      const otra = await origen._inventario();
+      const huellaOtra = huella(otra);
+      muestras.push(huellaOtra.resumen);
+
+      if (huellaOtra.resumen === huellaAntes.resumen) {
+        quieto = true;
+        antes = otra;
+        huellaAntes = huellaOtra;
+        break;
+      }
+
+      // Se movio: hay turnos en curso drenando. Se adopta la muestra nueva y
+      // se vuelve a esperar.
+      avisar(`el origen se movio (${diferencias(huellaAntes, huellaOtra).join("; ")}); esperando a que drene`);
+      antes = otra;
+      huellaAntes = huellaOtra;
+    }
+
+    informe.reposo = { quieto, muestras, reposoMs, intentos: muestras.length - 1 };
+
+    if (!quieto) {
+      informe.problemas.push(
+        `el origen sigue cambiando despues de ${intentosDeReposo} espera(s) de ${reposoMs} ms: hay turnos en curso escribiendo. ` +
+          "No se copio nada. Comprueba que las escrituras esten congeladas (`npm run congelado`) y repite el cutover."
+      );
+      return informe;
+    }
+    avisar(`origen en reposo tras ${informe.reposo.intentos} comprobacion(es) de ${reposoMs} ms`);
+  }
+
   // --- 1. Huella del origen ANTES -----------------------------------------
-  const antes = await origen._inventario();
-  const huellaAntes = huella(antes);
   informe.huellaAntes = huellaAntes;
 
   informe.contactos.origen = huellaAntes.contactos;
@@ -319,4 +406,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { copiar, huella, diferencias };
+module.exports = { copiar, huella, diferencias, REPOSO_MS, INTENTOS_DE_REPOSO };

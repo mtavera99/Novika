@@ -147,7 +147,10 @@ async function manejarMensaje(evento) {
     diario.anotar("fallo_del_cerebro", { wamid: evento.wamid, error: e.message, pila: e.stack });
     log.error("fallo_del_cerebro", { wamid: evento.wamid, detalle: e.message });
     metricas.incrementar("error_interno");
-    return { accion: "registrado", respondido: false, fallo: true };
+    // `fallo` y `error` los lee atenderEvento para dejar el trabajo
+    // RECLAMABLE en vez de terminado. Sin esta senal, un turno que falla
+    // queda cerrado y nadie lo vuelve a mirar.
+    return { accion: "registrado", respondido: false, fallo: true, error: e.message };
   }
 }
 
@@ -226,6 +229,25 @@ function admitir(cuerpo, idEntrega = null) {
     mensajes++;
     const reclamo = trabajo.reclamar(evento.wamid, { evento });
 
+    // El unico caso malo es "aceptamos trabajo nuevo y no pudimos
+    // anotarlo". Un reclamo RECHAZADO (terminado, en curso, agotado) si es
+    // durable: significa que ya sabemos de ese evento, y saberlo es
+    // exactamente lo que hace falta para no perderlo.
+    //
+    // La primera version contaba cualquier rechazo como "no durable", y un
+    // replay normal de Meta -que siempre se rechaza por "terminado"- se
+    // respondia con 503. Eso le dice a Meta que reintente algo que ya esta
+    // hecho, y un 5xx repetido acaba desactivando la suscripcion.
+    //
+    // ESTA COMPROBACION VA ANTES DE LA RAMA DE CONGELACION, no despues.
+    // Estaba despues, y el `continue` de la rama congelada se la saltaba:
+    // congelado + disco que no acepta la escritura devolvia durable:true y
+    // se contestaba 200 sin respaldo. El mensaje quedaba sin rastro y sin
+    // nadie que lo reclamara. La congelacion no exime de tener respaldo:
+    // precisamente lo que hace que congelar no cueste ventas es que el
+    // trabajo SI esta en el disco.
+    if (reclamo.ok && reclamo.persistido === false) sinRespaldoEnDisco++;
+
     // CONGELADO: se reclama igual -el trabajo queda en el disco y no se
     // pierde- pero NO se procesa. Un evento reclamado y sin terminar es
     // exactamente lo que el recuperador busca al arrancar, asi que al
@@ -240,17 +262,6 @@ function admitir(cuerpo, idEntrega = null) {
       admitidos.push({ evento, reclamo, diferido: true });
       continue;
     }
-
-    // El unico caso malo es "aceptamos trabajo nuevo y no pudimos
-    // anotarlo". Un reclamo RECHAZADO (terminado, en curso, agotado) si es
-    // durable: significa que ya sabemos de ese evento, y saberlo es
-    // exactamente lo que hace falta para no perderlo.
-    //
-    // La primera version contaba cualquier rechazo como "no durable", y un
-    // replay normal de Meta -que siempre se rechaza por "terminado"- se
-    // respondia con 503. Eso le dice a Meta que reintente algo que ya esta
-    // hecho, y un 5xx repetido acaba desactivando la suscripcion.
-    if (reclamo.ok && reclamo.persistido === false) sinRespaldoEnDisco++;
 
     admitidos.push({ evento, reclamo });
   }
@@ -342,6 +353,30 @@ async function atenderEvento(evento, { idEntrega = null, enRecuperacion = false,
       return { accion: "desconocido" };
     }
 
+    // 2.b CONGELACION. Va AQUI, y no solo en admitir(), por dos razones.
+    //
+    // La primera es que la recuperacion de arranque entra por esta funcion
+    // directamente, sin pasar por admitir(). Con la compuerta solo en
+    // admitir(), un reinicio durante el cutover -y un disco persistente en
+    // Render hace que cada despliegue sea un reinicio- procesaba los
+    // mensajes diferidos CONTRA EL ORIGEN QUE SE ESTA COPIANDO y los
+    // marcaba como terminados. La congelacion dejaba de ser una compuerta y
+    // pasaba a ser un retraso de un reinicio, que es justo lo que no es.
+    //
+    // La segunda es la regla que ya aplica el aislamiento unas lineas mas
+    // arriba: un candado que depende de quien llame no es un candado.
+    //
+    // Va DESPUES de la clase -un acuse de entrega no escribe en el almacen
+    // transaccional, y un `failed` perdido no se recupera de ningun sitio- y
+    // ANTES del reclamo, para no consumir un intento. Consumirlo seria
+    // fatal: tres reinicios durante un cutover agotarian el mensaje y lo
+    // dejarian fuera para siempre, sin haberlo intentado ni una vez.
+    if (congelacion.estado(config.dirDatos).congelado) {
+      diario.anotar("diferido_por_congelacion", { idEntrega, wamid: evento.wamid, enRecuperacion });
+      metricas.incrementar("evento_diferido");
+      return { wamid: evento.wamid, accion: "diferido" };
+    }
+
     // 3. Reclamo. Si viene del webhook ya se hizo ANTES del 200; si no, se
     //    hace aqui (recuperacion y pruebas).
     const reclamo = reclamoPrevio || trabajo.reclamar(evento.wamid, { evento, enRecuperacion });
@@ -365,8 +400,26 @@ async function atenderEvento(evento, { idEntrega = null, enRecuperacion = false,
 
     const r = await manejarMensaje(evento);
 
-    // 5. Terminado (durable). Desde aqui, este wamid no vuelve a ejecutarse.
-    trabajo.terminar(evento.wamid, { accion: r.accion, situacion: r.situacion || null });
+    // 5. Cierre durable.
+    //
+    // UN TURNO QUE FALLO NO ESTA TERMINADO. manejarMensaje() captura la
+    // excepcion del cerebro para poder anotarla en el diario con su pila, y
+    // devuelve `fallo:true`. La version anterior llamaba a terminar() de
+    // todas formas, asi que el evento quedaba cerrado sin haberse
+    // procesado: no se recuperaba (terminado no se reintenta), no se agotaba
+    // (nunca llegaba a agotarse) y no aparecia en ninguna lista que alguien
+    // mirara. Desaparecia en silencio, que es exactamente el modo de fallo
+    // que esta bitacora existe para impedir.
+    //
+    // fallar() lo deja RECLAMADO -recuperable en el proximo arranque- y lo
+    // pasa a AGOTADO al llegar a MAX_INTENTOS, que es lo que evita que un
+    // mensaje que rompe el cerebro de forma determinista gire para siempre.
+    if (r.fallo) {
+      trabajo.fallar(evento.wamid, r.error || "fallo al manejar el mensaje");
+    } else {
+      // Desde aqui, este wamid no vuelve a ejecutarse.
+      trabajo.terminar(evento.wamid, { accion: r.accion, situacion: r.situacion || null });
+    }
 
     return { wamid: evento.wamid, ...r, intentos: reclamo.intentos };
   } catch (e) {

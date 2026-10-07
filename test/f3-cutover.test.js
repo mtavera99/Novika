@@ -173,7 +173,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      const informe = await copiar({ origen, destino, simular: true });
+      const informe = await copiar({ origen, destino, simular: true, reposoMs: 0 });
       assert.equal(informe.simulado, true);
       assert.equal(informe.pedidos.origen, 3);
       // Nada escrito.
@@ -188,7 +188,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen, ids } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      const informe = await copiar({ origen, destino });
+      const informe = await copiar({ origen, destino, reposoMs: 0 });
 
       assert.deepEqual(informe.problemas, [], `problemas: ${informe.problemas.join(" | ")}`);
       assert.equal(informe.contactos.copiados, 2);
@@ -215,10 +215,10 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
+      await copiar({ origen, destino, reposoMs: 0 });
       const primera = await destino.estado();
 
-      const segunda = await copiar({ origen, destino });
+      const segunda = await copiar({ origen, destino, reposoMs: 0 });
       const despues = await destino.estado();
 
       assert.deepEqual(despues, primera, "el segundo pase cambio los conteos");
@@ -237,7 +237,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen, ids } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
+      await copiar({ origen, destino, reposoMs: 0 });
       const p = await destino.pedidos.obtener(ids.cancelado);
       assert.equal(p.estado, "cancelado");
       assert.equal(p.motivoCancelacion, "se arrepintio");
@@ -257,8 +257,8 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen, ids } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
-      await copiar({ origen, destino }); // segundo pase
+      await copiar({ origen, destino, reposoMs: 0 });
+      await copiar({ origen, destino, reposoMs: 0 }); // segundo pase
 
       const enDisco = await origen.pedidos.obtener(ids.modificado);
       const enBase = await destino.pedidos.obtener(ids.modificado);
@@ -282,7 +282,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen, ids } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
+      await copiar({ origen, destino, reposoMs: 0 });
       const enDisco = await origen.pedidos.obtener(ids.confirmado);
       const enBase = await destino.pedidos.obtener(ids.confirmado);
 
@@ -301,7 +301,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
+      await copiar({ origen, destino, reposoMs: 0 });
       const c = await destino.conversaciones.obtener("573001112233");
       assert.equal(c.resumenMostrado, true, "sin esto, un si no confirmaria tras el cutover");
       assert.equal(c.cotizacion.total, 89000);
@@ -321,7 +321,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen, ids } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
+      await copiar({ origen, destino, reposoMs: 0 });
 
       const original = await destino.pedidos.obtener(ids.confirmado);
       const replay = { ...original, id: "NOV-REPLAY-TRAS-CUTOVER" };
@@ -342,7 +342,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
     const { repos: origen } = await origenConDatos();
     const destino = await destinoLimpio();
     try {
-      await copiar({ origen, destino });
+      await copiar({ origen, destino, reposoMs: 0 });
 
       // Se fabrica el choque: otro pedido con la clave de evento de uno que
       // ya esta, pero con otro id.
@@ -350,7 +350,7 @@ describe("cutover contra PostgreSQL real", { skip: sinBase ? motivoSalto : false
       const impostor = { ...inv.pedidos[0], id: "NOV-IMPOSTOR" };
       await origen.pedidos.reemplazar(impostor);
 
-      const informe = await copiar({ origen, destino });
+      const informe = await copiar({ origen, destino, reposoMs: 0 });
       assert.ok(informe.problemas.length > 0, "el choque de claves paso inadvertido");
       assert.ok(informe.pedidos.noCreados.length > 0);
       assert.match(informe.problemas.join(" "), /NOV-IMPOSTOR/);

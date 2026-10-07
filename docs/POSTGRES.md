@@ -136,7 +136,25 @@ Un evento reclamado y sin terminar es exactamente lo que el recuperador busca al
 
 El cutover **se niega a copiar** si no está congelado. Un paso que se puede olvidar, se olvida.
 
+**1.b Esperar a los turnos que ya estaban en curso.** Congelar frena los turnos **nuevos**. No frena los que ya habían pasado la compuerta.
+
+El webhook contesta 200 a Meta y procesa **después**, de forma asíncrona. Un turno en vuelo cuando se congela sigue su camino —producto, cotización, pedido— y puede **guardar un pedido cientos de milisegundos después** de que la marca de congelación exista. Es decir: *congelado* significa "no entra trabajo nuevo", no "el origen está quieto". Y el cutover necesita lo segundo.
+
+La **barrera de reposo** lo resuelve antes de copiar: se mira el origen, se espera 2 s, y se vuelve a mirar. Dos huellas iguales = nadie escribiendo. Si difieren, hay turnos drenando y se espera otra vez, hasta 3 veces.
+
+```
+  escrituras congeladas desde 2026-10-07T...
+  el origen se movio (pedidos: contenido distinto); esperando a que drene
+  origen en reposo tras 2 comprobacion(es) de 2000 ms
+```
+
+No hace falta coordinar procesos ni leer memoria ajena —el cutover es **otro proceso**, el disco es el único canal—: el inventario del origen ya dice la verdad.
+
+Si después de tres esperas sigue moviéndose, **no copia nada** y lo dice. A los 6 segundos de estar congelado, algo que sigue escribiendo no es un turno drenando: es que la congelación no está donde creemos, y seguir esperando solo retrasa el diagnóstico.
+
 **2. Verificarlo, no confiarlo.** Se toma una **huella** del origen antes y después de copiar: ids + versiones + estados + fechas de actualización. Si cambió algo, el cutover **falla**.
+
+> **La barrera y la huella cubren ventanas distintas y hacen falta las dos.** La barrera: lo que se escribe **antes** de empezar a copiar. La huella: lo que se escribe **durante**. Probado por separado en `f3-defectos-congelacion.test.js` (`la barrera NO sustituye a la huella de antes/despues`).
 
 La huella detecta las tres formas de cambiar, incluida la que un conteo no ve:
 
@@ -147,6 +165,48 @@ La huella detecta las tres formas de cambiar, incluida la que un conteo no ve:
 | **Modificación** | **no** | **sí** |
 
 Es lo que convierte *"creemos que nadie escribió"* en *"sabemos que nadie escribió"*. Y si salta, el problema es recuperable: el cutover es idempotente, así que basta repetirlo.
+
+### Cuatro agujeros que la congelación abrió por su cuenta
+
+Una revisión independiente sobre `5649e27` encontró tres defectos en la congelación; comprobar el tercero destapó un cuarto, que era el peor. Todos reproducidos con una prueba que falla antes del arreglo.
+
+**1 · La recuperación ignoraba la congelación.** `recuperarPendientes()` entra por `atenderEvento()`, y la compuerta solo estaba en `admitir()`. Así que al arrancar, la recuperación **llamaba al cerebro y marcaba el evento como terminado aunque siguiera congelado** — y además consumía un intento.
+
+Y arrancar durante un cutover no es raro: un disco persistente en Render **desactiva los despliegues sin interrupción**, así que cada despliegue es un reinicio. El efecto era que la congelación dejaba de ser una compuerta y pasaba a ser un retraso de un reinicio.
+
+Lo grave era el intento consumido: tres reinicios durante un cutover **agotaban** el mensaje y lo dejaban fuera para siempre, sin haberlo intentado ni una vez. La compuerta ahora está en `atenderEvento()` —el camino único— y va **antes** del reclamo.
+
+> Un acuse de entrega sí se registra estando congelado: no escribe en el almacén transaccional, y un `failed` perdido no se recupera de ningún sitio.
+
+**2 · Un turno que fallaba quedaba cerrado.** `manejarMensaje()` captura la excepción del cerebro para anotarla con su pila y devuelve `fallo:true`. `atenderEvento()` llamaba a `trabajo.terminar()` **de todas formas**.
+
+El evento quedaba `terminado` sin haberse procesado: no se recuperaba (terminado no se reintenta), no se agotaba (nunca llegaba), y no aparecía en ninguna lista que alguien mirara. Desaparecía en silencio — exactamente el modo de fallo que esta bitácora existe para impedir. Ahora un turno con `fallo` llama a `fallar()`, que lo deja recuperable y lo agota en `MAX_INTENTOS`.
+
+**3 · Congelado, un fallo de escritura devolvía 200.** El `continue` de la rama de congelación se saltaba la comprobación de `persistido`, porque estaba **después**. Resultado: congelado + disco que no acepta la escritura → `durable:true` → **200 a Meta sin nada en disco**. La comprobación ahora va antes de la rama. La congelación no exime de tener respaldo: precisamente lo que hace que congelar no cueste ventas es que el trabajo **sí** está en el disco.
+
+**4 · El 503 sabotaba su propio rescate.** Este no estaba en el informe; salió de preguntarse qué pasa con la retransmisión. Cada pieza se comportaba "bien" por separado:
+
+```
+1. la escritura falla          -> persistido:false
+2. el webhook responde 503      (correcto: sin disco no hay recuperación)
+3. Meta retransmite             (correcto: para eso es el 503)
+4. pero el registro SEGUÍA en el índice en memoria
+   -> la retransmisión se veía "en_curso"
+   -> se descartaba como duplicado
+5. y al descartarla se contestaba 200
+```
+
+Nada en disco, nadie procesándolo, y Meta convencida de que el mensaje se entregó. **El mensaje se perdía por el mecanismo que existe para rescatarlo.**
+
+La regla correcta es más simple que el síntoma: **un reclamo que no está en disco no es un reclamo.** Si se pide 503 para que lo reintenten, hay que poder aceptar el reintento. `reclamar()` ahora deshace la entrada en memoria si el append falla.
+
+Verificado también por HTTP, porque lo que importa es el código que ve Meta:
+
+| Congelado | Disco | Meta recibe |
+|---|---|---|
+| sí | sano | **200** · reclamado, sin procesar |
+| sí | roto | **503** · Meta reintenta |
+| no | roto | **503** · ya se detectaba |
 
 ### Dónde se ejecuta esto
 
@@ -294,6 +354,7 @@ GET /health
 | `f3-cutover.test.js` | No perder, no duplicar, idempotencia, estados finales, snapshot |
 | `f3-recuperacion-postgres.test.js` | Que la recuperación durable siga funcionando con Postgres |
 | `f3-ventana-cutover.test.js` | La ventana de escrituras, la huella, el congelado y el rollback inverso |
+| `f3-defectos-congelacion.test.js` | Los cuatro agujeros de arriba, la barrera de reposo y el 503 por HTTP |
 
 Lo que solo se puede probar con una base real y **sí se probó**:
 
@@ -309,6 +370,11 @@ Lo que solo se puede probar con una base real y **sí se probó**:
 - repetir el cutover tras detectar el cambio sí lo completa
 - el rollback `--inverso` trae de vuelta un pedido que solo existía en PostgreSQL
 - congelado, el webhook reclama el trabajo y **no** lo procesa; descongelado, sí
+- congelado, **la recuperación de arranque tampoco procesa, y no gasta intentos** (dos reinicios seguidos lo dejan intacto)
+- un turno que hace lanzar al cerebro **no queda terminado**, se recupera cuando el fallo desaparece, y se agota en `MAX_INTENTOS`
+- congelado y con el disco roto, Meta recibe **503** y no 200 (comprobado por HTTP)
+- tras ese 503, **la retransmisión de Meta se puede reclamar** y el mensaje acaba procesándose
+- un turno en vuelo que escribe justo después de congelar **detiene el cutover antes de copiar**, y en cuanto drena el cutover completa con ese pedido incluido
 
 ```bash
 # sin base: las pruebas de Postgres se SALTAN, el resto corre

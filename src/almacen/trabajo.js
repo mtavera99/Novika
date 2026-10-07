@@ -237,6 +237,9 @@ function reclamar(wamid, { evento = null, enRecuperacion = false } = {}) {
     };
     mapa.set(wamid, reclamado);
     const persistido = anotarLinea(reclamado);
+    // SI NO LLEGO AL DISCO, NO OCURRIO. Ver la nota de abajo: dejar el
+    // indice avanzado sin respaldo en disco rompe la retransmision.
+    if (!persistido) mapa.set(wamid, previo);
     return { ok: true, motivo: "recuperado", intentos, evento: reclamado.evento, persistido };
   }
 
@@ -251,11 +254,36 @@ function reclamar(wamid, { evento = null, enRecuperacion = false } = {}) {
     // que Meta reenvie nada.
     evento,
   };
-  cargar().set(wamid, nuevo);
+  const mapaNuevo = cargar();
+  mapaNuevo.set(wamid, nuevo);
   // `persistido` le dice a quien llama si el reclamo llego al disco. Importa
   // porque el webhook NO debe contestar 200 si no puede garantizar que el
   // mensaje se podria recuperar: es mejor que Meta reintente.
   const persistido = anotarLinea(nuevo);
+
+  // ----------------------------------------------------------------------
+  // SI NO LLEGO AL DISCO, SE DESHACE EN MEMORIA.
+  //
+  // Esto cierra el peor de los agujeros encontrados en 5649e27, y era
+  // invisible porque cada pieza se comportaba "bien" por separado:
+  //
+  //   1. la escritura falla  -> persistido:false
+  //   2. el webhook responde 503 (correcto: sin disco no hay recuperacion)
+  //   3. Meta retransmite    (correcto: para eso es el 503)
+  //   4. pero el registro SEGUIA en el indice en memoria, asi que la
+  //      retransmision se veia "en_curso" y se descartaba como duplicado
+  //   5. y al descartarla se contestaba 200
+  //
+  // Resultado: nada en disco, nadie procesandolo, y Meta convencida de que
+  // el mensaje se entrego. El mensaje se perdia POR el mecanismo que existe
+  // para rescatarlo.
+  //
+  // La regla correcta es mas simple que el sintoma: un reclamo que no esta
+  // en disco no es un reclamo. Si se pide 503 para que lo reintenten, hay
+  // que poder aceptar el reintento.
+  // ----------------------------------------------------------------------
+  if (!persistido) mapaNuevo.delete(wamid);
+
   return { ok: true, motivo: "nuevo", intentos: 1, evento, persistido };
 }
 
