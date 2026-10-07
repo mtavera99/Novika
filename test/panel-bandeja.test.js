@@ -490,3 +490,90 @@ describe("3 · las pantallas sirven en un celular", () => {
     assert.match(p.bandeja, /inputmode="search"/);
   });
 });
+
+// --------------------------------------------------------------------------
+// 4 · OPTIMIZACION PARA CELULAR
+//
+// Marco pidio optimizar el panel para el movil. Cada prueba de aqui
+// corresponde a un problema concreto a 390px de ancho, que es un iPhone
+// normal, y no a una preferencia estetica.
+// --------------------------------------------------------------------------
+
+describe("4 · optimización para celular", () => {
+  async function unaPantalla() {
+    const repos = await conRepos();
+    await sembrar(repos, {
+      id: CLIENTE,
+      nombre: "Ana Pérez",
+      ciudad: "Medellín",
+      mensajes: [{ de: "cliente", texto: "hola" }],
+    });
+    const b = await datos.bandeja(repos, {});
+    return vistas.bandeja({ datos: b });
+  }
+
+  test("la navegación va en un carril deslizable, no envuelta en tres filas", async () => {
+    // Seis secciones mas "Salir" con flex-wrap ocupaban media pantalla: al
+    // abrir el panel se veia el menu y nada mas.
+    const html = await unaPantalla();
+    assert.match(html, /header \.derecha \{[^}]*overflow-x:auto/, "el menú tiene que deslizarse, no envolverse");
+    assert.match(html, /header \.derecha \.boton[^}]*white-space:nowrap/, "los botones no pueden partirse");
+  });
+
+  test("la cabecera queda fija al hacer scroll", async () => {
+    // La pagina es larga a proposito -el historial no se borra- y volver al
+    // menu obligaba a subir deslizando hasta arriba.
+    const html = await unaPantalla();
+    assert.match(html, /header \{ position:sticky/);
+  });
+
+  test("se marca en qué sección estás", async () => {
+    // Con el menu deslizable, la posicion ya no dice donde estas.
+    const html = await unaPantalla();
+    assert.match(html, /href="\/panel\/chats" aria-current="page"/);
+    assert.match(html, /aria-current="page"\] \{ background:var\(--azul\)/);
+  });
+
+  test("los KPI van de dos en dos, no en una columna infinita", async () => {
+    const html = await unaPantalla();
+    assert.match(html, /\.kpis \{ grid-template-columns:repeat\(2,1fr\)/);
+  });
+
+  test("la tabla de entrega no repite la palabra «Campo» en cada tarjeta", async () => {
+    // Con el apilado genérico salia "CAMPO Destinatario". El nombre del
+    // campo es el titulo de la tarjeta, que es como se lee de verdad.
+    const html = await unaPantalla();
+    assert.match(html, /\.entregaTabla td:first-child::before \{ display:none/);
+  });
+
+  test("el hilo del chat se limita para que el teclado no tape lo que escribes", async () => {
+    // Con el teclado abierto quedan ~350px de alto. Un hilo sin limite
+    // empujaba el area de escribir fuera de la pantalla.
+    const html = await unaPantalla();
+    assert.match(html, /\.chat \.hilo \{ max-height:48vh/);
+  });
+
+  test("respeta la muesca del iPhone", async () => {
+    // Sin esto el ultimo boton de la pagina queda debajo de la barra de
+    // gestos y no se puede tocar.
+    const html = await unaPantalla();
+    assert.match(html, /padding-bottom:calc\(16px \+ env\(safe-area-inset-bottom\)\)/);
+    assert.match(html, /viewport-fit=cover/);
+  });
+
+  test("hay botón de volver arriba, y solo aparece si hay scroll", async () => {
+    const html = await unaPantalla();
+    assert.match(html, /<a href="#arriba" class="subir"/);
+    assert.match(html, /id="arriba"/, "sin el ancla el botón no lleva a ningún sitio");
+    // El CSS lo limita al movil y el guion a cuando hace falta: un boton
+    // flotante en una pantalla corta tapa contenido sin servir.
+    assert.match(html, /\.subir \{[^}]*display:none/);
+    assert.match(html, /\.subir \{ display:flex/);
+    assert.match(html, /scrollHeight - window\.innerHeight\) > 400/);
+  });
+
+  test("el botón de volver arriba tiene nombre accesible", async () => {
+    const html = await unaPantalla();
+    assert.match(html, /aria-label="Volver arriba"/);
+  });
+});
