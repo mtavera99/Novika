@@ -39,7 +39,9 @@ const { PERMISOS, MOTIVOS_BLOQUEO } = require("../whatsapp/enviar");
  */
 const EXPLICACION = {
   [MOTIVOS_BLOQUEO.ENVIO_MANUAL_APAGADO]:
-    "Los envios manuales estan apagados (PANEL_ENVIO_MANUAL=0). El mensaje quedo registrado en la conversacion pero NO salio.",
+    "Los envios manuales estan APAGADOS, asi que el mensaje quedo registrado en la conversacion pero NO salio. " +
+    "Para encenderlos: Render -> novika-bot -> Environment -> PANEL_ENVIO_MANUAL = 1, y guardar (el servicio se " +
+    "reinicia solo). Puedes comprobarlo en /health: panel_envio_manual debe decir true.",
   [MOTIVOS_BLOQUEO.INTERRUPTOR]:
     "Las respuestas automaticas estan apagadas (RESPUESTA_AUTOMATICA=0). El mensaje NO salio.",
   [MOTIVOS_BLOQUEO.SIN_CREDENCIALES]:

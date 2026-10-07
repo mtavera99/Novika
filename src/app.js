@@ -74,10 +74,28 @@ function crearApp() {
       rama: config.rama || null,
       arrancado_hace_seg: Math.round((Date.now() - ARRANCADO_EN) / 1000),
 
-      // Estas tres banderas contestan casi cualquier "no funciona":
+      // Estas banderas contestan casi cualquier "no funciona":
       firma_activa: config.firmaActiva, // false -> entran eventos pero no se procesan
       puede_enviar: config.puedeEnviar, // false -> no hay token o no hay id de numero
-      respuesta_automatica: config.respuestaAutomatica, // false -> nunca escribe a clientes
+      respuesta_automatica: config.respuestaAutomatica, // false -> el BOT nunca escribe
+      // --------------------------------------------------------------------
+      // El interruptor del panel, publicado SIN token y junto a los otros.
+      //
+      // Faltaba, y la consecuencia fue concreta: el panel decia "no se pudo
+      // enviar: envio_manual_apagado" y desde fuera no habia forma de
+      // distinguir "el interruptor esta apagado, es lo esperado" de "hay un
+      // defecto". Un interruptor que decide si le escribimos a un cliente y
+      // que no se puede consultar obliga a adivinar.
+      //
+      // Es el mismo criterio que `escrituras_congeladas`: lo que apaga una
+      // parte del servicio tiene que verse sin credenciales.
+      //
+      // OJO con leerlo en una conversacion vieja: cada mensaje guarda el
+      // resultado REAL del intento en su momento, asi que un mensaje que se
+      // intento con el interruptor apagado seguira diciendo "no enviado"
+      // para siempre. Eso es correcto -no salio- y no cambia al encenderlo.
+      // --------------------------------------------------------------------
+      panel_envio_manual: config.panelEnvioManual, // false -> el PANEL no envia
       filtro_de_numero: config.idNumero ? "activo" : "inactivo",
 
       // Comprobado, no deducido de la variable de entorno. Si dice "efimera",

@@ -276,3 +276,94 @@ describe("4 · formas que hay que tolerar", () => {
 });
 
 module.exports = {};
+
+// ==========================================================================
+// 5 · EL INTERRUPTOR DEL PANEL SE PUEDE CONSULTAR
+// ==========================================================================
+//
+// Faltaba en /health, y la consecuencia fue concreta: el panel decia
+// "no se pudo enviar: envio_manual_apagado" y desde fuera no habia forma
+// de distinguir "esta apagado, es lo esperado" de "hay un defecto".
+//
+// Un interruptor que decide si le escribimos a un cliente y que no se
+// puede consultar obliga a adivinar.
+// ==========================================================================
+
+describe("5 · el interruptor del panel se ve en /health", () => {
+  const { crearApp } = require("../src/app");
+
+  test("ESCENARIO: /health publica panel_envio_manual SIN token", async () => {
+    const servidor = await ayuda.levantar(crearApp());
+    try {
+      const r = await fetch(`${servidor.url}/health`);
+      assert.equal(r.status, 200);
+      const j = await r.json();
+
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(j, "panel_envio_manual"),
+        "sin este campo no se puede saber por que el panel no envia"
+      );
+      assert.equal(typeof j.panel_envio_manual, "boolean");
+      // En las pruebas no esta configurado, asi que esta apagado.
+      assert.equal(j.panel_envio_manual, false);
+    } finally {
+      await servidor.cerrar();
+    }
+  });
+
+  test("va junto a los otros interruptores, no detras del token", async () => {
+    // Es el mismo criterio que `escrituras_congeladas`: lo que apaga una
+    // parte del servicio tiene que verse sin credenciales.
+    const servidor = await ayuda.levantar(crearApp());
+    try {
+      const j = await (await fetch(`${servidor.url}/health`)).json();
+      for (const campo of ["respuesta_automatica", "escrituras_congeladas", "panel_envio_manual"]) {
+        assert.ok(Object.prototype.hasOwnProperty.call(j, campo), `falta ${campo} sin token`);
+      }
+    } finally {
+      await servidor.cerrar();
+    }
+  });
+
+  test("el bloqueo del panel dice DONDE se enciende, no solo que esta apagado", () => {
+    const { EXPLICACION } = require("../src/panel/rutas");
+    const { MOTIVOS_BLOQUEO } = require("../src/whatsapp/enviar");
+    const texto = EXPLICACION[MOTIVOS_BLOQUEO.ENVIO_MANUAL_APAGADO];
+
+    assert.match(texto, /NO salio/, "tiene que decir que no salio");
+    assert.match(texto, /PANEL_ENVIO_MANUAL/, "y como se llama el interruptor");
+    assert.match(texto, /Environment/, "y donde se cambia");
+    assert.match(texto, /panel_envio_manual/, "y como comprobarlo");
+  });
+
+  test("un intento viejo sigue diciendo «no enviado» aunque se encienda despues", async () => {
+    // El historial guarda el resultado REAL del intento en su momento.
+    // Reescribirlo al encender el interruptor seria cambiar lo que paso: ese
+    // mensaje NO llego al cliente.
+    const { crearReposDeArchivos } = require("../src/almacen/repos/archivos");
+    const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "novika-hist-"));
+    const repos = await crearReposDeArchivos({ dir });
+    try {
+      await repos.contactos.guardar({ id: "573058742138" });
+      const conv = { contactoId: "573058742138", estado: "explorando", ficha: campos.fichaVacia() };
+      atencion.anotarMensaje(conv, {
+        de: atencion.QUIEN.OPERADOR,
+        texto: "Hola",
+        por: "panel",
+        estado: "envio_manual_apagado",
+      });
+      await repos.conversaciones.guardar(conv);
+
+      // Se "enciende" el interruptor: el historial no cambia.
+      const ficha = await datos.conversacionCompleta(repos, "573058742138");
+      const html = vistas.chat({ ficha, envioManualActivo: true });
+
+      assert.match(html, /no enviado: envio_manual_apagado/, "el intento viejo tiene que seguir marcado");
+      // Pero el aviso de abajo ya NO dice que esten apagados.
+      assert.ok(!html.includes("Se encienden con"), "el aviso tiene que reflejar el estado ACTUAL");
+    } finally {
+      await repos.cerrar();
+    }
+  });
+});
