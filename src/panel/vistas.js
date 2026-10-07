@@ -373,7 +373,7 @@ function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualAct
 
 /** CHAT */
 function chat({ ficha, aviso = null, envioManualActivo = false }) {
-  const { conversacion, mensajes, atencion: a, pedidos, clase } = ficha;
+  const { conversacion, mensajes, atencion: a, pedidos, clase, producto = null, fotosYaEnviadas = null } = ficha;
   const id = conversacion.contactoId;
   const n = fichaDe.nombreParaMostrar(conversacion.ficha);
   const nombre = n.texto;
@@ -442,6 +442,15 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
       : `<button class="primario" onclick="control(true)">Tomar el control</button>`
   }
   <button onclick="atendido(${a.atendidoEn ? "true" : "false"})">${a.atendidoEn ? "Deshacer atendido" : "Marcar atendido"}</button>
+  ${
+    producto && (producto.imagenes || []).length
+      ? `<button onclick="enviarFotos(${fotosYaEnviadas ? "true" : "false"})">
+           ${fotosYaEnviadas ? `Reenviar fotos (ya se enviaron)` : `Enviar ${producto.imagenes.length} fotos`}
+         </button>`
+      : `<span style="font-size:13px;color:var(--suave);align-self:center">${
+          producto ? "este producto no tiene fotos" : "sin producto identificado: no hay fotos que mandar"
+        }</span>`
+  }
 </div>` +
     `<div class="chat">
   <div class="hilo" id="hilo">${burbujas}</div>
@@ -504,6 +513,15 @@ async function control(tomar) {
 async function atendido(deshacer) {
   var r = await pedir("/panel/atendido", { id: ID, deshacer: deshacer });
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 600); }
+  else avisar(r.error, "mal");
+}
+
+async function enviarFotos(yaSeEnviaron) {
+  if (yaSeEnviaron && !confirm("Ya se le enviaron las fotos de este producto. ¿Reenviarlas?")) return;
+  var pie = prompt("Pie de la primera foto (opcional, se puede dejar vacio):") || "";
+  if (pie === null) return;
+  var r = await pedir("/panel/fotos", { id: ID, pie: pie, forzar: yaSeEnviaron === true });
+  if (r.ok) { avisar(r.aviso, r.enviadas > 0 ? "ok" : "info"); setTimeout(function(){ location.reload(); }, 1200); }
   else avisar(r.error, "mal");
 }
 

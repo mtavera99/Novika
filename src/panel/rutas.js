@@ -27,6 +27,7 @@ const vistas = require("./vistas");
 const fecha = require("./fecha");
 const fichaDe = require("./ficha");
 const analitica = require("./analitica");
+const fotos = require("../whatsapp/fotos");
 const dominioPedido = require("../dominio/pedido");
 
 const { PERMISOS, MOTIVOS_BLOQUEO } = require("../whatsapp/enviar");
@@ -182,7 +183,14 @@ function crearRutasDelPanel({ obtenerCerebro }) {
       const { repos } = await piezas();
       const ficha = await datos.conversacionCompleta(repos, id);
       if (!ficha) return html(res, vistas.buscar({ q: id, resultados: [] }), 404);
-      html(res, vistas.chat({ ficha, envioManualActivo: config.panelEnvioManual }));
+
+      // El producto de la conversacion, del catalogo COMPLETO: el cinturon
+      // es un borrador y aun asi se quieren poder mandar sus fotos.
+      const { catalogo } = await piezas();
+      const todos = catalogo.productos || catalogo.todos || catalogo.activos || [];
+      const producto = todos.find((p) => p.id === ficha.conversacion.productoId) || null;
+
+      html(res, vistas.chat({ ficha: { ...ficha, producto }, envioManualActivo: config.panelEnvioManual }));
     } catch (e) {
       log.error("panel_chat_fallo", { detalle: e.message });
       html(res, vistas.buscar({ q: id, resultados: [] }), 500);
@@ -286,6 +294,109 @@ function crearRutasDelPanel({ obtenerCerebro }) {
     } catch (e) {
       log.error("panel_responder_fallo", { detalle: e.message });
       return res.status(500).json({ ok: false, error: `No se pudo registrar: ${e.message}` });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // Mandar las fotos de un producto
+  //
+  // Mismo permiso que una respuesta manual (ATENCION_MANUAL), mismo
+  // interruptor (PANEL_ENVIO_MANUAL) y mismo resultado real en el
+  // historial. Y como una respuesta manual, toma el control del chat: si
+  // una persona manda las fotos y el bot sigue suelto, el cliente recibe
+  // dos voces.
+  // ----------------------------------------------------------------------
+  router.post("/fotos", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+
+    const id = String((req.body && req.body.id) || "").trim();
+    const productoId = String((req.body && req.body.productoId) || "").trim();
+    const pie = String((req.body && req.body.pie) || "");
+    const forzar = (req.body && req.body.forzar) === true;
+    if (!id) return res.status(400).json({ ok: false, error: "Falta el cliente." });
+
+    try {
+      const { repos, catalogo, emisor } = await piezas();
+      const conv = await repos.conversaciones.obtener(id);
+      if (!conv) return res.status(404).json({ ok: false, error: "Esa conversacion no existe." });
+
+      // Si no se dice que producto, el de la conversacion.
+      const quiero = productoId || conv.productoId;
+      if (!quiero) {
+        return res.status(400).json({
+          ok: false,
+          error: "No se sabe de que producto mandar fotos: esta conversacion no tiene producto identificado.",
+        });
+      }
+
+      // Del catalogo COMPLETO, no solo de los activos: el cinturon es un
+      // borrador y aun asi queremos poder mandar sus fotos para probar.
+      const todos = catalogo.productos || catalogo.todos || catalogo.activos || [];
+      const producto = todos.find((p) => p.id === quiero);
+      if (!producto) {
+        return res.status(404).json({ ok: false, error: `El producto "${quiero}" no esta en el catalogo.` });
+      }
+
+      const telefono = fichaDe.confirmado(conv.ficha, "telefono") || id;
+
+      const informe = await fotos.enviarFotosDeProducto({
+        emisor,
+        repos,
+        producto,
+        conversacion: conv,
+        para: telefono,
+        permiso: PERMISOS.ATENCION_MANUAL,
+        pie,
+        forzar,
+      });
+
+      // Tomar el control, igual que al responder a mano.
+      if (informe.enviadas > 0) {
+        conv.atencion = { ...atencion.leer(conv), pausado: true, por: "panel", desde: new Date().toISOString() };
+        await repos.conversaciones.guardar(conv);
+      }
+
+      diario.anotar("panel_fotos", {
+        idCliente: id,
+        productoId: quiero,
+        enviadas: informe.enviadas,
+        de: informe.cuantas,
+        problemas: informe.problemas,
+      });
+      metricas.incrementar(informe.enviadas > 0 ? "panel_fotos_enviadas" : "panel_fotos_no_enviadas");
+
+      if (informe.repetido) {
+        return res.json({
+          ok: true,
+          enviadas: 0,
+          aviso: `${informe.problemas[0]} Si quieres repetirlas, usa "forzar".`,
+        });
+      }
+
+      if (informe.enviadas === 0) {
+        const primero = informe.resultados[0];
+        const motivo = primero ? primero.estado : "sin resultado";
+        return res.json({
+          ok: true,
+          enviadas: 0,
+          aviso:
+            EXPLICACION[motivo] ||
+            `No se mando ninguna foto (${motivo}${primero && primero.detalle ? `: ${primero.detalle}` : ""}).`,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        enviadas: informe.enviadas,
+        de: informe.cuantas,
+        aviso:
+          informe.enviadas === informe.cuantas
+            ? `Meta acepto las ${informe.enviadas} fotos. El bot queda pausado en este chat. La entrega se confirma con los acuses.`
+            : `Se mandaron ${informe.enviadas} de ${informe.cuantas}. ${informe.problemas.join(" ")}`,
+      });
+    } catch (e) {
+      log.error("panel_fotos_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
     }
   });
 
