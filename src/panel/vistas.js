@@ -35,6 +35,7 @@
 
 const fecha = require("./fecha");
 const { CLASES } = require("./datos");
+const fichaDe = require("./ficha");
 
 /** Escape de HTML. Todo lo que venga de un cliente pasa por aqui. */
 function esc(s) {
@@ -50,6 +51,22 @@ function esc(s) {
 function pesos(n) {
   return "$" + Number(n || 0).toLocaleString("es-CO", { maximumFractionDigits: 0 });
 }
+
+/**
+ * Marca un dato que NO esta confirmado.
+ *
+ * La ficha distingue candidato de confirmado a proposito: la IA propone y
+ * el codigo confirma. Pintar los dos igual borra esa frontera justo donde
+ * una persona decide, asi que un candidato se muestra con su valor Y con
+ * el aviso de que nadie lo valido.
+ */
+function conEstado(campo) {
+  if (!campo || !campo.hay) return `<span style="color:var(--suave)">${esc(SIN_DATO)}</span>`;
+  if (campo.confirmado) return esc(campo.valor);
+  return `${esc(campo.valor)} <span class="pastilla pendiente" title="lo propuso la IA o el cliente y nadie lo ha validado">sin confirmar</span>`;
+}
+
+const SIN_DATO = "—";
 
 const ETIQUETAS = {
   [CLASES.URGENTE]: "Urgentes",
@@ -284,7 +301,9 @@ function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualAct
     ? chats
         .map(
           (c) => `<tr>
-  <td data-label="Cliente">${esc(c.nombre || "(sin nombre)")}</td>
+  <td data-label="Cliente">${esc(c.nombre.texto)}${
+            c.nombre.hay && !c.nombre.confirmado ? ` <span class="pastilla pendiente">sin confirmar</span>` : ""
+          }</td>
   <td data-label="Telefono">${esc(c.telefono)}</td>
   <td data-label="Estado"><span class="pastilla ${esc(c.clase)}">${esc(ETIQUETAS[c.clase] || c.clase)}</span>${
             c.atencion.pausado ? ` <span class="pastilla pausado">bot pausado</span>` : ""
@@ -356,7 +375,9 @@ function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualAct
 function chat({ ficha, aviso = null, envioManualActivo = false }) {
   const { conversacion, mensajes, atencion: a, pedidos, clase } = ficha;
   const id = conversacion.contactoId;
-  const nombre = (conversacion.ficha && conversacion.ficha.nombre) || "(sin nombre)";
+  const n = fichaDe.nombreParaMostrar(conversacion.ficha);
+  const nombre = n.texto;
+  const ciudad = fichaDe.leer(conversacion.ficha, "ciudad");
 
   const burbujas = mensajes.length
     ? mensajes
@@ -401,8 +422,10 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
     cabecera({ titulo: `Chat · ${nombre}` }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     `<div class="kpis">
-  <div class="kpi"><b>${esc(nombre)}</b><span>${esc(id)}</span>
-    <div class="nota">${esc(conversacion.ficha && conversacion.ficha.ciudad ? conversacion.ficha.ciudad : "sin ciudad")}</div></div>
+  <div class="kpi"><b>${esc(nombre)}</b>${
+    n.hay && !n.confirmado ? ` <span class="pastilla pendiente">sin confirmar</span>` : ""
+  }<span>${esc(id)}</span>
+    <div class="nota">${ciudad.hay ? conEstado(ciudad) : "sin ciudad"}</div></div>
   <div class="kpi"><b>${esc(conversacion.estado)}</b><span>estado</span>
     <div class="nota"><span class="pastilla ${esc(clase)}">${esc(ETIQUETAS[clase] || clase)}</span></div></div>
   <div class="kpi"><b>${a.pausado ? "Persona" : "Bot"}</b><span>quien atiende</span>
@@ -496,9 +519,9 @@ function buscar({ q = "", resultados = [] }) {
   const filas = resultados
     .map(
       (c) => `<tr>
-  <td data-label="Cliente">${esc((c.ficha && c.ficha.nombre) || "(sin nombre)")}</td>
-  <td data-label="Telefono">${esc((c.ficha && c.ficha.telefono) || c.contactoId)}</td>
-  <td data-label="Ciudad">${esc((c.ficha && c.ficha.ciudad) || "")}</td>
+  <td data-label="Cliente">${conEstado(fichaDe.nombreParaMostrar(c.ficha).hay ? fichaDe.leer(c.ficha, "nombre") : null)}</td>
+  <td data-label="Telefono">${esc(fichaDe.leer(c.ficha, "telefono").valor || c.contactoId)}</td>
+  <td data-label="Ciudad">${conEstado(fichaDe.leer(c.ficha, "ciudad"))}</td>
   <td data-label="Estado">${esc(c.estado)}</td>
   <td class="acciones" data-label="Acciones">
     <a class="boton primario" href="/panel/chat?id=${encodeURIComponent(c.contactoId)}">Abrir</a>
