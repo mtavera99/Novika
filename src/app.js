@@ -23,6 +23,7 @@ const metricas = require("./metricas");
 const congelacion = require("./almacen/congelar");
 const { capturarCuerpoCrudo } = require("./webhook/firma");
 const webhook = require("./webhook/rutas");
+const { crearRutasDelPanel } = require("./panel/rutas");
 
 const ARRANCADO_EN = Date.now();
 const MARCADOR = persistencia.registrarArranque(config.dirDatos);
@@ -120,6 +121,20 @@ function crearApp() {
   // "¿llego el evento y fallamos, o Meta no llego nunca?". Son dos problemas
   // distintos con arreglos distintos, y sin esta ruta se confunden.
   // ------------------------------------------------------------------------
+  // ------------------------------------------------------------------------
+  // Panel operativo
+  //
+  // Va en su propio router, con su propio parseo de cuerpo (formularios) y
+  // su propia sesion. Se monta aqui y no antes del parseo del webhook para
+  // que nada del panel pueda tocar como se lee el cuerpo crudo de Meta: esa
+  // captura es lo que sostiene la comprobacion de la firma.
+  //
+  // Carga diferida del cerebro: `require` aqui arriba crearia un ciclo, y
+  // construir el cerebro al montar la app obligaria a tener catalogo y
+  // almacen listos para servir /health.
+  // ------------------------------------------------------------------------
+  app.use("/panel", crearRutasDelPanel({ obtenerCerebro: () => require("./cerebro").obtenerCerebro() }));
+
   app.get("/eventos", exigePanelToken, (req, res) => {
     const cuantas = Math.min(Math.max(Number.parseInt(req.query.n, 10) || 50, 1), 500);
     const entradas = diario.ultimas(cuantas);

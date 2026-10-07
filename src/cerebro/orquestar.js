@@ -49,6 +49,7 @@ const senales = require("../catalogo/senales");
 const responder = require("./responder");
 const { enSerie } = require("../almacen/mutex");
 const { PERMISOS } = require("../whatsapp/enviar");
+const atencionDeChat = require("../almacen/atencion");
 
 /** Datos del destinatario que se piden siempre. */
 const REQUERIDOS_BASE = ["nombre", "telefono", "ciudad", "direccion"];
@@ -496,8 +497,12 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         para: evento.telefono || evento.idCliente,
         texto: preparada.texto,
         permiso: PERMISOS.CONVERSACION,
+        // Con esto el emisor puede comprobar la pausa justo antes de
+        // escribir a la red. Sin el id no hay nada que consultar.
+        conversacionId: conversacion.contactoId,
       });
       traza.enviada = envio.enviado === true;
+      traza.bloqueoDeEnvio = envio.bloqueado ? envio.motivo : null;
     }
 
     // ------------------------------------------------------------------
@@ -505,6 +510,27 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
     conversacion.ultimoWamid = evento.wamid;
+
+    // Historial para el panel. `ventana` no sirve: son solo los ultimos
+    // textos del cliente, sin direccion ni hora, y existe para resolver el
+    // producto. El panel necesita la conversacion como la ve una persona.
+    atencionDeChat.anotarMensaje(conversacion, {
+      de: atencionDeChat.QUIEN.CLIENTE,
+      texto: evento.texto || "",
+      wamid: evento.wamid,
+    });
+    if (preparada.texto) {
+      atencionDeChat.anotarMensaje(conversacion, {
+        de: atencionDeChat.QUIEN.BOT,
+        texto: preparada.texto,
+        // El estado dice la VERDAD de lo que paso con ese texto: si salio,
+        // si lo freno un interruptor, o si lo freno la pausa. En modo
+        // sombra se prepara y no se envia, y el panel lo tiene que mostrar
+        // asi en vez de dar a entender que el cliente lo leyo.
+        estado: traza.enviada ? "enviado" : traza.bloqueoDeEnvio || "preparado_sin_enviar",
+      });
+    }
+
     await repos.conversaciones.guardar(conversacion);
 
     // Registro del modo sombra. El texto preparado SI se guarda -es lo que
@@ -685,7 +711,21 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     return partes.join("\n");
   }
 
-  return { procesar, SISTEMA_BASE, REQUERIDOS_BASE, _interno: { avanzarVenta, validarYConfirmar, intentarCotizar } };
+  return {
+    procesar,
+    SISTEMA_BASE,
+    REQUERIDOS_BASE,
+    /**
+     * Piezas ya construidas, para el panel.
+     *
+     * El panel necesita los MISMOS repositorios, catalogo y emisor que el
+     * bot. Si se construyera los suyos, habria dos pools de conexiones, dos
+     * cargas del catalogo y -lo grave- dos caminos de escritura sobre los
+     * mismos pedidos. Pasa por aqui para que haya una sola instancia.
+     */
+    _piezas: () => ({ repos, catalogo, emisor, ia }),
+    _interno: { avanzarVenta, validarYConfirmar, intentarCotizar },
+  };
 }
 
 module.exports = { crearCerebro, REQUERIDOS_BASE };

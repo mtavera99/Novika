@@ -153,6 +153,21 @@ async function crearReposDeArchivos({ dir }) {
     },
   };
 
+  /**
+   * Nombres de los .json de una carpeta. Carpeta que no existe = vacia.
+   *
+   * Se salta los que empiezan por "_": son archivos internos (indices), no
+   * registros, y colarlos en una lista del panel seria mostrar basura.
+   */
+  async function listarCarpeta(carpeta) {
+    try {
+      return (await fsp.readdir(carpeta)).filter((n) => n.endsWith(".json") && !n.startsWith("_"));
+    } catch (e) {
+      if (e.code === "ENOENT") return [];
+      throw e;
+    }
+  }
+
   // ----------------------------------------------------------------------
   // Conversaciones
   // ----------------------------------------------------------------------
@@ -172,6 +187,26 @@ async function crearReposDeArchivos({ dir }) {
         return conMarca;
       });
     },
+
+    /**
+     * Conversaciones, la mas recientemente actualizada primero.
+     *
+     * Para el panel. Tiene `limite` obligatorio con valor por defecto
+     * porque una pantalla no puede pedir "todo": el dia que haya 50.000
+     * conversaciones, una consulta sin tope tumba el servicio justo cuando
+     * mas se usa el panel.
+     */
+    async listar({ limite = 200 } = {}) {
+      const nombres = await listarCarpeta(DIR_CONVERSACIONES);
+      const todas = [];
+      for (const n of nombres) {
+        const c = await leerJson(path.join(DIR_CONVERSACIONES, n));
+        if (c) todas.push(c);
+      }
+      return todas
+        .sort((a, b) => String(b.actualizadoEn || "").localeCompare(String(a.actualizadoEn || "")))
+        .slice(0, limite);
+    },
   };
 
   // ----------------------------------------------------------------------
@@ -181,6 +216,35 @@ async function crearReposDeArchivos({ dir }) {
     async obtener(id) {
       if (!id) return null;
       return leerJson(rutaPedido(id));
+    },
+
+    /**
+     * Pedidos, el mas reciente primero. Opcionalmente por rango de fechas.
+     *
+     * `desde` y `hasta` son dias de Bogota (AAAA-MM-DD) y se comparan
+     * contra el dia de Bogota de `creadoEn`, no contra el UTC del ISO.
+     * Comparar el ISO directamente mete los pedidos de despues de las 19:00
+     * en el dia siguiente, que es el error que el panel de BIKERPRO ya
+     * cometio.
+     */
+    async listar({ limite = 500, desde = null, hasta = null } = {}) {
+      const { diaBogota } = require("../../panel/fecha");
+      const nombres = await listarCarpeta(DIR_PEDIDOS);
+      const todos = [];
+      for (const n of nombres) {
+        const p = await leerJson(path.join(DIR_PEDIDOS, n));
+        if (!p) continue;
+        if (desde || hasta) {
+          const dia = diaBogota(p.creadoEn);
+          if (!dia) continue;
+          if (desde && dia < desde) continue;
+          if (hasta && dia > hasta) continue;
+        }
+        todos.push(p);
+      }
+      return todos
+        .sort((a, b) => String(b.creadoEn || "").localeCompare(String(a.creadoEn || "")))
+        .slice(0, limite);
     },
 
     async porClaveDeEvento(clave) {
