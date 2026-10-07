@@ -303,9 +303,29 @@ describe("4 · nada de esto abrio una puerta", () => {
   test("el producto sigue en borrador y con sus pendientes", () => {
     const p = require("../catalogo/productos/cinturon-termico-colicos.json");
     assert.equal(p.activo, false);
-    assert.deepEqual(p.precios, {});
     assert.equal(p.nombre, "");
     assert.ok(p.pendientes.length > 0);
+
+    // ANTES ESTA PRUEBA EXIGIA `precios` VACIO, y ya no corresponde.
+    //
+    // Lo exigia porque cuando se escribio no habia ni un dato comercial, asi
+    // que "sin precios" equivalia a "sin ficha". Marco confirmo el precio de
+    // 1 unidad el 2026-10-07, y mantener la asercion obligaria a borrar un
+    // dato real para que la prueba pasara.
+    //
+    // Lo que de verdad protege este bloque no es que falten precios: es que
+    // tener precio NO active el producto por si solo. Un producto con precio
+    // y sin ficha sigue siendo un producto que no se puede vender, y eso es
+    // lo que se comprueba ahora.
+    assert.equal(p.precios["1"], 49900, "el precio confirmado por Marco desaparecio del catalogo");
+    assert.equal(
+      require("../src/catalogo").cargarCatalogo({
+        carpeta: require("node:path").join(__dirname, "..", "catalogo", "productos"),
+        refrescar: true,
+      }).activos.length,
+      0,
+      "tener precio no puede meter el producto en la lista de los vendibles"
+    );
   });
 
   test("con RESPUESTA_AUTOMATICA apagada no sale nada, ni texto ni fotos", async () => {

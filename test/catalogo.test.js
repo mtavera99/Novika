@@ -38,6 +38,7 @@ function productoActivo(extra = {}) {
     motorDePrecio: "tabla",
     precios: { 1: 1000, 2: 1800 },
     logistica: { politicaEnvio: { tipo: "incluido", provisional: false } },
+    pago: { metodo: "contraentrega", etiquetaCliente: "Pagas al recibir" },
     pendientes: [],
     ...extra,
   };

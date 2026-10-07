@@ -30,6 +30,26 @@ const MOTORES_DE_PRECIO = ["tabla", "producto_mas_envio"];
 /** Politicas de envio reconocidas por el cotizador. */
 const POLITICAS_ENVIO = ["incluido", "fijo", "por_destino"];
 
+// --------------------------------------------------------------------------
+// METODOS DE COBRO
+//
+// Estos son los metodos que el SISTEMA sabe representar, no los que NOVIKA
+// ofrece. Cada producto declara el suyo en `pago.metodo`, y de ahi sale lo
+// que se le dice al cliente y lo que queda estampado en el pedido.
+//
+// Por que es un campo del catalogo y no una frase del prompt: en
+// contraentrega el dinero se recauda en la puerta. Si el pedido no dice que
+// hay que cobrar al entregar, el paquete se entrega sin cobrar y la venta se
+// convierte en un regalo con flete pagado. El metodo de cobro es un dato
+// operativo del despacho, no un adorno del mensaje.
+//
+// Va DENTRO de la cotizacion, y por tanto dentro de la firma de condiciones:
+// pasar de contraentrega a pago anticipado cambia lo que el cliente acepto,
+// asi que tiene que caducar las ofertas vivas igual que lo hace un cambio de
+// precio.
+// --------------------------------------------------------------------------
+const METODOS_DE_PAGO = ["contraentrega", "anticipado"];
+
 /** Niveles de confianza de una señal (alias) de producto. */
 const CONFIANZAS = ["alta", "media", "baja"];
 
@@ -340,6 +360,31 @@ function validarProducto(p, origen = "(sin origen)") {
     errores.push(`${donde("precioUnitario")}: debe ser un entero positivo en pesos, sin decimales ni separadores.`);
   }
 
+  if (p && p.pago !== undefined && p.pago !== null) {
+    if (typeof p.pago !== "object") {
+      errores.push(`${donde("pago")}: debe ser un objeto { metodo, etiquetaCliente }.`);
+    } else {
+      if (!METODOS_DE_PAGO.includes(p.pago.metodo)) {
+        errores.push(
+          `${donde("pago.metodo")}: "${p.pago.metodo}" no existe. Validos: ${METODOS_DE_PAGO.join(", ")}.`
+        );
+      }
+      // La etiqueta es lo que LEE el cliente. Si falta, el bot tendria que
+      // redactarla, y redactar como se cobra es justo lo que no puede hacer
+      // el modelo.
+      if (p.pago.etiquetaCliente !== undefined && !esTexto(p.pago.etiquetaCliente)) {
+        errores.push(`${donde("pago.etiquetaCliente")}: si esta, debe ser un texto no vacio.`);
+      }
+      // Una etiqueta no puede contener cifras: el filtro de importes las
+      // leeria como un cobro no autorizado y bloquearia el mensaje entero.
+      if (esTexto(p.pago.etiquetaCliente) && /\d/.test(p.pago.etiquetaCliente)) {
+        errores.push(
+          `${donde("pago.etiquetaCliente")}: no puede llevar cifras ("${p.pago.etiquetaCliente}"). Los importes los pone el cotizador.`
+        );
+      }
+    }
+  }
+
   for (const promo of Array.isArray(p && p.promociones) ? p.promociones : []) {
     if (!esTexto(promo && promo.id)) {
       errores.push(`${donde("promociones")}: hay una promocion sin "id"; sin id no se puede auditar que se aplico.`);
@@ -416,6 +461,15 @@ function validarProducto(p, origen = "(sin origen)") {
       errores.push(`${donde("precios")}: un producto activo sin precios acabaria cotizandose mal.`);
     } else if (p.precios["1"] === undefined) {
       errores.push(`${donde("precios")}: falta el precio de 1 unidad, que es el caso mas comun.`);
+    }
+
+    // Como se cobra es un dato del despacho, no del mensaje. Un producto
+    // activo sin metodo declarado se vende, se despacha, y nadie sabe si
+    // habia que recaudar en la puerta.
+    if (!p.pago || !METODOS_DE_PAGO.includes(p.pago.metodo)) {
+      errores.push(
+        `${donde("pago.metodo")}: obligatorio para un producto activo. Validos: ${METODOS_DE_PAGO.join(", ")}.`
+      );
     }
 
     // Una politica de envio que necesita un importe y no lo tiene haria que
@@ -509,6 +563,7 @@ module.exports = {
   validarCatalogo,
   MOTORES_DE_PRECIO,
   POLITICAS_ENVIO,
+  METODOS_DE_PAGO,
   CONFIANZAS,
   DATOS_EXIGIBLES,
 };
