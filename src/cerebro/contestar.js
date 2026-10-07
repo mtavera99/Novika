@@ -93,10 +93,12 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     // ----------------------------------------------------------------------
     case TEMAS.PRECIO: {
       if (!cotizacion) return null;
-      const cuantas = cotizacion.cantidad > 1 ? `${cotizacion.cantidad} unidades` : nombre;
-      return `${cuantas === nombre ? `${nombre}` : cuantas} te ${
-        cotizacion.cantidad > 1 ? "quedan" : "queda"
-      } en ${pesos(cotizacion.total)}.`;
+      const varias = cotizacion.cantidad > 1;
+      const sujeto = varias ? `${cotizacion.cantidad} unidades` : nombre;
+      // Mayuscula: esta frase empieza el mensaje. Salia "el cinturón térmico
+      // te queda en $49.900", en minuscula, que se lee como un fragmento.
+      const frase = `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}.`;
+      return frase.charAt(0).toUpperCase() + frase.slice(1);
     }
 
     // ----------------------------------------------------------------------

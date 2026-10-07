@@ -90,6 +90,7 @@ header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bott
 header h1 { margin:0; font-size:20px; letter-spacing:.5px; }
 header .zona { color:var(--suave); font-size:13px; }
 header .derecha { margin-left:auto; display:flex; gap:8px; align-items:center; }
+header .derecha .boton[aria-current="page"] { background:var(--azul); border-color:var(--azul); color:#fff; }
 
 .aviso { padding:10px 12px; border-radius:10px; font-size:14px; margin-bottom:14px; }
 .aviso.ok { background:#13301f; border:1px solid #1f5c38; color:#9ff0c0; }
@@ -220,7 +221,72 @@ tr:last-child td { border-bottom:0; }
   td.acciones::before { flex-basis:100%; }
   .kpi b { font-size:22px; }
   .burbuja { max-width:92%; }
+
+  /* ======================================================================
+     OPTIMIZACION PARA CELULAR
+     ======================================================================
+     Marco trabaja desde el movil. Cada regla de aqui sale de un problema
+     concreto a 390px de ancho, que es un iPhone normal. */
+
+  /* 1. LA NAVEGACION OCUPABA TRES FILAS.
+        Seis secciones mas "Salir" con flex-wrap se envuelven y empujan el
+        contenido util media pantalla hacia abajo: al abrir el panel se veia
+        el menu y nada mas. Ahora va en su propio carril deslizable, como
+        las pestañas de una app, y no roba alto. */
+  header { position:sticky; top:0; z-index:20; background:var(--fondo);
+    margin:-12px -12px 10px; padding:10px 12px 8px; gap:4px;
+    border-bottom:1px solid var(--borde); flex-wrap:wrap; }
+  header h1 { font-size:17px; }
+  header .zona { font-size:11px; width:100%; order:3; }
+  header .derecha { margin-left:auto; order:2; width:100%;
+    overflow-x:auto; -webkit-overflow-scrolling:touch;
+    padding-bottom:2px; gap:6px; }
+  header .derecha::-webkit-scrollbar { display:none; }
+  header .derecha .boton, header .derecha button { min-height:38px; padding:0 12px;
+    font-size:13px; white-space:nowrap; flex:0 0 auto; }
+
+  /* 2. LOS KPI DE UNA COLUMNA SE LEEN COMO UNA LISTA INTERMINABLE.
+        Dos por fila entran bien en 390px y dejan ver el resto. */
+  .kpis { grid-template-columns:repeat(2,1fr); gap:8px; }
+  .kpi { padding:11px; }
+  .kpi b { font-size:19px; }
+  .kpi span { font-size:12px; }
+
+  /* 3. LA TABLA DE ENTREGA DECIA "CAMPO: Destinatario".
+        Con el apilado genérico, la primera celda repetia la palabra "Campo"
+        delante del nombre del campo. Aqui el nombre del campo es el TITULO
+        de la tarjeta, que es como se lee de verdad. */
+  .entregaTabla td:first-child { display:block; padding:10px 12px 4px;
+    border-bottom:1px solid var(--borde); margin-bottom:4px; }
+  .entregaTabla td:first-child::before { display:none; }
+  .entregaTabla td:first-child b { font-size:14px; }
+  .entregaTabla td::before { min-width:84px; flex:0 0 84px; }
+
+  /* 4. EL AREA DE ESCRIBIR QUEDABA TAPADA POR EL TECLADO.
+        Con el teclado abierto, en un movil quedan ~350px de alto: un
+        textarea de 88px mas los botones no cabian sin hacer scroll a
+        ciegas. */
+  textarea { min-height:72px; }
+  .chat .hilo { max-height:48vh; overflow-y:auto; }
+
+  /* 5. LA BANDEJA: filas mas compactas sin perder el area tactil. */
+  .filaChat { padding:11px; }
+  .filaTop b { font-size:14px; }
+  .filaUltimo { font-size:13px; }
+
+  /* 6. EL MUESCA DEL IPHONE se comia el ultimo boton de la pagina. */
+  body { padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+
+  /* 7. VOLVER ARRIBA. La pagina es larga a proposito -el historial no se
+        borra- y subir deslizando es el gesto que mas se repite. */
+  .subir { display:flex; }
 }
+
+/* Fuera del movil no hace falta: el menu cabe y la pagina es mas corta. */
+.subir { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom));
+  width:46px; height:46px; border-radius:999px; background:var(--azul); color:#fff;
+  align-items:center; justify-content:center; text-decoration:none; font-size:20px;
+  box-shadow:0 4px 14px rgba(0,0,0,.45); z-index:30; display:none; }
 `;
 
 /** Guion comun. Preserva borrador, conversacion abierta y scroll. */
@@ -234,6 +300,24 @@ const GUION = `
 // sobrevive a la recarga y muere al cerrar la pestana.
 // ---------------------------------------------------------------------------
 var LLAVE = "novika.panel.";
+
+// ---------------------------------------------------------------------------
+// VOLVER ARRIBA
+//
+// El CSS lo limita al movil; esto lo limita a cuando hace falta. Un boton
+// flotante en una pantalla que no scrollea tapa contenido sin servir de nada.
+// ---------------------------------------------------------------------------
+(function () {
+  var b = document.getElementById("subir");
+  if (!b) return;
+  function revisar() {
+    var hay = (document.documentElement.scrollHeight - window.innerHeight) > 400;
+    b.style.visibility = hay && window.scrollY > 240 ? "visible" : "hidden";
+  }
+  revisar();
+  window.addEventListener("scroll", revisar, { passive: true });
+  window.addEventListener("resize", revisar);
+})();
 
 function recordar(k, v) { try { sessionStorage.setItem(LLAVE + k, v); } catch (e) {} }
 function recordado(k) { try { return sessionStorage.getItem(LLAVE + k); } catch (e) { return null; } }
@@ -296,7 +380,14 @@ window.addEventListener("scroll", function () { guardarScroll(); }, { passive: t
 window.addEventListener("DOMContentLoaded", function () { restaurarScroll(); });
 `;
 
-function cabecera({ titulo, dia = null, extra = "" }) {
+/**
+ * Cabecera comun.
+ *
+ * `seccion` marca el boton de la seccion actual. En el movil el menu es un
+ * carril deslizable, asi que sin la marca no hay forma de saber en que
+ * pantalla estas: en escritorio se deducia por la posicion.
+ */
+function cabecera({ titulo, dia = null, extra = "", seccion = null }) {
   return `<!doctype html>
 <html lang="es"><head>
 <meta charset="utf-8">
@@ -304,16 +395,17 @@ function cabecera({ titulo, dia = null, extra = "" }) {
 <title>NOVIKA · ${esc(titulo)}</title>
 <style>${ESTILO}</style>
 </head><body><div class="envoltorio">
+<span id="arriba"></span>
 <header>
   <h1>NOVIKA</h1>
   <span class="zona">${esc(titulo)}${dia ? ` · ${esc(dia)}` : ""} · hora de Colombia</span>
   <div class="derecha">
-    <a class="boton" href="/panel">Tablero</a>
-    <a class="boton" href="/panel/chats">Chats</a>
-    <a class="boton" href="/panel/buscar">Buscar</a>
-    <a class="boton" href="/panel/guias">Guías</a>
-    <a class="boton" href="/panel/novedades">Novedades</a>
-    <a class="boton" href="/panel/auditoria">Auditoría</a>
+    <a class="boton" href="/panel"${seccion === "tablero" ? ' aria-current="page"' : ""}>Tablero</a>
+    <a class="boton" href="/panel/chats"${seccion === "chats" ? ' aria-current="page"' : ""}>Chats</a>
+    <a class="boton" href="/panel/buscar"${seccion === "buscar" ? ' aria-current="page"' : ""}>Buscar</a>
+    <a class="boton" href="/panel/guias"${seccion === "guias" ? ' aria-current="page"' : ""}>Guías</a>
+    <a class="boton" href="/panel/novedades"${seccion === "novedades" ? ' aria-current="page"' : ""}>Novedades</a>
+    <a class="boton" href="/panel/auditoria"${seccion === "auditoria" ? ' aria-current="page"' : ""}>Auditoría</a>
     <form method="post" action="/panel/salir" style="display:inline">
       <button type="submit">Salir</button>
     </form>
@@ -323,8 +415,17 @@ function cabecera({ titulo, dia = null, extra = "" }) {
 ${extra}`;
 }
 
+/**
+ * Pie comun: el boton de volver arriba y el guion compartido.
+ *
+ * El boton solo se muestra en movil (lo decide el CSS) y solo cuando hay
+ * algo de scroll (lo decide el guion): un boton fijo en una pantalla corta
+ * tapa contenido sin aportar nada.
+ */
 function pie(guionExtra = "") {
-  return `</div><script>${GUION}${guionExtra}</script></body></html>`;
+  return `</div>
+<a href="#arriba" class="subir" id="subir" title="Volver arriba" aria-label="Volver arriba">↑</a>
+<script>${GUION}${guionExtra}</script></body></html>`;
 }
 
 /** Fila de pestanas con las cuentas por clase. */
@@ -389,7 +490,7 @@ function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualAct
     : "";
 
   return (
-    cabecera({ titulo: "Tablero", dia: datos.dia }) +
+    cabecera({ titulo: "Tablero", dia: datos.dia, seccion: "tablero" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     (!envioManualActivo
       ? `<div class="aviso info">Los envios manuales estan <b>apagados</b> (<code>PANEL_ENVIO_MANUAL=0</code>).
@@ -471,7 +572,7 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
     : `<div class="vacio" style="margin-top:16px">Este cliente todavia no tiene pedidos.</div>`;
 
   return (
-    cabecera({ titulo: `Chat · ${nombre}` }) +
+    cabecera({ titulo: `Chat · ${nombre}`, seccion: "chats" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     `<div class="kpis">
   <div class="kpi"><b>${esc(nombre)}</b>${
@@ -610,7 +711,7 @@ function buscar({ q = "", resultados = [] }) {
     .join("");
 
   return (
-    cabecera({ titulo: "Buscar clientes" }) +
+    cabecera({ titulo: "Buscar clientes", seccion: "buscar" }) +
     `<form method="get" action="/panel/buscar" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
   <div style="flex:1 1 240px">
     <label for="q" style="font-size:13px;color:var(--suave)">Telefono, nombre o ciudad</label>
@@ -746,7 +847,7 @@ function guias({ datos: d, transportadoras = [], aviso = null }) {
   };
 
   return (
-    cabecera({ titulo: "Guías y despachos" }) +
+    cabecera({ titulo: "Guías y despachos", seccion: "guias" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     `<div class="kpis">
   <div class="kpi"><b>${d.porDespachar.length}</b><span>por despachar</span></div>
@@ -815,7 +916,7 @@ function novedades({ datos: d, tipos = [], envioManualActivo = false, aviso = nu
   };
 
   return (
-    cabecera({ titulo: "Novedades de entrega" }) +
+    cabecera({ titulo: "Novedades de entrega", seccion: "novedades" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     `<div class="kpis">
   <div class="kpi"><b>${d.conNovedad.length}</b><span>con novedad abierta</span></div>
@@ -900,7 +1001,7 @@ function auditoria({ serie = [], embudo: emb, atribucion: atr, dias = 14 }) {
     .join("");
 
   return (
-    cabecera({ titulo: `Auditoría · últimos ${dias} días` }) +
+    cabecera({ titulo: `Auditoría · últimos ${dias} días`, seccion: "auditoria" }) +
     `<h2 style="font-size:16px;margin:0 0 10px">Por día</h2>` +
     (serie.some((d) => d.pedidos > 0)
       ? `<table><thead><tr><th>Día</th><th>Pedidos</th><th>Unidades</th><th>Importe</th><th>Cancelados</th></tr></thead><tbody>${filasSerie}</tbody></table>`
@@ -1023,7 +1124,7 @@ function bandeja({ datos, aviso = null }) {
       : "";
 
   return (
-    cabecera({ titulo: "Todos los chats" }) +
+    cabecera({ titulo: "Todos los chats", seccion: "chats" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     `<form class="buscador" method="get" action="/panel/chats">
        <input type="hidden" name="filtro" value="${esc(filtro)}">

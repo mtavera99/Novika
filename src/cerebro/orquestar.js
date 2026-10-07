@@ -604,6 +604,62 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       },
     });
 
+    // ------------------------------------------------------------------
+    // GUARDA CONTRA EL ECO
+    //
+    // Se comprueba contra el historial ANTES de anotar el mensaje de este
+    // turno, asi que `ultimoDelNegocio` es de verdad el anterior.
+    //
+    // Si el bot va a repetir palabra por palabra lo que acaba de decir, no
+    // esta aportando nada: o cambia de frase, o para y llama a una persona.
+    // En produccion salio el mismo parrafo tres veces seguidas.
+    // ------------------------------------------------------------------
+    const dichosAntes = atencionDeChat.mensajes(conversacion);
+    const ultimoDelNegocio = [...dichosAntes]
+      .reverse()
+      .find((m) => m && m.de !== atencionDeChat.QUIEN.CLIENTE);
+    // El ultimo mensaje del cliente EN EL HISTORIAL es el anterior a este:
+    // el de ahora se anota mas abajo. Si trae los mismos temas, el cliente
+    // pregunto lo mismo y repetir la respuesta es correcto.
+    const previoDelCliente = [...dichosAntes]
+      .reverse()
+      .find((m) => m && m.de === atencionDeChat.QUIEN.CLIENTE);
+    const temasAhora = responder.analizarTurno(evento.texto || "").lectura.temas;
+    const temasAntes = previoDelCliente ? responder.analizarTurno(previoDelCliente.texto).lectura.temas : [];
+    const mismaPregunta =
+      temasAhora.length > 0 &&
+      temasAhora.length === temasAntes.length &&
+      temasAhora.every((t) => temasAntes.includes(t));
+
+    const noRepetir = responder.sinRepetir(preparada.texto, ultimoDelNegocio && ultimoDelNegocio.texto, {
+      mismaPregunta,
+    });
+
+    if (noRepetir.repetido) {
+      preparada.texto = noRepetir.texto;
+      contar("respuesta_repetida_evitada");
+      traza.avisos.push(
+        `se iba a repetir el mismo texto: se cambio${noRepetir.escalar ? " y se pasa a una persona" : ""}`
+      );
+      registrar("warn", "respuesta_repetida_evitada", {
+        wamid: evento.wamid,
+        situacion,
+        escalado: noRepetir.escalar,
+      });
+
+      // Dos veces en el mismo sitio: el bot no va a resolverlo. Se toma el
+      // chat para que una persona lo vea en el panel, y el bot se calla.
+      if (noRepetir.escalar) {
+        conversacion.atencion = {
+          ...atencionDeChat.leer(conversacion),
+          pausado: true,
+          por: "bucle_de_respuesta",
+          desde: new Date().toISOString(),
+        };
+        contar("escalado_a_persona");
+      }
+    }
+
     contar("respuesta_preparada");
     for (const b of preparada.bloqueos) {
       if (b.tipo === responder.BLOQUEOS.IMPORTE_NO_AUTORIZADO) contar("importe_no_autorizado_bloqueado");

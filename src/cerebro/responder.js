@@ -511,12 +511,70 @@ function textoDeterminista({
         ? `¡Listo! Tu pedido quedó registrado con el número ${pedido.id}. Te avisamos cuando salga.`
         : "¡Listo! Tu pedido quedó registrado.";
 
-    case "ya_confirmado":
-      // La respuesta al "si"/"gracias" sobre un pedido ya confirmado. No
-      // cotiza, no confirma, no cambia nada.
-      return pedido
-        ? `Tu pedido ${pedido.id} ya está confirmado. Si necesitas cambiar algo, dime qué y lo revisamos.`
-        : "Tu pedido ya está confirmado.";
+    // ----------------------------------------------------------------------
+    // YA CONFIRMADO: ES POSVENTA, NO UN ECO
+    //
+    // ESTE ERA EL DEFECTO MAS GRAVE QUE QUEDABA, Y SE VIO EN PRODUCCION:
+    //
+    //   Marco: "Ese tiene garantía?"
+    //   bot:   "Tu pedido NOV-... ya está confirmado. Si necesitas cambiar
+    //           algo, dime qué y lo revisamos."
+    //   Marco: "Pregunto si tiene garantía"
+    //   bot:   (el mismo texto)
+    //   Marco: "Si"
+    //   bot:   (el mismo texto otra vez)
+    //
+    // Tras un pedido confirmado, el estado queda BLINDADO -con razon: un
+    // "si" no puede recotizar ni crear otro pedido- y esta situacion
+    // devolvia la misma frase a CUALQUIER cosa que escribiera el cliente.
+    // La conversacion quedaba muerta para siempre: ninguna duda se
+    // respondia, y un "¿cuánto vale otro?" -una venta adicional- recibia
+    // tambien el eco.
+    //
+    // El blindaje no era el problema; el problema era creer que "no
+    // recotizar" significa "no conversar". Quien ya compro es quien MAS
+    // merece que le contesten: son garantias, cambios de direccion y
+    // seguimientos.
+    //
+    // Ahora se responde primero su duda, con los mismos datos del catalogo
+    // que en el resto de la conversacion, y el pedido se menciona solo
+    // cuando viene al caso. Lo que NO cambia: de aqui no sale ninguna
+    // cotizacion ni ningun pedido nuevo.
+    // ----------------------------------------------------------------------
+    case "ya_confirmado": {
+      const partes = [];
+      if (saludo) partes.push(saludo);
+
+      // Su duda, respondida. El precio se puede decir -es informativo- pero
+      // NO crea oferta: el estado sigue blindado.
+      const respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion }, { maximo: 2 });
+      if (respuesta.texto) partes.push(respuesta.texto);
+
+      // El pedido se nombra cuando el cliente pregunta por el -entrega,
+      // envio- o cuando no pregunto nada. Repetir el numero de pedido en
+      // cada mensaje es justo lo que producia el eco.
+      const preguntaPorSuPedido =
+        lectura.temas.includes(preguntas.TEMAS.ENTREGA) || lectura.temas.includes(preguntas.TEMAS.ENVIO);
+
+      if (!respuesta.texto || preguntaPorSuPedido) {
+        partes.push(
+          pedido
+            ? `Tu pedido ${pedido.id} ya está confirmado y te avisamos cuando salga.`
+            : "Tu pedido ya está confirmado."
+        );
+      }
+
+      // Si pidio otro, se le dice que lo gestiona una persona. NO se abre un
+      // pedido nuevo por iniciativa del bot: BIKERPRO documento un pedido
+      // falso creado asi, y casi se despacho un paquete que nadie pidio.
+      if (lectura.compra || lectura.temas.includes(preguntas.TEMAS.PRECIO)) {
+        partes.push("Si quieres pedir otro, le digo a una persona del equipo que te lo arme.");
+      } else if (!preguntaPorSuPedido && respuesta.texto) {
+        partes.push("Cualquier otra cosa de tu pedido, dime.");
+      }
+
+      return partes.filter(Boolean).join(" ");
+    }
 
     case "cancelado":
       return "Listo, lo cancelamos. Si cambias de opinión escríbeme y lo armamos de nuevo.";
@@ -539,6 +597,63 @@ function textoDeterminista({
     default:
       return "Dame un momento, te confirmo en seguida.";
   }
+}
+
+// ==========================================================================
+// NO REPETIR PALABRA POR PALABRA LO ULTIMO QUE SE DIJO
+//
+// En la captura de produccion el mismo texto salio TRES veces seguidas, y
+// reproduciendolo salio cinco. Aunque la situacion se arregle, esto tiene
+// que existir aparte: un bot que repite el mismo parrafo es un bot roto a
+// ojos del cliente, y la causa puede ser cualquier rama futura.
+//
+// DOS NIVELES, Y EL SEGUNDO ES EL QUE IMPORTA:
+//
+//   1. Si el texto es idéntico al anterior, se cambia por uno que pide
+//      concretar. Puede que el cliente escribiera algo que no entendimos.
+//
+//   2. Si YA se dijo eso y volveria a repetirse, el bot no esta avanzando.
+//      Ahi se para y se pasa a una persona, en vez de seguir dando vueltas.
+//      Es la misma decision que BIKERPRO documento como "bucle cortado".
+// ==========================================================================
+
+const PEDIR_CONCRETAR =
+  "Perdón, no quiero repetirme. Dime concretamente qué necesitas y lo reviso con el equipo.";
+const PASAR_A_PERSONA =
+  "Déjame pasarte con una persona del equipo para no darte vueltas. Te escribe en un momento.";
+
+/**
+ * Evita el texto repetido.
+ *
+ * OJO CON UNA DISTINCION QUE LA PRIMERA VERSION NO HACIA:
+ *
+ * Si el cliente pregunta DOS VECES LO MISMO, repetir la respuesta correcta
+ * no es un eco: es contestarle. La primera version comparaba solo el texto
+ * de salida, asi que ante "¿tiene garantía?" y "pregunto si tiene garantía"
+ * -la misma duda escrita de dos formas- la segunda recibia "perdón, no
+ * quiero repetirme" en lugar de la respuesta. Peor que repetir.
+ *
+ * El eco de verdad es responder LO MISMO a preguntas DISTINTAS. Por eso la
+ * guarda solo actua cuando los temas del turno cambian.
+ *
+ * @param {string} texto             el que se iba a enviar
+ * @param {string|null} ultimoDicho  el ultimo texto que mando el negocio
+ * @param {object} [opciones]
+ * @param {boolean} [opciones.mismaPregunta] el cliente pregunto lo mismo
+ * @returns {{texto: string, repetido: boolean, escalar: boolean}}
+ */
+function sinRepetir(texto, ultimoDicho, { mismaPregunta = false } = {}) {
+  const a = String(texto || "").trim();
+  const b = String(ultimoDicho || "").trim();
+  if (!a || !b || a !== b) return { texto: a, repetido: false, escalar: false };
+  if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
+
+  // Ya se habia pedido concretar y seguimos en el mismo sitio: no hay una
+  // tercera forma de decir lo mismo. Pasa a una persona.
+  if (b === PEDIR_CONCRETAR) return { texto: PASAR_A_PERSONA, repetido: true, escalar: true };
+  if (b === PASAR_A_PERSONA) return { texto: PASAR_A_PERSONA, repetido: true, escalar: true };
+
+  return { texto: PEDIR_CONCRETAR, repetido: true, escalar: false };
 }
 
 /**
@@ -624,6 +739,9 @@ module.exports = {
   textoDeterminista,
   analizarTurno,
   arranque,
+  sinRepetir,
+  PEDIR_CONCRETAR,
+  PASAR_A_PERSONA,
   revisarClaims,
   lineaComercial,
   pedirLoQueFalta,
