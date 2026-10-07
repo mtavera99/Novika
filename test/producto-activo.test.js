@@ -92,8 +92,13 @@ describe("1 · la ficha que confirmo Marco", () => {
 
     // El color y la talla son hechos aprobados: el bot TIENE que poder
     // decirlos cuando se los preguntan.
-    assert.ok(p.caracteristicasAutorizadas.some((c) => /rosado/.test(c)), "el color no esta autorizado");
-    assert.ok(p.caracteristicasAutorizadas.some((c) => /talla unica/.test(c)), "la talla no esta autorizada");
+    // Se compara APLANADO: estas frases las lee la clienta, asi que llevan
+    // tildes ("talla única"), y una prueba que exija la forma sin tilde
+    // obligaria a escribirlas mal.
+    const { aplanar } = require("../src/dominio/texto");
+    const rasgos = p.caracteristicasAutorizadas.map(aplanar);
+    assert.ok(rasgos.some((c) => /rosado/.test(c)), "el color no esta autorizado");
+    assert.ok(rasgos.some((c) => /talla unica/.test(c)), "la talla no esta autorizada");
   });
 
   test("el color y la talla SALIERON de los datos sin confirmar", () => {
@@ -207,10 +212,13 @@ describe("4 · el precio va antes de pedir la direccion", () => {
     }).texto;
 
     assert.match(t, /49\.900/);
+    // Con la cantidad sin decir, el precio informado es el de UNA unidad y
+    // hay que decirlo asi: si no, quien pensaba pedir tres lo lee como el
+    // total de su pedido.
     assert.match(t, /una unidad/i, "tiene que quedar claro que es el precio de UNA unidad");
     assert.match(t, /incluido/);
     assert.match(t, /al recibir/);
-    assert.match(t, /me falta/);
+    assert.match(t, /me pasas|me falta/, "tiene que pedir lo que falta");
   });
 
   test("sin cotizacion informativa, el texto no se inventa ninguna cifra", () => {

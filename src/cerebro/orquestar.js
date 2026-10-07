@@ -55,14 +55,55 @@ const fotos = require("../whatsapp/fotos");
 /** Datos del destinatario que se piden siempre. */
 const REQUERIDOS_BASE = ["nombre", "telefono", "ciudad", "direccion"];
 
+// ==========================================================================
+// EL GUION DEL MODELO
+//
+// Lo que el modelo hace en NOVIKA es MAS PEQUEÑO de lo que suele hacer un bot
+// de ventas, y a proposito: no decide el precio, no decide si hay pedido y no
+// decide las condiciones. Eso lo resuelve el dominio y esta probado. El modelo
+// aporta la redaccion.
+//
+// Por eso este guion no trae tablas de precios ni politicas: trae TONO y
+// ORDEN. Las condiciones comerciales no se escriben aqui, se leen del
+// catalogo. Un guion con precios dentro es un precio que se desactualiza en
+// silencio.
+//
+// Las reglas de abajo son mecanica conversacional adaptada de la referencia de
+// BIKERPRO, que las aprendio midiendo miles de conversaciones reales. Lo que
+// se adapta es COMO se conversa; ninguna condicion comercial suya aplica aqui.
+//
+// Y ninguna de estas lineas es un candado: todas estan respaldadas por codigo
+// -el filtro de importes, el de claims, y el texto determinista que se usa si
+// el borrador no pasa-. Una instruccion al modelo no es un candado.
+// ==========================================================================
 const SISTEMA_BASE = [
-  "Eres el asistente comercial de NOVIKA, tienda colombiana multiproducto.",
-  "Tu trabajo es entender al cliente y redactar. NO decides precios, totales, envios ni confirmaciones.",
+  "Eres quien atiende el WhatsApp de NOVIKA, una tienda colombiana.",
+  "Tu trabajo es entender al cliente y REDACTAR. NO decides precios, totales, envios ni confirmaciones: esos los calcula el sistema.",
+  "",
+  "TONO",
+  "- Colombiano, cercano y natural. Tutea.",
+  "- Mensajes CORTOS: dos o tres frases, como un chat de verdad. Nunca parrafos ni listas con viñetas.",
+  "- Emojis: ninguno o uno. Nunca mas de uno.",
+  "- NO repitas el saludo. Si ya se saludo en esta conversacion, sigue desde donde quedo.",
+  "- NO vuelvas a preguntar algo que el cliente ya te dijo. Lee la conversacion antes.",
+  "",
+  "ORDEN DE CADA RESPUESTA",
+  "1. Responde PRIMERO lo que el cliente pregunto.",
+  "2. Solo despues, si procede, propon el siguiente paso.",
+  "Contestarle con una pedida de datos a quien pregunto otra cosa es la forma mas rapida de perder la venta.",
+  "",
+  "PREGUNTAR NO ES COMPRAR",
+  "- Si el cliente esta averiguando (garantia, medidas, material, como funciona), responde su duda y NADA MAS. No le pidas nombre, ciudad ni direccion.",
+  "- Pide los datos de entrega solo cuando diga que lo quiere.",
+  "- NO termines todas tus respuestas con una pregunta comercial. A veces lo correcto es responder y callarse.",
+  "",
+  "LO QUE NO PUEDES ESCRIBIR",
+  "- NUNCA precios, totales, importes ni cifras de dinero. Ni aproximados, ni rangos. Los pone el sistema.",
+  "- NUNCA caracteristicas, garantias, plazos de entrega ni medidas que no aparezcan en los datos autorizados de este mensaje.",
+  "- Si no tienes el dato autorizado, dilo: que lo confirmas con el equipo en un momento. Eso es mejor que una respuesta amable con un dato inventado.",
+  "",
   "Responde SIEMPRE en JSON con esta forma:",
   '{"intencion":"...","candidatos":{},"productoSugerido":null,"borradorRespuesta":null,"preguntasDelCliente":[]}',
-  "NUNCA incluyas precios, totales, importes ni cifras de dinero en borradorRespuesta.",
-  "NUNCA afirmes caracteristicas, garantias ni tiempos de entrega que no aparezcan en los datos autorizados.",
-  "Si no tienes un dato autorizado, di que lo confirmas en seguida.",
 ].join("\n");
 
 /**
@@ -101,6 +142,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // Si ya se le dijo el precio de una unidad. Evita repetir la misma
       // frase en cada turno. Sin columna propia: viaja en `extra`.
       precioInformado: false,
+      // Lo que ya se le dijo, para no repetirlo. Sin columna propia: viajan
+      // en `extra`, igual que precioInformado.
+      saludado: false,
+      datosPedidos: false,
+      pasoPropuesto: false,
       ficha: campos.fichaVacia(),
       ventana: [], // ultimos mensajes, para resolver producto si se rota
       creadoEn: new Date().toISOString(),
@@ -545,6 +591,17 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       //     el riesgo no es exagerar el precio, es prometer algo medico.
       producto: producto || candidato,
       borradorIA: analisis ? analisis.borradorRespuesta : null,
+
+      // El texto del turno y lo que ya se le dijo. Sin esto el texto no puede
+      // responder lo que pregunto ni evitar repetir el saludo y la pedida de
+      // datos en cada mensaje.
+      mensajeCliente: evento.texto || "",
+      memoria: {
+        saludado: conversacion.saludado === true,
+        datosPedidos: conversacion.datosPedidos === true,
+        pasoPropuesto: conversacion.pasoPropuesto === true,
+        precioInformado: conversacion.precioInformado === true,
+      },
     });
 
     contar("respuesta_preparada");
@@ -609,6 +666,10 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // equivocado confunden mas que preguntar.
     // ------------------------------------------------------------------
     const pidioVerlo = texto.pideFotos(evento.texto || "");
+    // El arranque las anuncia ("Te muestro las fotos"), asi que tienen que
+    // salir. Si no, el primer mensaje promete algo que no llega.
+    const turnoDeFotos = responder.analizarTurno(evento.texto || "");
+    const esArranque = turnoDeFotos.lectura.soloSaludo && conversacion.saludado !== true;
     const sabemosDeQueProducto = situacion !== "producto_ambiguo" && situacion !== "producto_desconocido";
 
     if (
@@ -617,7 +678,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       productoParaFotos &&
       (productoParaFotos.imagenes || []).length &&
       sabemosDeQueProducto &&
-      (situacion === "producto_en_borrador" || pidioVerlo)
+      (situacion === "producto_en_borrador" || pidioVerlo || esArranque)
     ) {
       const informeFotos = await fotos.enviarFotosDeProducto({
         emisor,
@@ -644,7 +705,21 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     // Guardar
     // ------------------------------------------------------------------
-    if (traza.cotizacionInformativa && traza.enviada) conversacion.precioInformado = true;
+    // ------------------------------------------------------------------
+    // LO QUE YA SE LE DIJO
+    //
+    // Se anota SOLO si el mensaje SALIO. En modo sombra el texto se prepara y
+    // no se envia: darlo por dicho haria que al encender el interruptor el
+    // cliente nunca reciba el saludo ni el precio, porque el bot creeria que
+    // ya los dijo.
+    // ------------------------------------------------------------------
+    if (traza.enviada) {
+      const turno = responder.analizarTurno(evento.texto || "");
+      conversacion.saludado = true;
+      if (traza.cotizacionInformativa || traza.cotizacion) conversacion.precioInformado = true;
+      if (situacion === "faltan_datos" && !turno.soloAveriguando) conversacion.datosPedidos = true;
+      conversacion.pasoPropuesto = true;
+    }
 
     conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
     conversacion.ultimoWamid = evento.wamid;
@@ -894,6 +969,27 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     const faltan = campos.faltantes(conversacion.ficha, REQUERIDOS_BASE);
     if (faltan.length) partes.push(`Datos que faltan: ${faltan.join(", ")}`);
+
+    // ------------------------------------------------------------------
+    // LO QUE YA SE LE DIJO
+    //
+    // Sin esto el modelo no tiene forma de saber que ya se saludo ni que ya
+    // se dio el precio, y lo repite. El historial rota, asi que no alcanza
+    // con que "este en la conversacion": a los pocos turnos se cae de la
+    // ventana y el bot vuelve a saludar como si fuera el primer mensaje.
+    // ------------------------------------------------------------------
+    const yaDicho = [];
+    if (conversacion.saludado) yaDicho.push("ya se saludo: NO vuelvas a saludar");
+    if (conversacion.precioInformado) yaDicho.push("ya se le dijo el precio: no lo repitas salvo que lo pregunte otra vez");
+    if (conversacion.datosPedidos) yaDicho.push("ya se le pidieron los datos de entrega: no se los vuelvas a pedir en cada mensaje");
+    if (yaDicho.length) partes.push(`En esta conversacion ${yaDicho.join("; ")}.`);
+
+    // Que esta haciendo en este turno, decidido por codigo y no por el
+    // modelo: si solo esta averiguando, no tiene que cerrar.
+    const turno = responder.analizarTurno(evento.texto || "");
+    if (turno.soloAveriguando) {
+      partes.push("ESTE TURNO ES UNA DUDA, no una señal de compra: responde la duda y NO pidas datos de entrega.");
+    }
 
     return partes.join("\n");
   }

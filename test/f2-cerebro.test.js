@@ -197,7 +197,9 @@ test("un mensaje sin señal de producto deja el producto DESCONOCIDO y pregunta"
   const traza = await cerebro.procesar(mensaje("hola buenas"));
   assert.equal(traza.producto.productoId, null);
   assert.equal(traza.respuesta.situacion, "producto_desconocido");
-  assert.match(traza.respuesta.texto, /cuál producto/i);
+  // El texto se volvio mas cercano ("Cuéntame qué producto te interesa") pero
+  // la garantia es la misma: se PREGUNTA en vez de adivinar.
+  assert.match(traza.respuesta.texto, /qué producto|cuál producto/i);
   assert.equal(metricas.valor("producto_desconocido") >= 1, true);
 });
 
@@ -217,7 +219,11 @@ test("dos productos en la misma frase: se pregunta cual", async () => {
   const traza = await cerebro.procesar(mensaje("tienes el cinturon termico y la manta termica"));
   assert.equal(traza.producto.ambiguo, true);
   assert.equal(traza.respuesta.situacion, "producto_ambiguo");
-  assert.match(traza.respuesta.texto, /cuál de estos/i);
+  // "¿Cuál de estos?" paso a "¿Cuál te interesa, el cinturón o la manta?".
+  // El cambio que importa es la conjuncion: con "y" la pregunta se leia como
+  // si se ofrecieran los dos juntos.
+  assert.match(traza.respuesta.texto, /cuál te interesa|cuál de estos/i);
+  assert.match(traza.respuesta.texto, / o /, "las opciones son alternativas: van con «o», no con «y»");
 });
 
 test("una falsa señal NO cambia el producto de la conversacion", async () => {
@@ -246,8 +252,22 @@ test("sin datos suficientes se piden, no se inventan", async () => {
   const traza = await cerebro.procesar(mensaje("quiero el cinturon termico"));
   assert.equal(traza.respuesta.situacion, "faltan_datos");
   assert.ok(traza.faltan.length > 0);
-  // Y la respuesta dice exactamente que falta.
-  assert.match(traza.respuesta.texto, /me falta/i);
+
+  // ANTES SE EXIGIA "me falta" Y YA NO CORRESPONDE.
+  //
+  // El texto era "Para continuar me falta la ciudad, la dirección de
+  // entrega." y ahora es "El cinturón te queda en $89.000, con envío
+  // incluido. Para despacharlo me pasas la ciudad y la dirección."
+  //
+  // La garantia no era la palabra "falta": era que se PIDAN los datos en vez
+  // de inventarlos. Eso sigue, y ahora ademas se dice el precio primero, que
+  // es lo que el cliente pregunto. Se comprueban las dos cosas.
+  assert.match(traza.respuesta.texto, /me pasas|me falta/i, "tiene que pedir los datos que faltan");
+  assert.match(traza.respuesta.texto, /\$89\.000/, "y decir el precio antes de pedirlos");
+  assert.ok(
+    traza.respuesta.texto.indexOf("89.000") < traza.respuesta.texto.search(/me pasas|me falta/i),
+    "el precio va antes de la pedida de datos"
+  );
 });
 
 test("con todos los datos se cotiza y se muestra el resumen", async () => {
@@ -258,7 +278,11 @@ test("con todos los datos se cotiza y se muestra el resumen", async () => {
   assert.equal(traza.estadoNuevo, "pendiente_confirmacion");
   assert.equal(traza.cotizacion.total, 89000);
   assert.match(traza.respuesta.texto, /\$89\.000/);
-  assert.match(traza.respuesta.texto, /¿Confirmas\?/);
+  // El cierre del resumen paso de "¿Confirmas?" a '¿Está todo bien?
+  // Respóndeme "sí" y lo despacho.' — dice QUE contestar, que es lo que
+  // convierte un resumen en una confirmacion.
+  assert.match(traza.respuesta.texto, /¿Está todo bien\?|¿Confirmas\?/);
+  assert.match(traza.respuesta.texto, /Confirmemos tu pedido/);
 });
 
 test('"vivo en la calle 45" NO se lee como 45 unidades', async () => {

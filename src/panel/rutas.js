@@ -29,6 +29,9 @@ const fichaDe = require("./ficha");
 const analitica = require("./analitica");
 const fotos = require("../whatsapp/fotos");
 const dominioPedido = require("../dominio/pedido");
+const campos = require("../dominio/campos");
+const dominioDestino = require("../dominio/destino");
+const responder = require("../cerebro/responder");
 
 const { PERMISOS, MOTIVOS_BLOQUEO } = require("../whatsapp/enviar");
 
@@ -170,6 +173,181 @@ function crearRutasDelPanel({ obtenerCerebro }) {
       html(res, vistas.buscar({ q, resultados }));
     } catch (e) {
       html(res, vistas.buscar({ q, resultados: [] }), 500);
+    }
+  });
+
+  /**
+   * Manda un texto al cliente desde el panel y anota el resultado REAL.
+   *
+   * Se extrajo para que /responder y /entrega usen el mismo camino. Si cada
+   * ruta tuviera el suyo, una de las dos acabaria sin anotar el estado real
+   * del envio, y el panel mostraria como dicho algo que no salio.
+   */
+  async function enviarDesdeElPanel({ id, texto, conv, repos }) {
+    const { emisor } = await piezas();
+    const telefono = fichaDe.confirmado(conv.ficha, "telefono") || id;
+    const envio = await emisor.enviarTexto({ para: telefono, texto, permiso: PERMISOS.ATENCION_MANUAL });
+
+    const estado = envio.enviado ? "enviado" : envio.bloqueado ? envio.motivo : "fallo_de_envio";
+    atencion.anotarMensaje(conv, {
+      de: atencion.QUIEN.OPERADOR,
+      texto,
+      por: "panel",
+      estado,
+      wamid: envio.wamid || null,
+    });
+    // Igual que al responder a mano: si una persona escribe, el bot se calla
+    // en ese chat para que el cliente no reciba dos voces.
+    conv.atencion = { ...atencion.leer(conv), pausado: true, por: "panel", desde: new Date().toISOString() };
+    await repos.conversaciones.guardar(conv);
+
+    diario.anotar("panel_confirmacion_manual", { idCliente: id, texto, estado, wamid: envio.wamid || null });
+    metricas.incrementar(envio.enviado ? "panel_confirmacion_enviada" : "panel_confirmacion_no_enviada");
+    return { envio, estado };
+  }
+
+  // ----------------------------------------------------------------------
+  // Bandeja: TODOS los chats
+  //
+  // El tablero muestra lo que espera respuesta. Esta pantalla muestra todo,
+  // con filtros y paginacion, y es la unica forma de llegar a la
+  // conversacion de quien pregunto y no compro sin recordar su nombre.
+  // ----------------------------------------------------------------------
+  router.get("/chats", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+
+    const filtro = Object.values(datos.FILTROS).includes(String(req.query.filtro || ""))
+      ? String(req.query.filtro)
+      : datos.FILTROS.TODOS;
+    const q = String(req.query.q || "");
+    const pagina = Number(req.query.pagina) || 1;
+
+    try {
+      const { repos } = await piezas();
+      const bandeja = await datos.bandeja(repos, { filtro, q, pagina });
+      html(res, vistas.bandeja({ datos: bandeja }));
+    } catch (e) {
+      log.error("panel_bandeja_fallo", { detalle: e.message });
+      html(
+        res,
+        vistas.bandeja({
+          datos: { filas: [], total: 0, pagina: 1, paginas: 1, filtro, q, cuentas: {} },
+          aviso: { clase: "malo", texto: "No se pudo cargar la bandeja." },
+        }),
+        500
+      );
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // Corregir los datos de entrega
+  //
+  // DOS ACCIONES EN EL MISMO FORMULARIO, Y LA DIFERENCIA IMPORTA:
+  //
+  //   guardar   -> corrige la ficha de la conversacion. No le escribe al
+  //                cliente. Es lo que se usa cuando el cliente dicto mal la
+  //                direccion por WhatsApp.
+  //   confirmar -> guarda Y le manda el resumen para que confirme.
+  //
+  // EL TOTAL NO SE ESCRIBE AQUI. El texto del resumen lo arma el dominio
+  // con la cotizacion vigente, igual que cuando lo manda el bot. Si el panel
+  // pudiera teclear un importe, habria dos fuentes de precio.
+  // ----------------------------------------------------------------------
+  router.post("/entrega", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+
+    const id = String((req.body && req.body.id) || "").trim();
+    const accion = String((req.body && req.body.accion) || "guardar");
+    if (!id) return res.redirect("/panel/chats");
+
+    try {
+      const { repos, catalogo } = await piezas();
+      const conv = await repos.conversaciones.obtener(id);
+      if (!conv) return res.redirect("/panel/chats");
+
+      // ------------------------------------------------------------------
+      // LA CORRECCION DE UNA PERSONA QUEDA MARCADA COMO TAL
+      //
+      // Se guarda con origen OPERADOR y estado confirmado: lo escribio
+      // alguien del equipo mirando el chat, asi que vale mas que lo que el
+      // extractor leyo del texto. Y queda registrado QUIEN lo puso, que es
+      // lo que permite auditar un despacho a una direccion corregida.
+      // ------------------------------------------------------------------
+      const VALIDADORES = {
+        telefono: (v) => dominioDestino.validarTelefono(v),
+        nombre: (v) => dominioDestino.validarNombre(v),
+        ciudad: (v) => dominioDestino.resolverCiudad(v, null),
+        direccion: (v) => dominioDestino.validarDireccion(v),
+        // Departamento y referencia no tienen validador propio en el
+        // dominio: basta que no esten vacios. No se inventa una validacion
+        // para que parezca mas estricto de lo que es.
+        departamento: (v) => ({ ok: Boolean(String(v || "").trim()), valor: String(v || "").trim() }),
+        referencia: (v) => ({ ok: Boolean(String(v || "").trim()), valor: String(v || "").trim() }),
+      };
+
+      const corregidos = [];
+      const rechazados = [];
+      for (const campo of Object.keys(VALIDADORES)) {
+        const v = String((req.body && req.body[campo]) || "").trim();
+        if (!v) continue;
+
+        const actual = fichaDe.leer(conv.ficha, campo);
+        if (actual.hay && String(actual.valor).trim() === v) continue; // sin cambios
+
+        // `proponer` NO pisa un dato confirmado, y aqui hay que pisarlo: el
+        // caso de uso es justamente que el cliente dicto mal la direccion y
+        // una persona la corrige mirando el chat. Por eso se REABRE primero,
+        // y queda anotado en el historial del campo quien lo reabrio.
+        let c = campos.reabrir(conv.ficha[campo], "corregido desde el panel");
+        c = campos.proponer(c, v, campos.ORIGENES.PERSONA);
+        c = campos.confirmar(c, VALIDADORES[campo]);
+
+        conv.ficha[campo] = c;
+        if (c.estado === campos.ESTADO_CAMPO.CONFIRMADO) corregidos.push(campo);
+        else rechazados.push({ campo, motivo: c.motivo });
+      }
+
+      await repos.conversaciones.guardar(conv);
+      log.info("panel_entrega_corregida", { contactoId: id, corregidos, rechazados: rechazados.length });
+      if (rechazados.length) {
+        // No se traga en silencio: un campo que el validador rechaza queda
+        // como estaba, y quien lo escribio tiene que saberlo.
+        log.warn("panel_entrega_rechazada", { contactoId: id, rechazados });
+      }
+      diario.anotar("panel_entrega_corregida", { idCliente: id, corregidos, rechazados });
+
+      if (accion !== "confirmar") {
+        return res.redirect(`/panel/chat?id=${encodeURIComponent(id)}`);
+      }
+
+      // ---- Confirmar por WhatsApp ----
+      if (!config.panelEnvioManual) {
+        log.info("panel_entrega_confirmar_bloqueado", { contactoId: id, motivo: "envio_manual_apagado" });
+        return res.redirect(`/panel/chat?id=${encodeURIComponent(id)}`);
+      }
+
+      const todos = catalogo.productos || catalogo.activos || [];
+      const producto = todos.find((p) => p.id === conv.productoId) || null;
+
+      // El texto lo arma el dominio con la cotizacion vigente. Si no hay
+      // cotizacion, NO se manda nada: pedirle a alguien que confirme sin
+      // decirle cuanto paga es el defecto que BIKERPRO documento.
+      if (!conv.cotizacion) {
+        log.warn("panel_entrega_sin_cotizacion", { contactoId: id });
+        return res.redirect(`/panel/chat?id=${encodeURIComponent(id)}`);
+      }
+
+      const texto = responder.textoDeterminista({
+        situacion: "resumen",
+        cotizacion: conv.cotizacion,
+        producto,
+      });
+
+      await enviarDesdeElPanel({ id, texto, conv, repos });
+      return res.redirect(`/panel/chat?id=${encodeURIComponent(id)}`);
+    } catch (e) {
+      log.error("panel_entrega_fallo", { detalle: e.message });
+      return res.redirect(`/panel/chat?id=${encodeURIComponent(id)}`);
     }
   });
 
@@ -474,6 +652,9 @@ function crearRutasDelPanel({ obtenerCerebro }) {
     try {
       const { repos } = await piezas();
       const dominioPedido = require("../dominio/pedido");
+const campos = require("../dominio/campos");
+const dominioDestino = require("../dominio/destino");
+const responder = require("../cerebro/responder");
       const pedido = await repos.pedidos.obtener(codigo);
       if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
 
@@ -529,6 +710,9 @@ function crearRutasDelPanel({ obtenerCerebro }) {
       const { repos, catalogo } = await piezas();
       const { cotizar } = require("../dominio/cotizador");
       const dominioPedido = require("../dominio/pedido");
+const campos = require("../dominio/campos");
+const dominioDestino = require("../dominio/destino");
+const responder = require("../cerebro/responder");
 
       const producto = (catalogo.activos || []).find((p) => p.id === String(b.productoId || ""));
       if (!producto) {

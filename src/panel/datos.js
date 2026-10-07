@@ -214,6 +214,176 @@ async function conversacionCompleta(repos, contactoId) {
   };
 }
 
+// ==========================================================================
+// LA BANDEJA: TODOS LOS CHATS
+//
+// POR QUE HACE FALTA, Y QUE SE PERDIA SIN ELLA
+//
+// El tablero muestra los chats que ESPERAN RESPUESTA, que es lo correcto
+// para trabajar el dia. Pero no habia ninguna pantalla donde ver la
+// conversacion de alguien que ya fue atendido, o la de quien pregunto y no
+// compro — y esas son la mayoria.
+//
+// Para buscarlas habia `/panel/buscar`, que exige saber a quien buscas. Si
+// no te acuerdas del nombre, no hay forma de llegar. Es el mismo agujero que
+// BIKERPRO documento: el chat que mas falta leer -el del cliente que
+// pregunto y se fue- era el unico que no se podia abrir.
+//
+// Y sin la lista completa no hay auditoria posible: "que le dijo el bot a la
+// gente hoy" no se puede responder mirando solo lo pendiente.
+//
+// DECISIONES
+//
+// 1. SE PAGINA DE VERDAD. Con volumen, una pantalla que trae todo es una
+//    pantalla que no carga. Y Marco trabaja desde el celular.
+//
+// 2. LOS PEDIDOS SE CONSULTAN UNA VEZ, no uno por conversacion. Preguntar
+//    `porContacto` dentro del bucle son N consultas por pantalla.
+//
+// 3. EL ULTIMO MENSAJE VA EN LA FILA. Sin el, la lista es una guia de
+//    telefonos: hay que abrir cada chat para saber de que iba.
+// ==========================================================================
+
+/** Filtros de la bandeja. Cada uno responde a una pregunta real. */
+const FILTROS = {
+  TODOS: "todos",
+  ESPERANDO: "esperando", // alguien espera respuesta ahora
+  EN_CURSO: "en_curso", // conversacion viva, nadie esperando
+  ATENDIDOS: "atendidos", // una persona ya los resolvio
+  CON_PEDIDO: "con_pedido",
+  SIN_PEDIDO: "sin_pedido", // pregunto y no compro: donde se ven las fugas
+};
+
+/** Recorta un texto para la fila, sin cortar a mitad de palabra. */
+function recortar(texto, maximo = 90) {
+  const t = String(texto || "").replace(/\s+/g, " ").trim();
+  if (t.length <= maximo) return t;
+  return `${t.slice(0, t.lastIndexOf(" ", maximo) || maximo)}…`;
+}
+
+/**
+ * ¿Esta fila cumple el filtro?
+ *
+ * Funcion pura y fuera de `bandeja` a proposito: la primera version la tenia
+ * dentro leyendo el `filtro` del closure, y para contar las pestañas habia
+ * que reasignar ese parametro y restaurarlo. Eso funciona y es una trampa:
+ * cualquier `await` en medio dejaria el contador mintiendo.
+ */
+function cumple(fila, filtro) {
+  switch (filtro) {
+    case FILTROS.ESPERANDO:
+      return fila.esperando && fila.clase !== CLASES.ATENDIDA;
+    case FILTROS.EN_CURSO:
+      return !fila.esperando && fila.clase !== CLASES.ATENDIDA;
+    case FILTROS.ATENDIDOS:
+      return fila.clase === CLASES.ATENDIDA;
+    case FILTROS.CON_PEDIDO:
+      return fila.pedidosVivos > 0;
+    case FILTROS.SIN_PEDIDO:
+      return fila.pedidosVivos === 0;
+    default:
+      return true;
+  }
+}
+
+/**
+ * Bandeja de conversaciones, filtrada, buscada y paginada.
+ *
+ * @param {object} repos
+ * @param {object} opciones
+ * @param {string} [opciones.filtro]  uno de FILTROS
+ * @param {string} [opciones.q]       busqueda por nombre, telefono o ciudad
+ * @param {number} [opciones.pagina]  1 en adelante
+ */
+async function bandeja(repos, { filtro = FILTROS.TODOS, q = "", pagina = 1, porPagina = 25, ahora = Date.now() } = {}) {
+  const todas = await repos.conversaciones.listar({ limite: 2000 });
+
+  // Una sola consulta de pedidos para saber quien compro. Con PostgreSQL
+  // esto es un indice; con archivos, una lectura de carpeta.
+  const pedidos = await repos.pedidos.listar({ limite: 5000 });
+  const porContacto = new Map();
+  for (const p of pedidos) {
+    const lista = porContacto.get(p.contactoId) || [];
+    lista.push(p);
+    porContacto.set(p.contactoId, lista);
+  }
+
+  const texto = String(q || "").trim().toLowerCase();
+
+  const filas = todas.map((conv) => {
+    const mensajes = atencion.mensajes(conv);
+    const ultimo = mensajes.length ? mensajes[mensajes.length - 1] : null;
+    const ultimoDelCliente = atencion.ultimoDelCliente(conv);
+    const susPedidos = porContacto.get(conv.contactoId) || [];
+    const vivos = susPedidos.filter((p) => !NO_CUENTAN.has(p.estado));
+
+    const leer = (campo) => fichaDe.leer(conv.ficha, campo).valor;
+
+    return {
+      contactoId: conv.contactoId,
+      nombre: leer("nombre") || null,
+      telefono: leer("telefono") || conv.contactoId,
+      ciudad: leer("ciudad") || null,
+      productoId: conv.productoId || null,
+      estado: conv.estado,
+      clase: clasificar(conv, { ahora }),
+      atencion: atencion.leer(conv),
+      esperando: esperandoRespuesta(conv),
+      mensajes: mensajes.length,
+      // El ultimo mensaje y QUIEN lo dijo: una fila donde no se distingue si
+      // habló el cliente o el bot no dice si hay algo que hacer.
+      ultimo: ultimo ? { de: ultimo.de, texto: recortar(ultimo.texto), ts: ultimo.ts, estado: ultimo.estado } : null,
+      ultimoDelClienteTs: ultimoDelCliente ? ultimoDelCliente.ts : null,
+      minutosEsperando:
+        ultimoDelCliente && esperandoRespuesta(conv) ? fecha.minutosDesde(ultimoDelCliente.ts, ahora) : null,
+      pedidos: susPedidos.length,
+      pedidosVivos: vivos.length,
+      importe: vivos.reduce((s, p) => s + totalDe(p), 0),
+      ultimoPedido: susPedidos.length ? susPedidos[susPedidos.length - 1] : null,
+    };
+  });
+
+  const pasaBusqueda = (f) =>
+    !texto ||
+    [f.contactoId, f.nombre, f.telefono, f.ciudad, f.productoId, f.ultimo && f.ultimo.texto]
+      .filter(Boolean)
+      .some((v) => String(v).toLowerCase().includes(texto));
+
+  const filtradas = filas.filter((f) => cumple(f, filtro) && pasaBusqueda(f));
+
+  // Lo que espera respuesta primero, y dentro de eso lo que lleva mas
+  // tiempo esperando. Despues, por actividad reciente.
+  filtradas.sort((a, b) => {
+    if (a.esperando !== b.esperando) return a.esperando ? -1 : 1;
+    const ta = (a.ultimo && a.ultimo.ts) || 0;
+    const tb = (b.ultimo && b.ultimo.ts) || 0;
+    return tb - ta;
+  });
+
+  // Los contadores se calculan sobre TODAS las filas, no sobre la pagina:
+  // una pestaña que dice "3" porque solo mira la pagina actual miente.
+  const cuentas = {};
+  for (const clave of Object.values(FILTROS)) {
+    cuentas[clave] = filas.filter((f) => cumple(f, clave)).length;
+  }
+
+  const total = filtradas.length;
+  const paginas = Math.max(1, Math.ceil(total / porPagina));
+  const actual = Math.min(Math.max(1, Number(pagina) || 1), paginas);
+  const desde = (actual - 1) * porPagina;
+
+  return {
+    filas: filtradas.slice(desde, desde + porPagina),
+    total,
+    pagina: actual,
+    paginas,
+    porPagina,
+    filtro,
+    q: String(q || ""),
+    cuentas,
+  };
+}
+
 /** Serie de dias para la vista por fecha. */
 async function serie(repos, { dias = 14, ahora = Date.now() } = {}) {
   const lista = fecha.ultimosDias(dias, fecha.hoyBogota(ahora));
@@ -232,7 +402,11 @@ async function serie(repos, { dias = 14, ahora = Date.now() } = {}) {
 
 module.exports = {
   CLASES,
+  FILTROS,
   MINUTOS_URGENTE,
+  bandeja,
+  cumple,
+  recortar,
   clasificar,
   esperandoRespuesta,
   unidadesDe,

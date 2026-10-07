@@ -125,6 +125,53 @@ input:focus, textarea:focus, select:focus { outline:2px solid var(--azul); outli
 .pestanas .boton[aria-current="true"] { background:var(--azul); border-color:var(--azul); color:#fff; }
 .cuenta { background:#0f1115; border-radius:999px; padding:1px 8px; font-size:12px; }
 
+/* ---- BANDEJA DE CHATS ----
+   Pensada para el pulgar: filas altas, toda la fila es el enlace, y el
+   ultimo mensaje visible para no tener que abrir cada chat. */
+.buscador { display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap; }
+.buscador input[type=search] { flex:1; min-width:180px; }
+.buscador .limpiar { color:var(--suave); font-size:13px; }
+.pests { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; margin-bottom:6px;
+  -webkit-overflow-scrolling:touch; }
+.pest { white-space:nowrap; background:var(--caja); border:1px solid var(--borde);
+  border-radius:999px; padding:9px 13px; font-size:14px; text-decoration:none;
+  color:var(--texto); display:inline-flex; align-items:center; gap:6px; min-height:40px; }
+.pest.activa { background:var(--azul); border-color:var(--azul); color:#fff; }
+.pest.activa .pastilla { background:rgba(255,255,255,.22); color:#fff; }
+.listaChats { display:flex; flex-direction:column; gap:8px; }
+.filaChat { display:block; background:var(--caja); border:1px solid var(--borde);
+  border-radius:12px; padding:12px; text-decoration:none; color:var(--texto); }
+.filaChat:active { background:#161a21; }
+.filaTop { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+.filaTop b { font-size:15px; }
+.filaTop .cuando { color:var(--suave); font-size:12px; white-space:nowrap; }
+.filaEtiquetas { display:flex; gap:5px; flex-wrap:wrap; margin:6px 0 5px; }
+/* Un mensaje con una URL o una palabra larga desbordaria la fila y
+   obligaria a hacer scroll lateral en toda la pantalla. */
+.filaUltimo { font-size:14px; color:#c7ccd6; line-height:1.35;
+  word-break:break-word; overflow-wrap:anywhere; }
+.filaUltimo .quien { color:var(--suave); font-size:12px; text-transform:uppercase;
+  letter-spacing:.3px; margin-right:3px; }
+.filaPie { color:var(--suave); font-size:12px; margin-top:6px; }
+.paginas { display:flex; justify-content:space-between; align-items:center; gap:10px;
+  margin:14px 0 4px; }
+.paginas a, .paginas span { font-size:14px; min-height:40px; display:inline-flex;
+  align-items:center; }
+.paginas a { color:var(--azul); text-decoration:none; }
+.paginas span { color:var(--suave); }
+.paginas .deque { font-size:13px; }
+
+/* ---- DATOS DE ENTREGA ---- */
+h2.seccion { font-size:16px; margin:20px 0 10px; }
+.entregaTabla .difiere td { background:#2a2113; }
+.entregaTabla .difiere td:first-child b::after { content:" ⚠"; color:#ffc857; }
+.falta { color:#ff9aa4; font-size:13px; }
+.entrega { background:var(--caja); border:1px solid var(--borde); border-radius:12px;
+  padding:14px; margin-top:14px; display:flex; flex-direction:column; gap:10px; }
+.entrega label { font-size:13px; color:var(--suave); display:flex; flex-direction:column; gap:5px; }
+.entrega .botones { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+table.compacta td { padding:9px 12px; }
+
 table { width:100%; border-collapse:collapse; background:var(--caja);
   border:1px solid var(--borde); border-radius:12px; overflow:hidden; }
 th, td { text-align:left; padding:11px 12px; border-bottom:1px solid var(--borde); font-size:14px; }
@@ -262,6 +309,7 @@ function cabecera({ titulo, dia = null, extra = "" }) {
   <span class="zona">${esc(titulo)}${dia ? ` · ${esc(dia)}` : ""} · hora de Colombia</span>
   <div class="derecha">
     <a class="boton" href="/panel">Tablero</a>
+    <a class="boton" href="/panel/chats">Chats</a>
     <a class="boton" href="/panel/buscar">Buscar</a>
     <a class="boton" href="/panel/guias">Guías</a>
     <a class="boton" href="/panel/novedades">Novedades</a>
@@ -470,6 +518,14 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
     </div>
   </div>
 </div>` +
+    datosDeEntrega({
+      conversacion,
+      // El ultimo pedido vivo: es el que se despacha. Un cancelado no sirve
+      // para comparar datos de entrega.
+      pedido: [...pedidos].reverse().find((p) => p.estado !== "cancelado") || null,
+      editable: true,
+      envioManualActivo,
+    }) +
     tablaPedidos +
     pie(`
 var ID = ${JSON.stringify(id)};
@@ -892,7 +948,231 @@ function bloqueada({ titulo, queFalta, porQue, comoSeDesbloquea }) {
   );
 }
 
+
+// ==========================================================================
+// LA BANDEJA: TODOS LOS CHATS
+//
+// El tablero es la pantalla para TRABAJAR el dia: lo que espera respuesta.
+// Esta es la pantalla para BUSCAR y para AUDITAR, y son dos necesidades
+// distintas. Sin ella, la conversacion de quien pregunto y no compro -que
+// son la mayoria- solo se podia abrir si recordabas su nombre.
+// ==========================================================================
+
+const ETIQUETAS_FILTRO = {
+  todos: "Todos",
+  esperando: "Esperando",
+  en_curso: "En curso",
+  atendidos: "Atendidos",
+  con_pedido: "Con pedido",
+  sin_pedido: "Sin pedido",
+};
+
+/** Quien hablo el ultimo mensaje, para la fila. */
+const QUIEN_CORTO = { cliente: "cliente", bot: "bot", operador: "tú" };
+
+function bandeja({ datos, aviso = null }) {
+  const { filas, total, pagina, paginas, filtro, q, cuentas } = datos;
+
+  const enlace = (f, p = 1) =>
+    `/panel/chats?filtro=${encodeURIComponent(f)}${q ? `&q=${encodeURIComponent(q)}` : ""}${p > 1 ? `&pagina=${p}` : ""}`;
+
+  const pestanasFiltro = Object.entries(ETIQUETAS_FILTRO)
+    .map(
+      ([clave, etiqueta]) =>
+        `<a class="pest ${filtro === clave ? "activa" : ""}" href="${esc(enlace(clave))}">${esc(etiqueta)}
+           <span class="pastilla">${esc(cuentas[clave] ?? 0)}</span></a>`
+    )
+    .join("");
+
+  const fila = (f) => {
+    const quien = f.ultimo ? QUIEN_CORTO[f.ultimo.de] || f.ultimo.de : "";
+    // Un mensaje del negocio que NO salio se marca: una fila que parece
+    // contestada cuando el envio fallo es un cliente que nadie atendio.
+    const noSalio = f.ultimo && f.ultimo.de !== "cliente" && f.ultimo.estado && f.ultimo.estado !== "enviado";
+    const etiquetas = [
+      `<span class="pastilla ${esc(f.clase)}">${esc(ETIQUETAS[f.clase] || f.clase)}</span>`,
+      f.pedidosVivos ? `<span class="pastilla ok">${f.pedidosVivos} pedido(s)</span>` : "",
+      f.atencion && f.atencion.pausado ? `<span class="pastilla pendiente">persona</span>` : "",
+      noSalio ? `<span class="pastilla no">no salió</span>` : "",
+    ].join("");
+
+    return `<a class="filaChat" href="/panel/chat?id=${encodeURIComponent(f.contactoId)}">
+      <div class="filaTop">
+        <b>${esc(f.nombre || f.telefono)}</b>
+        <span class="cuando">${esc(f.ultimo ? fecha.hace(f.ultimo.ts) : "—")}</span>
+      </div>
+      <div class="filaEtiquetas">${etiquetas}</div>
+      ${
+        f.ultimo
+          ? `<div class="filaUltimo"><span class="quien">${esc(quien)}:</span> ${esc(f.ultimo.texto) || "<i>(sin texto)</i>"}</div>`
+          : `<div class="filaUltimo"><i>sin mensajes</i></div>`
+      }
+      <div class="filaPie">${esc(f.telefono)}${f.ciudad ? ` · ${esc(f.ciudad)}` : ""}${
+        f.importe ? ` · ${esc(pesos(f.importe))}` : ""
+      }${f.minutosEsperando !== null ? ` · esperando ${esc(f.minutosEsperando)} min` : ""}</div>
+    </a>`;
+  };
+
+  const paginacion =
+    paginas > 1
+      ? `<div class="paginas">
+           ${pagina > 1 ? `<a href="${esc(enlace(filtro, pagina - 1))}">‹ anterior</a>` : `<span>‹ anterior</span>`}
+           <span class="deque">página ${pagina} de ${paginas}</span>
+           ${pagina < paginas ? `<a href="${esc(enlace(filtro, pagina + 1))}">siguiente ›</a>` : `<span>siguiente ›</span>`}
+         </div>`
+      : "";
+
+  return (
+    cabecera({ titulo: "Todos los chats" }) +
+    (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
+    `<form class="buscador" method="get" action="/panel/chats">
+       <input type="hidden" name="filtro" value="${esc(filtro)}">
+       <input type="search" name="q" value="${esc(q)}" placeholder="Buscar por nombre, teléfono, ciudad o texto…"
+              autocomplete="off" inputmode="search">
+       <button class="primario" type="submit">Buscar</button>
+       ${q ? `<a class="limpiar" href="${esc(enlace(filtro))}">limpiar</a>` : ""}
+     </form>` +
+    `<div class="pests">${pestanasFiltro}</div>` +
+    `<div class="nota" style="margin:4px 0 10px">${esc(total)} conversación(es)${
+      q ? ` que coinciden con “${esc(q)}”` : ""
+    }.</div>` +
+    (filas.length
+      ? `<div class="listaChats">${filas.map(fila).join("")}</div>`
+      : `<div class="vacio">No hay conversaciones con ese filtro.</div>`) +
+    paginacion +
+    pie()
+  );
+}
+
+// ==========================================================================
+// LOS DATOS DE ENTREGA, Y DE DONDE SALE CADA UNO
+//
+// Marco pidio distinguir "los datos actuales del contacto" de "los guardados
+// en el pedido", y la distincion no es un detalle de presentacion: son dos
+// cosas que pueden NO coincidir, y cuando no coinciden hay que saber cual
+// manda.
+//
+//   · La FICHA de la conversacion es lo ultimo que dijo el cliente. Cambia.
+//   · El PEDIDO es una copia congelada del momento en que confirmo. No
+//     cambia, y es lo que se despacha.
+//
+// Si el cliente corrige su direccion despues de confirmar, la ficha dice una
+// cosa y el pedido otra. Mostrar solo una de las dos lleva a despachar a la
+// direccion equivocada creyendo que estaba bien.
+// ==========================================================================
+
+const CAMPOS_ENTREGA = [
+  ["nombre", "Destinatario"],
+  ["telefono", "Teléfono"],
+  ["ciudad", "Ciudad"],
+  ["departamento", "Departamento"],
+  ["direccion", "Dirección"],
+  ["referencia", "Referencia"],
+];
+
+/** Lee un campo del pedido guardado. */
+function delPedido(pedido, campo) {
+  if (!pedido) return null;
+  const d = pedido.destinatario || {};
+  return d[campo] ?? null;
+}
+
+/**
+ * Tabla comparativa: lo que dice la conversacion vs lo que quedo en el pedido.
+ *
+ * Las diferencias se marcan. Un campo que difiere no es un error por si
+ * mismo -el cliente pudo corregirse- pero es exactamente lo que alguien
+ * tiene que mirar antes de despachar.
+ */
+function datosDeEntrega({ conversacion, pedido = null, editable = false, envioManualActivo = false }) {
+  const filas = CAMPOS_ENTREGA.map(([campo, etiqueta]) => {
+    const enFicha = fichaDe.leer(conversacion.ficha, campo);
+    const enPedido = delPedido(pedido, campo);
+    const difiere =
+      pedido && enFicha.hay && enPedido && String(enFicha.valor).trim() !== String(enPedido).trim();
+
+    // El departamento solo se muestra si existe en alguna de las dos
+    // fuentes: una fila vacia permanente ensucia la pantalla y enseña a
+    // ignorar los huecos.
+    if (campo === "departamento" && !enFicha.hay && !enPedido) return "";
+
+    return `<tr class="${difiere ? "difiere" : ""}">
+      <td data-label="Campo"><b>${esc(etiqueta)}</b></td>
+      <td data-label="Dice el cliente">${enFicha.hay ? conEstado(enFicha) : `<span class="falta">— falta</span>`}</td>
+      ${pedido ? `<td data-label="En el pedido">${enPedido ? esc(enPedido) : `<span class="falta">—</span>`}</td>` : ""}
+    </tr>`;
+  }).join("");
+
+  const cot = (pedido && pedido.cotizacion) || conversacion.cotizacion || null;
+  const lineasPedido = cot
+    ? `<table class="compacta"><tbody>
+        <tr><td data-label="Producto"><b>Producto</b></td><td>${esc(cot.productoNombre || cot.productoId || "—")}</td></tr>
+        ${
+          cot.variante
+            ? `<tr><td data-label="Variante"><b>Variante</b></td><td>${esc(
+                typeof cot.variante === "object" ? Object.values(cot.variante).join(" · ") : cot.variante
+              )}</td></tr>`
+            : ""
+        }
+        <tr><td data-label="Cantidad"><b>Cantidad</b></td><td>${esc(cot.cantidad || 1)}</td></tr>
+        <tr><td data-label="Total"><b>Total</b></td><td>${esc(pesos(cot.total || 0))}</td></tr>
+        <tr><td data-label="Pago"><b>Pago</b></td><td>${esc(
+          (cot.condiciones && cot.condiciones.pagoMetodo) || "no declarado"
+        )}${
+          cot.condiciones && cot.condiciones.envioIncluido ? " · envío incluido" : ""
+        }</td></tr>
+        ${
+          pedido
+            ? `<tr><td data-label="Estado"><b>Estado del pedido</b></td><td>${esc(pedido.estado)} <span class="pastilla">${esc(
+                pedido.id
+              )}</span></td></tr>`
+            : ""
+        }
+      </tbody></table>`
+    : `<div class="nota">Todavía no hay cotización para este cliente.</div>`;
+
+  const formulario = editable
+    ? `<form class="entrega" method="post" action="/panel/entrega">
+         <input type="hidden" name="id" value="${esc(conversacion.contactoId)}">
+         ${CAMPOS_ENTREGA.map(([campo, etiqueta]) => {
+           const v = fichaDe.leer(conversacion.ficha, campo);
+           return `<label>${esc(etiqueta)}
+             <input name="${esc(campo)}" value="${esc(v.hay ? v.valor : "")}" autocomplete="off"></label>`;
+         }).join("")}
+         <div class="botones">
+           <button class="primario" type="submit" name="accion" value="guardar">Guardar correcciones</button>
+           <button type="submit" name="accion" value="confirmar" ${envioManualActivo ? "" : "disabled"}>
+             Confirmar por WhatsApp</button>
+         </div>
+         <p class="nota">
+           ${
+             envioManualActivo
+               ? "Al confirmar se le manda el resumen con estos datos. El total y las condiciones los calcula el sistema, no se escriben aquí."
+               : "Los envíos manuales están <b>apagados</b>: puedes guardar correcciones, pero el botón de confirmar no enviará nada. Se encienden con <code>PANEL_ENVIO_MANUAL=1</code>."
+           }
+         </p>
+       </form>`
+    : "";
+
+  return `<h2 class="seccion">Datos de entrega</h2>
+    <table class="entregaTabla">
+      <thead><tr><th>Campo</th><th>Dice el cliente</th>${pedido ? "<th>En el pedido</th>" : ""}</tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    ${
+      pedido
+        ? `<p class="nota">La columna <b>“En el pedido”</b> es una copia congelada del momento en que el cliente
+             confirmó, y es la que se despacha. Si una fila sale marcada, el cliente dijo algo distinto después.</p>`
+        : ""
+    }
+    <h2 class="seccion">Pedido</h2>
+    ${lineasPedido}
+    ${formulario}`;
+}
+
 module.exports = {
+  bandeja,
+  datosDeEntrega,
   esc,
   pesos,
   ETIQUETAS,
