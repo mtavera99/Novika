@@ -110,36 +110,144 @@ npm run migrar          # aplicar
 | | |
 |---|---|
 | **Idempotente** | Correrlo dos veces deja el mismo resultado. La primera vez puede cortarse a mitad |
-| **No pierde** | Compara conteos de origen y destino y **falla** si no cuadran |
+| **No pierde** | Compara conteos **y huellas** de origen, y **falla** si no cuadran |
 | **No duplica** | Las claves de idempotencia son `UNIQUE` en destino: aunque el script se equivocara, el motor lo impide |
-| **No toca el origen** | Solo lee. Si algo sale mal, el disco sigue siendo la verdad |
+| **No toca el origen** | Solo lee |
 
-### Orden
+### La ventana de escrituras
+
+Un cutover no puede declararse exitoso si el origen cambia mientras copia. La primera versión no lo cubría, y se midió:
+
+```
+pedidos en el origen al terminar : 3
+pedidos copiados al destino      : 2
+problemas que reporta el cutover : []
+```
+
+Cutover "exitoso" con un pedido fuera. La peor forma de fallar, porque nadie va a volver a mirar.
+
+**La solución tiene dos mitades, y hacen falta las dos:**
+
+**1. Congelar las escrituras.** `npm run congelar` deja una marca en `DATA_DIR`. Mientras está puesta, el webhook **sigue contestando 200 a Meta** y **sigue reclamando** el trabajo en la bitácora del disco, pero **no lo procesa** ni lo marca como terminado.
+
+Un evento reclamado y sin terminar es exactamente lo que el recuperador busca al arrancar. Así que al descongelar y reiniciar, esos mensajes se procesan solos, ya contra PostgreSQL. No hace falta inventar nada: se reutiliza la recuperación durable que ya existe y ya está probada.
+
+> Devolver 503 también habría funcionado —Meta reintenta 36 horas— pero habría convertido una operación controlada en una carrera contra un reloj ajeno.
+
+El cutover **se niega a copiar** si no está congelado. Un paso que se puede olvidar, se olvida.
+
+**2. Verificarlo, no confiarlo.** Se toma una **huella** del origen antes y después de copiar: ids + versiones + estados + fechas de actualización. Si cambió algo, el cutover **falla**.
+
+La huella detecta las tres formas de cambiar, incluida la que un conteo no ve:
+
+| Cambio | ¿Lo ve un conteo? | ¿Lo ve la huella? |
+|---|---|---|
+| Alta | sí | sí |
+| Baja | sí | sí |
+| **Modificación** | **no** | **sí** |
+
+Es lo que convierte *"creemos que nadie escribió"* en *"sabemos que nadie escribió"*. Y si salta, el problema es recuperable: el cutover es idempotente, así que basta repetirlo.
+
+### Procedimiento
 
 ```bash
 # 1. crear el esquema
 DATABASE_URL="..." npm run migrar
 
-# 2. ver qué haría, sin escribir
+# 2. congelar las escrituras
+DATA_DIR=/var/data npm run congelar
+
+# 3. ensayar
 DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --simular
 
-# 3. copiar
+# 4. copiar
 DATABASE_URL="..." DATA_DIR=/var/data npm run cutover
+#    debe decir: "huella del origen: abc -> abc  (no se movio)"
+#    y terminar con "Cutover completo y verificado"
 
-# 4. comprobar que los conteos cuadran (lo dice el informe)
+# 5. Render: DATABASE_URL en el servicio -> reinicia
+#    /health debe decir almacen_transaccional: "postgres"
+#            y escrituras_congeladas: true
 
-# 5. SOLO ENTONCES: configurar DATABASE_URL en el servicio de Render
+# 6. descongelar
+DATA_DIR=/var/data npm run descongelar
+
+# 7. Render: reiniciar otra vez
+#    el recuperador procesa los mensajes diferidos, ya contra PostgreSQL
+#    /health -> trabajo.reclamados debe volver a 0
 ```
 
-El paso 5 va al final **a propósito**: mientras `DATABASE_URL` no esté en el servicio, producción sigue leyendo y escribiendo en el disco, así que el cutover se puede ensayar tantas veces como haga falta sin afectar a nadie.
+**Dos reinicios, y el orden importa.** El paso 5 va antes del 6 a propósito: si se descongelara primero, el servicio procesaría los mensajes diferidos **contra archivos**, creando datos que PostgreSQL no tiene — y volveríamos al problema que acabamos de cerrar.
 
-Si dos pedidos distintos comparten una clave de idempotencia, el cutover **lo dice y falla**. Es el único caso que no se puede resolver sin una persona, y taparlo dejaría un pedido fuera sin que nadie lo supiera.
+Los mensajes diferidos se retrasan un reinicio. No se pierden: están reclamados en el disco y `/health → trabajo.reclamados` dice cuántos quedan.
 
-### Volver atrás
+**No congeles más de unos minutos.** El techo duro son las 36 horas de la ventana de reintentos de Meta, pero un congelado olvidado es un bot que acumula mensajes sin atender a nadie. Por eso `/health` publica `escrituras_congeladas` **sin token**: tiene que verse.
 
-Quitar `DATABASE_URL` del servicio y desplegar. El disco nunca se tocó. Lo que se haya escrito en Postgres desde el cutover se queda ahí; si hubo pedidos nuevos, hay que traerlos a mano — por eso el cutover conviene hacerlo con poco tráfico.
+### Si dos pedidos comparten clave
+
+El cutover **lo dice y falla**. Es el único caso que no se puede resolver sin una persona, y taparlo dejaría un pedido fuera sin que nadie lo supiera.
 
 ---
+
+## Rollback: el punto de no retorno
+
+**Quitar `DATABASE_URL` es rollback seguro solo mientras PostgreSQL no haya recibido escrituras que el disco no tenga.**
+
+```
+                 cutover          DATABASE_URL        descongelar
+                 verificado       en Render           + reinicio
+ ───────────────────┬────────────────┬───────────────────┬──────────────▶
+                    │                │                   │
+  disco = verdad    │  disco = verdad│  disco = verdad   │  PG = verdad
+                    │  PG = copia    │  PG = copia       │
+                    │                │  (congelado)      │
+ ◀── quitar DATABASE_URL es seguro ──────────────────────┤
+                                                         │
+                                     PUNTO DE NO RETORNO ┘
+```
+
+**El punto de no retorno es el paso 7**: el reinicio con `DATABASE_URL` puesta **y** las escrituras descongeladas. A partir de ahí, cada mensaje que entra escribe en PostgreSQL y **no** en el disco.
+
+### Antes del punto de no retorno
+
+Quitar `DATABASE_URL` del servicio y desplegar. El disco nunca se tocó y sigue siendo la verdad. No se pierde nada.
+
+### Después del punto de no retorno
+
+**Quitar `DATABASE_URL` directamente pierde todo lo que se haya escrito en PostgreSQL desde el cutover**: pedidos nuevos, confirmaciones, modificaciones, cancelaciones. El servicio volvería a leer un disco que se quedó en la foto del cutover, y esos pedidos dejarían de existir — sin ningún error, porque para el servicio nunca existieron.
+
+El procedimiento correcto es el cutover **al revés**:
+
+```bash
+# 1. congelar (ahora frena las escrituras a PostgreSQL)
+DATA_DIR=/var/data npm run congelar
+
+# 2. ensayar la vuelta
+DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --inverso --simular
+
+# 3. copiar PostgreSQL -> archivos
+DATABASE_URL="..." DATA_DIR=/var/data npm run cutover -- --inverso
+#    misma verificación de huella, en el otro sentido
+
+# 4. Render: QUITAR DATABASE_URL -> reinicia
+
+# 5. descongelar
+DATA_DIR=/var/data npm run descongelar
+
+# 6. Render: reiniciar para vaciar los diferidos
+```
+
+`--inverso` usa la **misma** función de copia y las **mismas** verificaciones: congelación obligatoria, huella antes y después, idempotencia. Está probado en `test/f3-ventana-cutover.test.js` (`el ROLLBACK copia de PostgreSQL a archivos`), incluido el caso de un pedido que nació solo en PostgreSQL.
+
+### Cómo saber de qué lado estás
+
+```
+GET /health
+  "almacen_transaccional": "archivos" | "postgres"
+  "escrituras_congeladas": true | false
+```
+
+`postgres` + `congeladas: false` = **estás después del punto de no retorno.** Volver atrás requiere el cutover inverso.
 
 ## Pruebas
 
@@ -148,6 +256,7 @@ Quitar `DATABASE_URL` del servicio y desplegar. El disco nunca se tocó. Lo que 
 | `f3-postgres.test.js` | Las **mismas** pruebas de contrato que archivos, más las garantías del motor |
 | `f3-cutover.test.js` | No perder, no duplicar, idempotencia, estados finales, snapshot |
 | `f3-recuperacion-postgres.test.js` | Que la recuperación durable siga funcionando con Postgres |
+| `f3-ventana-cutover.test.js` | La ventana de escrituras, la huella, el congelado y el rollback inverso |
 
 Lo que solo se puede probar con una base real y **sí se probó**:
 
@@ -158,6 +267,11 @@ Lo que solo se puede probar con una base real y **sí se probó**:
 - el motor rechaza un total descuadrado, un cancelado sin fecha y un estado inventado
 - el ejecutor de migraciones para si un `.sql` aplicado cambió
 - el arranque falla si falta el esquema
+- **una escritura concurrente durante el cutover lo hace fallar** en vez de declararlo exitoso
+- una **modificación** concurrente —que un conteo no ve— también lo hace fallar
+- repetir el cutover tras detectar el cambio sí lo completa
+- el rollback `--inverso` trae de vuelta un pedido que solo existía en PostgreSQL
+- congelado, el webhook reclama el trabajo y **no** lo procesa; descongelado, sí
 
 ```bash
 # sin base: las pruebas de Postgres se SALTAN, el resto corre

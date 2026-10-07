@@ -603,7 +603,37 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
     return crearReposDePostgres({ dsn, pg, maxConexiones, log });
   }
 
-  return { tipo: TIPO, contactos, conversaciones, pedidos, estado, cerrar, reabrir, _pool: pool };
+  /**
+   * TODO lo que hay en la base. FUERA DEL CONTRATO, solo para el cutover.
+   *
+   * Existe para que el cutover funcione en los DOS sentidos. El de vuelta
+   * -PostgreSQL a archivos- no es un lujo: es el unico procedimiento de
+   * rollback honesto una vez que la base ha recibido escrituras que el disco
+   * no tiene. Sin esto, "volver atras" seria perder esas escrituras.
+   */
+  async function _inventario() {
+    const cli = await pool.connect();
+    try {
+      const contactosFilas = await cli.query("SELECT * FROM contactos ORDER BY id");
+      const convFilas = await cli.query("SELECT * FROM conversaciones ORDER BY contacto_id");
+      const pedidoFilas = await cli.query("SELECT * FROM pedidos ORDER BY creado_en, codigo");
+
+      const pedidosConHistorial = [];
+      for (const f of pedidoFilas.rows) {
+        pedidosConHistorial.push(filaAPedido(f, await historialDe(cli, f.codigo)));
+      }
+
+      return {
+        contactos: contactosFilas.rows.map(filaAContacto),
+        conversaciones: convFilas.rows.map(filaAConversacion),
+        pedidos: pedidosConHistorial,
+      };
+    } finally {
+      cli.release();
+    }
+  }
+
+  return { tipo: TIPO, contactos, conversaciones, pedidos, estado, cerrar, reabrir, _inventario, _pool: pool };
 }
 
 module.exports = {

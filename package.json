@@ -14,7 +14,10 @@
     "comprobar-config": "node src/comprobar-config.js",
     "migrar": "node src/migrar.js",
     "migrar-estado": "node src/migrar.js --estado",
-    "cutover": "node src/cutover.js"
+    "cutover": "node src/cutover.js",
+    "congelar": "node src/congelar.js congelar",
+    "descongelar": "node src/congelar.js descongelar",
+    "congelado": "node src/congelar.js estado"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

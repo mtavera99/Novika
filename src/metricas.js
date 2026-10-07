@@ -33,6 +33,7 @@ const NOMBRES = [
   "duplicado_descartado",
   "mensaje_valido",
   "evento_recuperado",
+  "evento_diferido",
   "trabajo_agotado",
   "estado_recibido",
   "mensaje_no_entregado",
@@ -127,6 +128,9 @@ function salud() {
     duplicados: valor("duplicado_descartado"),
     // Si esto no es 0, el proceso murio procesando y se recupero trabajo.
     eventos_recuperados: valor("evento_recuperado"),
+    // Si esto sube, las escrituras estan congeladas y los mensajes se estan
+    // acumulando sin atender.
+    eventos_diferidos: valor("evento_diferido"),
     eventos_agotados: valor("trabajo_agotado"),
     productos_desconocidos: valor("producto_desconocido"),
     pedidos: valor("pedido_confirmado"),

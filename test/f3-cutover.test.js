@@ -23,7 +23,14 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-require("./ayuda").entornoDePrueba();
+const DIR_PRUEBA = require("./ayuda").entornoDePrueba();
+
+// EL CUTOVER EXIGE CONGELAR LAS ESCRITURAS y se niega a copiar sin la marca.
+// Esta bateria prueba la MECANICA de la copia -no perder, no duplicar,
+// estados finales-, asi que congela una vez y sigue. La exigencia en si, y
+// lo que pasa cuando el origen se mueve durante la copia, estan en
+// test/f3-ventana-cutover.test.js.
+require("../src/almacen/congelar").congelar(DIR_PRUEBA, "bateria de cutover");
 
 const ayudaPg = require("./ayuda-pg");
 const { sinBase, motivoSalto } = ayudaPg;

@@ -23,6 +23,7 @@ const { config } = require("../config");
 const log = require("../log");
 const diario = require("../almacen/diario");
 const trabajo = require("../almacen/trabajo");
+const congelacion = require("../almacen/congelar");
 const aislamiento = require("../aislamiento");
 const metricas = require("../metricas");
 const { obtenerCerebro } = require("../cerebro");
@@ -190,6 +191,11 @@ function admitir(cuerpo, idEntrega = null) {
   let mensajes = 0;
   let sinRespaldoEnDisco = 0;
 
+  // Se lee del disco en cada lote, sin cache: congelar es un comando de otro
+  // proceso, y un valor cacheado dejaria al servicio operando con una idea
+  // vieja de la realidad.
+  const { congelado } = congelacion.estado(config.dirDatos);
+
   for (const evento of eventos) {
     // Aislamiento. Se evalua aqui porque es sincrono y porque no tiene
     // sentido reclamar trabajo de un numero que no es el nuestro.
@@ -220,6 +226,21 @@ function admitir(cuerpo, idEntrega = null) {
     mensajes++;
     const reclamo = trabajo.reclamar(evento.wamid, { evento });
 
+    // CONGELADO: se reclama igual -el trabajo queda en el disco y no se
+    // pierde- pero NO se procesa. Un evento reclamado y sin terminar es
+    // exactamente lo que el recuperador busca al arrancar, asi que al
+    // descongelar y reiniciar estos mensajes se procesan solos.
+    //
+    // Se contesta 200 a Meta de todas formas: devolver 503 habria
+    // funcionado -Meta reintenta 36 horas- pero convertiria una operacion
+    // controlada en una carrera contra un reloj ajeno.
+    if (reclamo.ok && congelado) {
+      diario.anotar("diferido_por_congelacion", { idEntrega, wamid: evento.wamid });
+      metricas.incrementar("evento_diferido");
+      admitidos.push({ evento, reclamo, diferido: true });
+      continue;
+    }
+
     // El unico caso malo es "aceptamos trabajo nuevo y no pudimos
     // anotarlo". Un reclamo RECHAZADO (terminado, en curso, agotado) si es
     // durable: significa que ya sabemos de ese evento, y saberlo es
@@ -235,13 +256,19 @@ function admitir(cuerpo, idEntrega = null) {
   }
 
   const durable = sinRespaldoEnDisco === 0;
-  return { admitidos, durable, mensajes, sinRespaldoEnDisco };
+  return { admitidos, durable, mensajes, sinRespaldoEnDisco, congelado };
 }
 
 /** Procesa lo ya admitido. Asincrono, DESPUES del 200. */
 async function procesarAdmitidos(admitidos, idEntrega = null) {
   const resultados = [];
-  for (const { evento, reclamo } of admitidos) {
+  for (const { evento, reclamo, diferido } of admitidos) {
+    if (diferido) {
+      // Reclamado pero no procesado: queda pendiente a proposito. NO se
+      // llama a trabajo.terminar(), que es lo que lo deja recuperable.
+      resultados.push({ wamid: evento.wamid, accion: "diferido" });
+      continue;
+    }
     resultados.push(await atenderEvento(evento, { idEntrega, reclamoPrevio: reclamo }));
   }
   return resultados;
