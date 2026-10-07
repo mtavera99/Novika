@@ -1,13 +1,11 @@
 {
   "_LEEME": "BORRADOR. activo=false. NINGUN dato comercial de este archivo esta definido todavia: no hay precio, ni caracteristicas, ni garantia, ni claims. Los campos de texto estan VACIOS a proposito, no con ejemplos, para que nadie confunda un placeholder con un dato aprobado. Marco entregara la ficha real. Mientras 'pendientes' tenga elementos, la validacion impide ponerlo activo.",
-
   "id": "cinturon-termico-colicos",
   "slug": "cinturon-termico-colicos",
   "nombre": "",
   "nombreCorto": "",
   "categoria": "bienestar",
   "activo": false,
-
   "aliases": [
     {
       "patron": "\\bcinturon(es)?\\s+termic",
@@ -31,13 +29,38 @@
     }
   ],
   "_nota_aliases": "OJO con 'termico' a secas: es un adjetivo y NOVIKA vendera mas productos termicos. Por eso ningun alias de aqui es solo 'termico'; todos exigen una segunda palabra. Si se añade un alias de una sola palabra generica, dos productos se confundiran entre si. Ver src/catalogo/senales.js.",
-
   "descripcionAutorizada": "",
   "caracteristicasAutorizadas": [],
-
+  "imagenes": [
+    {
+      "archivo": "catalogo/imagenes/cinturon-termico/01-frente.jpg",
+      "alt": "El cinturon visto de frente, con la pantalla encendida",
+      "original": "catalogo/imagenes/cinturon-termico/originales/"
+    },
+    {
+      "archivo": "catalogo/imagenes/cinturon-termico/02-puesto.jpg",
+      "alt": "El cinturon puesto sobre la ropa",
+      "original": "catalogo/imagenes/cinturon-termico/originales/"
+    },
+    {
+      "archivo": "catalogo/imagenes/cinturon-termico/03-detalle.jpg",
+      "alt": "Detalle de la pantalla y los botones",
+      "original": "catalogo/imagenes/cinturon-termico/originales/"
+    },
+    {
+      "archivo": "catalogo/imagenes/cinturon-termico/04-correa.jpg",
+      "alt": "La correa ajustable extendida",
+      "original": "catalogo/imagenes/cinturon-termico/originales/"
+    },
+    {
+      "archivo": "catalogo/imagenes/cinturon-termico/05-empaque.jpg",
+      "alt": "El producto con su empaque",
+      "original": "catalogo/imagenes/cinturon-termico/originales/"
+    }
+  ],
+  "_nota_imagenes": "Las cinco fotos convertidas desde los HEIC originales, que se conservan en originales/. Convertidas a sRGB a proposito: venian en Display P3 y, sin convertir el espacio de color, el cliente veria un rosa distinto al del producto. Redimensionadas a 1600 px de lado largo y sin metadatos. Meta solo acepta jpeg o png, 8 bits, hasta 5 MB; el esquema lo comprueba por los BYTES del archivo al cargar el catalogo, no por la extension.",
   "datosConfirmados": {},
   "sinDatoConfirmado": [],
-
   "claimsPermitidos": [],
   "claimsProhibidos": [
     "cura los colicos",
@@ -51,19 +74,20 @@
     "recomendado por medicos"
   ],
   "_nota_claims": "Esta lista SI se puede llenar antes de tener la ficha, porque no afirma nada: solo prohibe. Es un producto de bienestar que se compra por dolor menstrual, asi que el riesgo no es exagerar el precio: es hacer una promesa medica. Una afirmacion de salud sin respaldo es una devolucion, y puede ser un problema regulatorio. Ampliar esta lista no necesita aprobacion; reducirla si.",
-
   "motorDePrecio": "tabla",
   "precios": {},
   "ofertaPrincipal": "",
   "promociones": [],
-
   "variantes": [],
   "presentaciones": [],
   "contenidoDelPaquete": [],
-
   "logistica": {
     "pesoGr": null,
-    "dimensionesCm": { "largo": null, "ancho": null, "alto": null },
+    "dimensionesCm": {
+      "largo": null,
+      "ancho": null,
+      "alto": null
+    },
     "politicaEnvio": {
       "tipo": "",
       "provisional": true,
@@ -72,12 +96,10 @@
       "revisarCuando": ""
     }
   },
-
   "datosRequeridos": [],
   "faq": [],
   "garantia": "",
   "restricciones": [],
-
   "pendientes": [
     "nombre comercial definitivo",
     "descripcion autorizada",

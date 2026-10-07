@@ -13,6 +13,7 @@
 // cambio en cualquiera de esas cosas obliga a leer las otras tres.
 // ==========================================================================
 
+const path = require("node:path");
 const express = require("express");
 const { config } = require("./config");
 const log = require("./log");
@@ -139,6 +140,73 @@ function crearApp() {
   // "¿llego el evento y fallamos, o Meta no llego nunca?". Son dos problemas
   // distintos con arreglos distintos, y sin esta ruta se confunden.
   // ------------------------------------------------------------------------
+  // ------------------------------------------------------------------------
+  // IMAGENES DEL CATALOGO
+  //
+  // PUBLICAS y sin token, a proposito: para mandar una foto por WhatsApp hay
+  // dos caminos y los dos lo exigen.
+  //
+  //   - `link`: Meta descarga la URL con SUS servidores. No puede presentar
+  //     una cookie de sesion ni un token nuestro. Si la URL pide
+  //     credenciales, Meta recibe un 401 y el mensaje falla con un error
+  //     131053, DESPUES de que el cliente haya preguntado por el producto.
+  //   - subir el archivo para obtener un media id: tampoco necesita que sea
+  //     publica, pero entonces hay que mantener ids que caducan.
+  //
+  // Son fotos de producto, las mismas que van en un anuncio. No hay nada
+  // que proteger aqui, y protegerlo romperia el envio.
+  //
+  // DOS CANDADOS, los dos necesarios:
+  //
+  //   1. Solo .jpg, .jpeg y .png. Los HEIC originales NO se publican: Meta
+  //      no los acepta, pesan el triple y no sirven para nada fuera del
+  //      repositorio.
+  //   2. Nada de salirse de la carpeta. `express.static` ya normaliza la
+  //      ruta, pero la comprobacion explicita esta escrita porque el dia
+  //      que alguien cambie el servidor por otro, el candado tiene que
+  //      seguir siendo del codigo y no de la libreria.
+  // ------------------------------------------------------------------------
+  const DIR_IMAGENES = path.join(__dirname, "..", "catalogo", "imagenes");
+
+  app.use("/imagenes", (req, res, siguiente) => {
+    const pedido = decodeURIComponent(req.path || "");
+
+    // Los originales no se publican.
+    if (/(^|\/)originales(\/|$)/i.test(pedido)) {
+      return res.status(404).type("text/plain").send("no disponible");
+    }
+    if (!/\.(jpe?g|png)$/i.test(pedido)) {
+      return res.status(404).type("text/plain").send("no disponible");
+    }
+    // Y que la ruta resuelta siga dentro de la carpeta.
+    const destino = path.resolve(DIR_IMAGENES, "." + pedido);
+    if (destino !== DIR_IMAGENES && !destino.startsWith(DIR_IMAGENES + path.sep)) {
+      return res.status(403).type("text/plain").send("fuera de la carpeta");
+    }
+    return siguiente();
+  });
+
+  app.use(
+    "/imagenes",
+    express.static(DIR_IMAGENES, {
+      // Las fotos de un producto cambian cuando cambia el producto, no por
+      // su cuenta. Meta cachea la media que descarga, y un cache corto le
+      // haria volver a bajarla en cada mensaje.
+      maxAge: "7d",
+      etag: true,
+      index: false,
+      dotfiles: "deny",
+      // Sin esto, una peticion a /imagenes/algo intentaria /imagenes/algo/
+      // y acabaria en un redirect que Meta no sigue siempre.
+      redirect: false,
+      setHeaders: (res) => {
+        // Meta descarga esto desde sus servidores; no hay navegador que
+        // proteger, pero tampoco hay razon para permitir que se embeba.
+        res.setHeader("X-Content-Type-Options", "nosniff");
+      },
+    })
+  );
+
   // ------------------------------------------------------------------------
   // Panel operativo
   //

@@ -18,7 +18,8 @@
     "congelar": "node src/congelar.js congelar",
     "descongelar": "node src/congelar.js descongelar",
     "congelado": "node src/congelar.js estado",
-    "comprobar-postgres": "node src/comprobar-postgres.js"
+    "comprobar-postgres": "node src/comprobar-postgres.js",
+    "comprobar-imagenes": "node src/comprobar-imagenes.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
