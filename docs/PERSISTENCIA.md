@@ -80,6 +80,8 @@ GET /health?token=…
 
 La primera suena peor de lo que es, y en realidad valida el diseño: durante ese hueco Meta no recibe el 200, y **reintenta durante 36 horas**. El reintento llega, y el antiduplicados —persistido en el disco que sobrevivió al deploy— impide procesarlo dos veces. Por eso el diario se escribe **antes** del 200 y el candado de duplicados está **en la puerta**: el deploy con hueco es exactamente el escenario para el que se diseñaron.
 
+> **Estado tras la Fase 2:** las interfaces, las pruebas de contrato y el esquema SQL ya existen. Falta la base de datos, y eso lo tiene que crear Marco. Al final de este documento está exactamente qué.
+
 ### Fase 2 — pedidos, conversaciones y estados: Render Postgres de pago
 
 Cuando entren pedidos, el disco deja de ser suficiente. No por tamaño, por garantías:
@@ -164,3 +166,39 @@ Y está probado, no afirmado. `test/fase1-sin-persistencia.test.js` corre con `M
 3. Despliega otra vez y mira `GET /health?token=…` → `marcador_de_disco.arranques` debe **subir**, no volver a 1
 
 Si el paso 3 vuelve a 1, el disco no está montado: avísame antes de encender las respuestas.
+
+---
+
+## 7 · Qué tengo que pedirte para PostgreSQL
+
+No voy a aprovisionar infraestructura por mi cuenta. Cuando quieras dar el paso, esto es lo exacto:
+
+**En Render:**
+
+1. **New +** → **Postgres**
+2. Name: `novika-db`
+3. Database: `novika` · User: `novika`
+4. Region: **la misma del servicio** (`oregon`) — cruzar regiones añade latencia a cada consulta
+5. Plan: **de pago** (desde ~US$6/mes). **No el gratuito:** expira 30 días después de crearse y luego se elimina con sus datos
+6. Copia la **Internal Database URL** (la interna, no la externa: no sale a internet)
+
+**En el servicio `novika-bot` → Environment:**
+
+| Variable | Valor |
+|---|---|
+| `DATABASE_URL` | la Internal Database URL |
+
+**Importante:** en cuanto definas `DATABASE_URL`, **el arranque falla a propósito** hasta que exista el adaptador. Es deliberado: arrancar con archivos mientras tú crees que estás usando la base de datos es la clase de malentendido que se descubre cuando faltan pedidos.
+
+Así que el orden es: creas la base → me pasas el aviso → escribo el adaptador contra ella y lo valido con las pruebas de contrato → entonces defines la variable.
+
+**Qué garantiza la migración, y no es cosmético.** Hoy la idempotencia la sostienen una cola en memoria y un índice en disco: vale para un proceso y un volumen pequeño. En PostgreSQL pasa a ser una restricción del motor que no se puede saltar ni con dos procesos, ni con una condición de carrera, ni con un despliegue en medio:
+
+```sql
+CREATE UNIQUE INDEX pedidos_clave_evento_uniq ON pedidos (clave_de_evento);
+
+CREATE UNIQUE INDEX pedidos_clave_oferta_vivo_uniq ON pedidos (clave_de_oferta)
+  WHERE estado <> 'cancelado';
+```
+
+El esquema completo está en [`migraciones/001-esquema-inicial.sql`](../migraciones/001-esquema-inicial.sql).

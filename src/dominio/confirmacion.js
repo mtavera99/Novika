@@ -1,0 +1,274 @@
+"use strict";
+
+// ==========================================================================
+// CONFIRMACION: EL CANDADO MAS IMPORTANTE DEL SISTEMA
+//
+// Modulo puro. Sin I/O, sin IA.
+//
+// Esto NO se le pregunta al modelo. En BIKERPRO el guion le decia a la IA
+// que emitiera el bloque de pedido "al confirmar", y un cliente que escribio
+// literalmente "No confirmo" acabo con el pedido guardado. La conclusion
+// quedo escrita en cinco archivos de ese repositorio: una instruccion al
+// modelo no es un candado.
+//
+// Cuatro reglas que vienen de incidentes reales, no de teoria:
+//
+//   1. LA NEGACION SE EVALUA ANTES QUE LA AFIRMACION.
+//      "no confirmo" contiene "confirmo". Si se busca la afirmacion primero,
+//      gana la palabra equivocada.
+//
+//   2. LA PREGUNTA DE ESTADO SE EVALUA ANTES QUE EL "SI" SUELTO.
+//      "si mandaron el pedido gracias" es una pregunta, y empieza por "si".
+//      En BIKERPRO esa frase genero un segundo pedido por el mismo importe.
+//
+//   3. UN "SI" SOLO CUENTA SI HAY ALGO QUE CONFIRMAR.
+//      Fuera del estado PENDIENTE_CONFIRMACION, un "si" no confirma nada:
+//      no hay resumen al que responder. El estado manda, no la palabra.
+//
+//   4. ANTE LA DUDA, NO SE TIRA LA VENTA.
+//      Una respuesta que no se entiende puede ser un "hagale" que no
+//      reconocemos. Se guarda marcada y la revisa una persona. Perder una
+//      venta real es peor que revisar una a mano.
+// ==========================================================================
+
+const { vistas } = require("./texto");
+
+/** Clases de respuesta del cliente. */
+const CLASES = {
+  SI: "si",
+  NO: "no",
+  PREGUNTA_ESTADO: "pregunta_estado",
+  CORRECCION: "correccion",
+  ACUSE: "acuse", // "gracias", "ok" sin valor transaccional
+  AMBIGUO: "ambiguo",
+};
+
+// --- 1. Negaciones. Se revisan primero. ---
+const NEGACIONES = [
+  /\bno\s+(confirm|quier|lo\s+quier|me\s+interes|gracias|por\s+ahora|todavia|aun)/,
+  /\bno\s+lo\s+voy/,
+  /\bya\s+no\b/,
+  /\bmejor\s+no\b/,
+  /\bcancel(a|ar|alo|ame|emos)\b/,
+  /\bdejalo\b/,
+  /\bno\s+gracias\b/,
+  /^no\b/,
+  /\bnegativo\b/,
+];
+
+// --- 2. Preguntas de estado (posventa). Antes del "si" suelto. ---
+const PREGUNTAS_ESTADO = [
+  /\b(ya\s+)?(lo\s+|la\s+|me\s+lo\s+|me\s+la\s+)?(mandaron|enviaron|despacharon|salio|sale|llega|llego|viene)\b/,
+  /\bcuando\s+(me\s+)?(llega|lo\s+recibo|la\s+recibo|lo\s+mandan|sale)/,
+  /\bdonde\s+(va|esta|viene)\b/,
+  /\b(numero\s+de\s+)?(guia|rastreo|seguimiento)\b/,
+  /\bmi\s+pedido\b.*\?/,
+  /\bque\s+paso\s+con\b/,
+  /\bsigue\s+en\s+camino\b/,
+];
+
+// --- 3. Afirmaciones inequivocas: dicen QUE se afirma. ---
+const AFIRMACIONES_FUERTES = [
+  /\b(si|claro|listo|dale|ok)[\s,]*(confirm)/,
+  /\bconfirm(o|ado|amos|alo|emos)\b/,
+  /\b(lo|la)\s+(quiero|compro|llevo|tomo)\b/,
+  /\bquiero\s+(comprar|pedir|el|la|uno|dos)/,
+  /\bhagale\b/,
+  /\bhag(amos|ale)\s+/,
+  /\bde\s+una\b/,
+  /\bperfecto[\s,]*(confirm|lo\s+quiero)/,
+  /\bestoy\s+de\s+acuerdo\b/,
+  /\bacepto\b/,
+  /\bproced(a|amos|e)\b/,
+];
+
+// --- 4. Correcciones: cambian un dato, no confirman. ---
+const CORRECCIONES = [
+  /\bmejor\s+(uno|dos|tres|el|la|otro|otra|cambi)/,
+  /\bme\s+equivoqu/,
+  /\bcorrig(e|eme|elo)\b/,
+  /\bcambi(a|ar|alo|ame|emos|o)\b/,
+  /\ben\s+vez\s+de\b/,
+  /\bno\s+es\s+(ese|esa|asi)\b/,
+  /\bera\s+(otro|otra|a)\b/,
+  /\bactualiz(a|ame|ar)\b/,
+];
+
+// --- 5. Acuses sin valor transaccional. ---
+const ACUSES = [
+  /^(muchas\s+)?gracias\b/,
+  /^(ok|oki|okey|vale|bueno|bien|listo|perfecto|excelente|genial|chevere|de\s+una)[\s!.]*$/,
+  /^(si|sii+|sip)[\s!.]*$/, // "si" a secas: solo cuenta si hay algo que confirmar
+  /^(dios\s+le\s+bendiga|bendiciones|feliz\s+dia)\b/,
+  /^(👍|🙏|✅|😊|❤️)+$/u,
+];
+
+/** ¿Coincide alguno de los patrones? */
+function coincide(plano, patrones) {
+  return patrones.some((re) => re.test(plano));
+}
+
+/**
+ * Clasifica un mensaje del cliente, sin mirar el estado.
+ *
+ * EL ORDEN DE LOS BLOQUES ES LA LOGICA. No se reordenan sin romper los
+ * incidentes que cada uno cubre.
+ *
+ * @returns {{clase: string, confianza: "alta"|"media"|"baja", motivo: string}}
+ */
+function clasificar(texto) {
+  const v = vistas(texto);
+  if (v.vacio) return { clase: CLASES.AMBIGUO, confianza: "alta", motivo: "mensaje vacio" };
+
+  const t = v.plano;
+
+  // 1. Negacion primero: "no confirmo" contiene "confirmo".
+  if (coincide(t, NEGACIONES)) {
+    return { clase: CLASES.NO, confianza: "alta", motivo: "negacion explicita" };
+  }
+
+  // 2. Pregunta de estado antes del "si" suelto: "si mandaron el pedido?"
+  //    empieza por "si" y es una pregunta.
+  if (coincide(t, PREGUNTAS_ESTADO)) {
+    return { clase: CLASES.PREGUNTA_ESTADO, confianza: "alta", motivo: "pregunta por el estado del pedido" };
+  }
+
+  // 3. Afirmacion inequivoca: dice QUE confirma.
+  if (coincide(t, AFIRMACIONES_FUERTES)) {
+    return { clase: CLASES.SI, confianza: "alta", motivo: "afirmacion inequivoca" };
+  }
+
+  // 4. Correccion: cambia un dato; no es un si ni un no.
+  if (coincide(t, CORRECCIONES)) {
+    return { clase: CLASES.CORRECCION, confianza: "media", motivo: "pide cambiar un dato" };
+  }
+
+  // 5. Acuse o "si" a secas. Que signifique algo depende del estado, y eso
+  //    lo resuelve evaluar(), no esta funcion.
+  if (coincide(t, ACUSES)) {
+    const esSiSuelto = /^(si|sii+|sip)[\s!.]*$/.test(t);
+    return {
+      clase: CLASES.ACUSE,
+      // La tilde es intencion: quien escribe "si" esta afirmando.
+      confianza: esSiSuelto && v.tieneTildeAfirmativa ? "media" : "baja",
+      motivo: esSiSuelto ? "afirmacion escueta, depende del contexto" : "cortesia sin valor transaccional",
+    };
+  }
+
+  return { clase: CLASES.AMBIGUO, confianza: "baja", motivo: "no encaja en ningun patron conocido" };
+}
+
+/** Acciones que puede pedir la evaluacion. Un vocabulario cerrado. */
+const ACCIONES = {
+  CONFIRMAR: "confirmar",       // crear el pedido
+  CANCELAR: "cancelar",
+  CORREGIR: "corregir",         // volver a capturar datos / recotizar
+  RESPONDER_ESTADO: "responder_estado",
+  ESCALAR: "escalar",           // que lo vea una persona
+  NINGUNA: "ninguna",           // acusar recibo y no tocar nada
+};
+
+const { ESTADOS } = require("./estados");
+
+/**
+ * Decide que hacer con un mensaje, segun su clase Y el estado de la
+ * conversacion. Aqui esta la regla que pidio Marco explicitamente.
+ *
+ * @param {{texto: string, estado: string, resumenMostrado?: boolean}} entrada
+ * @returns {{accion: string, clase: string, motivo: string, confianza: string}}
+ */
+function evaluar({ texto, estado, resumenMostrado = false }) {
+  const c = clasificar(texto);
+  const base = { clase: c.clase, confianza: c.confianza };
+
+  // ----------------------------------------------------------------------
+  // BLINDAJE DE LO YA CONFIRMADO
+  //
+  // Esta rama va PRIMERO, antes de mirar la clase del mensaje. Es la
+  // diferencia entre "intentamos no duplicar" y "no se puede duplicar":
+  // ningun texto, por mucho que parezca una confirmacion, puede crear un
+  // segundo pedido desde aqui. El estado lo impide, no el patron.
+  // ----------------------------------------------------------------------
+  if (estado === ESTADOS.CONFIRMADO || estado === ESTADOS.POSVENTA) {
+    if (c.clase === CLASES.NO) {
+      return { ...base, accion: ACCIONES.CANCELAR, motivo: "negacion sobre un pedido ya confirmado" };
+    }
+    if (c.clase === CLASES.CORRECCION) {
+      return { ...base, accion: ACCIONES.CORREGIR, motivo: "pide modificar un pedido ya confirmado" };
+    }
+    if (c.clase === CLASES.PREGUNTA_ESTADO) {
+      return { ...base, accion: ACCIONES.RESPONDER_ESTADO, motivo: "pregunta por un pedido ya confirmado" };
+    }
+    // "si", "ok", "gracias", "listo", "perfecto" sobre un pedido confirmado:
+    // se acusa recibo y NO se toca nada. Ni se cotiza, ni se crea pedido.
+    return {
+      ...base,
+      accion: ACCIONES.NINGUNA,
+      motivo: "el pedido ya esta confirmado: este mensaje no lo modifica",
+    };
+  }
+
+  if (estado === ESTADOS.MODIFICANDO) {
+    if (c.clase === CLASES.NO) return { ...base, accion: ACCIONES.CANCELAR, motivo: "cancela durante una modificacion" };
+    if (c.clase === CLASES.SI) return { ...base, accion: ACCIONES.CONFIRMAR, motivo: "confirma la modificacion" };
+    return { ...base, accion: ACCIONES.CORREGIR, motivo: "sigue modificando" };
+  }
+
+  // ----------------------------------------------------------------------
+  // PENDIENTE DE CONFIRMACION: el unico sitio donde un "si" crea un pedido
+  // ----------------------------------------------------------------------
+  if (estado === ESTADOS.PENDIENTE_CONFIRMACION) {
+    if (!resumenMostrado) {
+      // Sin resumen mostrado no hay nada que confirmar. Confirmar "a ciegas"
+      // es guardar un pedido que el cliente nunca vio.
+      return { ...base, accion: ACCIONES.ESCALAR, motivo: "estado pendiente sin resumen mostrado al cliente" };
+    }
+    if (c.clase === CLASES.NO) return { ...base, accion: ACCIONES.CANCELAR, motivo: "rechaza el resumen" };
+    if (c.clase === CLASES.CORRECCION) return { ...base, accion: ACCIONES.CORREGIR, motivo: "corrige antes de confirmar" };
+    if (c.clase === CLASES.PREGUNTA_ESTADO) {
+      return { ...base, accion: ACCIONES.ESCALAR, motivo: "pregunta por un pedido que todavia no existe" };
+    }
+    if (c.clase === CLASES.SI) return { ...base, accion: ACCIONES.CONFIRMAR, motivo: "confirma el resumen" };
+
+    if (c.clase === CLASES.ACUSE) {
+      // "si" a secas frente a un resumen: es la respuesta mas comun de un
+      // cliente real. Cuenta como confirmacion.
+      if (/^(si|sii+|sip)[\s!.]*$/.test(vistas(texto).plano)) {
+        return { ...base, accion: ACCIONES.CONFIRMAR, motivo: "afirmacion escueta frente a un resumen mostrado" };
+      }
+      // "gracias" / "ok" frente a un resumen NO es una confirmacion, pero
+      // tampoco un rechazo. No se tira la venta: la revisa una persona.
+      return { ...base, accion: ACCIONES.ESCALAR, motivo: "cortesia ambigua frente a un resumen: puede ser un si" };
+    }
+
+    // Ambiguo con un resumen delante. Aqui se aplica la asimetria: no se
+    // descarta la venta y no se guarda a ciegas. Escala.
+    return { ...base, accion: ACCIONES.ESCALAR, motivo: "respuesta ambigua frente a un resumen mostrado" };
+  }
+
+  // ----------------------------------------------------------------------
+  // Resto de estados: un "si" no confirma nada porque no hay resumen
+  // ----------------------------------------------------------------------
+  if (c.clase === CLASES.NO) return { ...base, accion: ACCIONES.CANCELAR, motivo: "no quiere seguir" };
+  if (c.clase === CLASES.PREGUNTA_ESTADO) {
+    return { ...base, accion: ACCIONES.RESPONDER_ESTADO, motivo: "pregunta por un pedido" };
+  }
+  if (c.clase === CLASES.CORRECCION) return { ...base, accion: ACCIONES.CORREGIR, motivo: "corrige un dato" };
+
+  return {
+    ...base,
+    accion: ACCIONES.NINGUNA,
+    motivo: "sin resumen mostrado no hay nada que confirmar",
+  };
+}
+
+module.exports = {
+  CLASES,
+  ACCIONES,
+  clasificar,
+  evaluar,
+  // expuestos para las pruebas de regresion
+  NEGACIONES,
+  PREGUNTAS_ESTADO,
+  AFIRMACIONES_FUERTES,
+};

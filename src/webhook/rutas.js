@@ -27,6 +27,7 @@ const crypto = require("node:crypto");
 const { config } = require("../config");
 const log = require("../log");
 const diario = require("../almacen/diario");
+const metricas = require("../metricas");
 const { revisarFirma } = require("./firma");
 const { procesar } = require("./procesar");
 
@@ -54,6 +55,7 @@ function montar(app) {
       crypto.timingSafeEqual(Buffer.from(token), Buffer.from(esperado));
 
     if (modo === "subscribe" && coincide) {
+      metricas.incrementar("webhook_verificado");
       diario.anotar("webhook_verificado", { ip: req.ip });
       log.info("webhook_verificado", {});
       return res.status(200).type("text/plain").send(String(reto ?? ""));
@@ -101,6 +103,7 @@ function montar(app) {
       // Firma presente y mala, o ausente habiendo clave: no es Meta.
       // Aqui si se contesta 403: no hay por que facilitarle el trabajo a
       // quien esta probando la URL.
+      metricas.incrementar("firma_invalida");
       diario.anotar("firma_invalida", { idEntrega, motivo: firma.motivo, ip: req.ip });
       log.error("firma_invalida", { idEntrega, motivo: firma.motivo });
       return res.sendStatus(403);

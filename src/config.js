@@ -62,6 +62,25 @@ const config = {
   zonaHoraria: texto("ZONA_HORARIA", "America/Bogota"),
   ownerWhatsapp: texto("OWNER_WHATSAPP"),
 
+  // --- Fase 2 ---
+
+  // Modo sombra: procesar el mensaje completo y PREPARAR la respuesta sin
+  // enviarla. Encendido por defecto, porque es como se audita el bot con
+  // trafico real antes de dejarlo hablar.
+  modoSombra: bandera("MODO_SOMBRA", true),
+
+  // IA. Sin clave no hay IA, y el sistema sigue funcionando por el camino
+  // determinista: el mensaje se registra y se escala.
+  iaApiKey: texto("IA_API_KEY"),
+  iaBaseUrl: texto("IA_BASE_URL", "https://api.openai.com/v1"),
+  iaModelo: texto("IA_MODELO", "gpt-4o-mini"),
+  iaTimeoutMs: entero("IA_TIMEOUT_MS", 12000),
+
+  // PostgreSQL para la informacion transaccional. Mientras este vacio, se
+  // usan archivos sobre el disco persistente. Si se define sin que exista el
+  // adaptador, el arranque falla a proposito: ver src/almacen/repos/index.js.
+  databaseUrl: texto("DATABASE_URL"),
+
   // Escape explicito para pruebas controladas. Permite responder a clientes
   // sabiendo que el almacenamiento es efimero. Existe para que esa decision
   // sea un acto deliberado y no un descuido.
