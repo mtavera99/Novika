@@ -92,6 +92,21 @@ const config = {
   // adaptador, el arranque falla a proposito: ver src/almacen/repos/index.js.
   databaseUrl: texto("DATABASE_URL"),
 
+  // --------------------------------------------------------------------------
+  // URL PUBLICA DEL SERVICIO
+  //
+  // Hace falta para mandar una foto por WhatsApp: en el envio por `link`,
+  // Meta descarga la imagen con SUS servidores, asi que la URL tiene que ser
+  // absoluta, publica y HTTPS. Una ruta relativa no le sirve de nada.
+  //
+  // Render la pone sola en RENDER_EXTERNAL_URL, asi que en produccion no hay
+  // que configurar nada; URL_PUBLICA existe para poder forzarla (un dominio
+  // propio, una prueba). Sin ninguna de las dos no se puede construir el
+  // enlace, y el codigo que envia tiene que decirlo en vez de mandar una URL
+  // a medias que Meta rechazaria.
+  // --------------------------------------------------------------------------
+  urlPublica: (texto("URL_PUBLICA") || texto("RENDER_EXTERNAL_URL") || "").replace(/\/+$/, ""),
+
   // Escape explicito para pruebas controladas. Permite responder a clientes
   // sabiendo que el almacenamiento es efimero. Existe para que esa decision
   // sea un acto deliberado y no un descuido.

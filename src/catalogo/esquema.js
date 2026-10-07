@@ -33,6 +33,56 @@ const POLITICAS_ENVIO = ["incluido", "fijo", "por_destino"];
 /** Niveles de confianza de una señal (alias) de producto. */
 const CONFIANZAS = ["alta", "media", "baja"];
 
+// --------------------------------------------------------------------------
+// IMAGENES
+//
+// Los limites NO son de NOVIKA, son de Meta, y por eso estan aqui como
+// datos y no repartidos por el codigo. De su documentacion de la Cloud API:
+//
+//   - solo image/jpeg y image/png;
+//   - 8 bits, RGB o RGBA;
+//   - maximo 5 MB por imagen.
+//
+// Una imagen que incumpla cualquiera de los tres se rechaza en el envio con
+// un error 131053 ("Media upload error"), y eso ocurre DESPUES de que el
+// cliente haya preguntado por el producto. Validarlo al cargar el catalogo
+// convierte un fallo en la conversacion de una venta en un fallo al
+// arrancar, que es ruidoso y barato.
+//
+// El formato real se comprueba por los BYTES del archivo, no por la
+// extension: un .jpg que en realidad es un HEIC renombrado pasaria
+// cualquier comprobacion de nombre y fallaria en Meta.
+// --------------------------------------------------------------------------
+const FORMATOS_DE_IMAGEN = {
+  jpeg: { mime: "image/jpeg", firma: [0xff, 0xd8, 0xff] },
+  png: { mime: "image/png", firma: [0x89, 0x50, 0x4e, 0x47] },
+};
+const MAX_BYTES_IMAGEN = 5 * 1024 * 1024;
+/** Carpeta raiz de las imagenes, relativa a la raiz del repositorio. */
+const RAIZ_IMAGENES = "catalogo/imagenes";
+
+/**
+ * Formato real de un archivo, leyendo sus primeros bytes.
+ *
+ * @returns {{formato: string, mime: string}|null}
+ */
+function formatoReal(ruta) {
+  const fs = require("node:fs");
+  let cabeza;
+  try {
+    const fd = fs.openSync(ruta, "r");
+    cabeza = Buffer.alloc(8);
+    fs.readSync(fd, cabeza, 0, 8, 0);
+    fs.closeSync(fd);
+  } catch {
+    return null;
+  }
+  for (const [formato, { mime, firma }] of Object.entries(FORMATOS_DE_IMAGEN)) {
+    if (firma.every((b, i) => cabeza[i] === b)) return { formato, mime };
+  }
+  return null;
+}
+
 /** Campos del cliente que un producto puede exigir ademas de los de siempre. */
 const DATOS_EXIGIBLES = [
   "nombre",
@@ -120,6 +170,75 @@ function validarProducto(p, origen = "(sin origen)") {
   }
   if (typeof (p && p.activo) !== "boolean") {
     errores.push(`${donde("activo")}: debe ser true o false, explicito. No se asume.`);
+  }
+
+  // ---- Imagenes ----
+  //
+  // Opcionales: un borrador sin fotos es legitimo. Pero si estan, se
+  // comprueban de verdad -que el archivo exista, que sea jpeg o png por sus
+  // bytes y que no pase de 5 MB-, porque una ruta que no existe es un
+  // mensaje que el cliente nunca recibe.
+  if (p && p.imagenes !== undefined) {
+    if (!Array.isArray(p.imagenes)) {
+      errores.push(`${donde("imagenes")}: debe ser una lista.`);
+    } else {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const raiz = path.join(__dirname, "..", "..");
+      const vistas = new Set();
+
+      p.imagenes.forEach((img, i) => {
+        const campo = `imagenes[${i}]`;
+        if (!img || typeof img !== "object") {
+          errores.push(`${donde(campo)}: cada imagen es un objeto { archivo, alt }.`);
+          return;
+        }
+        if (!esTexto(img.archivo)) {
+          errores.push(`${donde(campo + ".archivo")}: falta la ruta.`);
+          return;
+        }
+        // La ruta se exige RELATIVA y dentro de catalogo/imagenes. Una ruta
+        // absoluta o con ".." permitiria servir cualquier archivo del disco
+        // cuando se publiquen por HTTP.
+        if (path.isAbsolute(img.archivo) || img.archivo.split("/").includes("..")) {
+          errores.push(`${donde(campo + ".archivo")}: tiene que ser relativa y sin "..".`);
+          return;
+        }
+        if (!img.archivo.startsWith(RAIZ_IMAGENES + "/")) {
+          errores.push(`${donde(campo + ".archivo")}: tiene que estar dentro de ${RAIZ_IMAGENES}/.`);
+          return;
+        }
+        if (vistas.has(img.archivo)) {
+          avisos.push(`${donde(campo + ".archivo")}: repetida (${img.archivo}).`);
+        }
+        vistas.add(img.archivo);
+
+        const absoluta = path.join(raiz, img.archivo);
+        let st;
+        try {
+          st = fs.statSync(absoluta);
+        } catch {
+          errores.push(`${donde(campo + ".archivo")}: no existe (${img.archivo}).`);
+          return;
+        }
+        if (st.size > MAX_BYTES_IMAGEN) {
+          errores.push(
+            `${donde(campo)}: pesa ${Math.round(st.size / 1024)} KB y Meta no acepta mas de 5 MB (${img.archivo}).`
+          );
+        }
+        const real = formatoReal(absoluta);
+        if (!real) {
+          errores.push(
+            `${donde(campo)}: no es jpeg ni png por sus bytes; Meta solo acepta esos dos (${img.archivo}).`
+          );
+        }
+        // El alt no es decorativo: es lo que se manda como caption cuando no
+        // hay texto, y lo que lee una persona en el panel.
+        if (!esTexto(img.alt)) {
+          avisos.push(`${donde(campo + ".alt")}: sin descripcion.`);
+        }
+      });
+    }
   }
 
   // ---- Coherencia de los campos que esten presentes ----
@@ -382,6 +501,10 @@ function validarCatalogo(productos) {
 }
 
 module.exports = {
+  FORMATOS_DE_IMAGEN,
+  MAX_BYTES_IMAGEN,
+  RAIZ_IMAGENES,
+  formatoReal,
   validarProducto,
   validarCatalogo,
   MOTORES_DE_PRECIO,
