@@ -107,6 +107,37 @@ const config = {
   // --------------------------------------------------------------------------
   urlPublica: (texto("URL_PUBLICA") || texto("RENDER_EXTERNAL_URL") || "").replace(/\/+$/, ""),
 
+  // --------------------------------------------------------------------------
+  // LISTA BLANCA DE NUMEROS PARA PROBAR EN PRODUCCION
+  //
+  // Vacia = sin restriccion: el bot atiende a quien escriba. Con numeros =
+  // SOLO esos reciben respuesta; al resto se le registra el mensaje y se le
+  // deja en el panel para que una persona contteste, pero el bot se calla.
+  //
+  // --------------------------------------------------------------------------
+  // POR QUE HACE FALTA, Y POR QUE NO BASTABA LO QUE YA HABIA
+  // --------------------------------------------------------------------------
+  //
+  // `filtro_de_numero` suena a esto y no lo es: compara el phone_number_id
+  // NUESTRO, para que no entren eventos de otra app de Meta apuntando a este
+  // webhook. No dice nada sobre QUE CLIENTE escribe.
+  //
+  // Asi que para probar el bot de punta a punta con un numero propio habia
+  // que encender RESPUESTA_AUTOMATICA, y eso lo abre a cualquiera que
+  // escriba: un anuncio activo, un cliente viejo, alguien que vio el numero.
+  // Probar y abrir al publico eran la misma palanca.
+  //
+  // Ahora son dos. Y el orden importa: se prueba con la lista puesta, y
+  // abrir al publico es BORRARLA, que es una decision aparte y explicita.
+  //
+  // Los numeros se normalizan a solo digitos porque WhatsApp los entrega sin
+  // "+" ni espacios y es facil escribirlos de otra forma en Render.
+  // --------------------------------------------------------------------------
+  numerosDePrueba: texto("NUMEROS_DE_PRUEBA")
+    .split(",")
+    .map((n) => n.replace(/\D/g, ""))
+    .filter(Boolean),
+
   // Escape explicito para pruebas controladas. Permite responder a clientes
   // sabiendo que el almacenamiento es efimero. Existe para que esa decision
   // sea un acto deliberado y no un descuido.
