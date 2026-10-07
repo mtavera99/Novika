@@ -13,6 +13,7 @@
 
 const fecha = require("./fecha");
 const atencion = require("../almacen/atencion");
+const fichaDe = require("./ficha");
 
 /** Estados de pedido que NO cuentan como venta. */
 const NO_CUENTAN = new Set(["cancelado"]);
@@ -143,9 +144,12 @@ async function tablero(repos, { dia = null, ahora = Date.now(), limiteChats = 20
     ultimoMensaje: atencion.ultimoDelCliente(c),
     cuantosMensajes: atencion.mensajes(c).length,
     actualizadoEn: c.actualizadoEn || null,
-    nombre: (c.ficha && c.ficha.nombre) || null,
-    telefono: (c.ficha && c.ficha.telefono) || c.contactoId,
-    ciudad: (c.ficha && c.ficha.ciudad) || null,
+    // La ficha guarda cada campo como { valor, estado, origen }, no como
+    // texto: ver src/panel/ficha.js. Interpolarlo directo producia
+    // "[object Object]" en la pantalla.
+    nombre: fichaDe.nombreParaMostrar(c.ficha),
+    telefono: fichaDe.leer(c.ficha, "telefono").valor || c.contactoId,
+    ciudad: fichaDe.leer(c.ficha, "ciudad"),
   }));
 
   const porClase = {};
@@ -176,8 +180,11 @@ async function buscar(repos, texto, { limite = 50 } = {}) {
   if (!q) return [];
   const conversaciones = await repos.conversaciones.listar({ limite: 500 });
   const coincide = (c) => {
-    const f = c.ficha || {};
-    return [c.contactoId, f.nombre, f.telefono, f.ciudad, c.productoId]
+    // Se busca por el VALOR del campo, no por el objeto que lo envuelve.
+    // Antes se comparaba contra "[object Object]", asi que buscar el nombre
+    // de un cliente no encontraba nada.
+    const valores = ["nombre", "telefono", "ciudad", "direccion"].map((n) => fichaDe.leer(c.ficha, n).valor);
+    return [c.contactoId, c.productoId, ...valores]
       .filter(Boolean)
       .some((v) => String(v).toLowerCase().includes(q));
   };

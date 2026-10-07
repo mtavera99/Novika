@@ -25,6 +25,7 @@ const auth = require("./auth");
 const datos = require("./datos");
 const vistas = require("./vistas");
 const fecha = require("./fecha");
+const fichaDe = require("./ficha");
 const analitica = require("./analitica");
 const dominioPedido = require("../dominio/pedido");
 
@@ -212,7 +213,11 @@ function crearRutasDelPanel({ obtenerCerebro }) {
         });
       }
 
-      const telefono = (conv.ficha && conv.ficha.telefono) || id;
+      // A quien se le escribe NO puede salir de un candidato sin validar:
+      // un telefono que propuso el modelo y nadie confirmo manda el mensaje
+      // a otra persona. Si no esta confirmado se usa el id de WhatsApp, que
+      // es de donde llego el mensaje y por tanto el unico dato seguro.
+      const telefono = fichaDe.confirmado(conv.ficha, "telefono") || id;
       const envio = await emisor.enviarTexto({
         para: telefono,
         texto,
