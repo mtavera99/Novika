@@ -39,10 +39,12 @@
 //     determinista no puede reintentarse en cada arranque para siempre.
 // ==========================================================================
 
+const { config } = require("../config");
 const log = require("../log");
 const diario = require("../almacen/diario");
 const metricas = require("../metricas");
 const trabajo = require("../almacen/trabajo");
+const congelacion = require("../almacen/congelar");
 
 /**
  * Reprocesa el trabajo interrumpido.
@@ -56,7 +58,85 @@ const trabajo = require("../almacen/trabajo");
  * @returns {Promise<{revisados: number, recuperados: number, fallidos: number, agotados: number}>}
  */
 async function recuperarPendientes({ atender = null } = {}) {
-  const resumen = { revisados: 0, recuperados: 0, fallidos: 0, agotados: 0 };
+  const resumen = { revisados: 0, recuperados: 0, fallidos: 0, agotados: 0, diferidos: 0 };
+
+  // --------------------------------------------------------------------
+  // CONGELADO: no se recupera nada.
+  //
+  // Durante un cutover el origen tiene que estar quieto. Si la recuperacion
+  // procesara los pendientes, escribiria en el almacen que se esta copiando
+  // -y un disco persistente en Render convierte cada despliegue en un
+  // reinicio, asi que esto no es hipotetico.
+  //
+  // Se sale ANTES de reclamar nada: reclamar consume un intento, y tres
+  // reinicios durante un cutover agotarian el mensaje sin haberlo intentado
+  // ni una vez. atenderEvento() tiene la misma compuerta, que es la
+  // autoritativa; esta de aqui existe para no reclamar, para no registrar
+  // "el proceso anterior murio procesando" cuando no es verdad, y para que
+  // el log diga lo que de verdad esta pasando.
+  // --------------------------------------------------------------------
+  const { congelado, desde, horas } = congelacion.estado(config.dirDatos);
+  if (congelado) {
+    let pendientesCongelados = [];
+    try {
+      pendientesCongelados = trabajo.paraRecuperar();
+    } catch {
+      /* si no se puede leer, se informa 0: no es el trabajo de esta rama */
+    }
+
+    // ------------------------------------------------------------------
+    // SE MARCAN COMO DIFERIDOS. No es contabilidad: es lo que hace
+    // verificable el drenaje de turnos en vuelo.
+    //
+    // Un registro RECLAMADO puede ser dos cosas muy distintas, y desde
+    // otro proceso son INDISTINGUIBLES:
+    //
+    //   a) un turno corriendo ahora mismo, que va a escribir
+    //   b) el resto de un proceso que murio, que no va a escribir nada
+    //
+    // El cutover tiene que negarse ante (a) y puede ignorar (b). Si no se
+    // distinguen, o se bloquea para siempre por un resto antiguo, o se
+    // arriesga a copiar con un turno vivo.
+    //
+    // Este proceso acaba de arrancar CONGELADO: por construccion no hay
+    // ningun turno suyo en vuelo, y los del proceso anterior murieron con
+    // el. Asi que todo lo que hay aqui es (b), y marcarlo lo declara.
+    //
+    // A partir de ese momento, un registro RECLAMADO sin marcar solo puede
+    // significar que un turno empezo en ESTE proceso.
+    // ------------------------------------------------------------------
+    let marcados = 0;
+    for (const registro of pendientesCongelados) {
+      if (trabajo.diferir(registro.wamid)) marcados++;
+    }
+
+    const cuantos = pendientesCongelados.length;
+    resumen.diferidos = cuantos;
+
+    if (marcados < cuantos) {
+      // No se pudo escribir la marca: el cutover vera turnos "en vuelo" que
+      // no lo estan y se negara. Es el lado seguro, pero hay que decirlo.
+      log.error("recuperacion_no_pudo_diferir", {
+        cuantos,
+        marcados,
+        detalle:
+          "No se pudieron marcar todos los pendientes como diferidos. El cutover se negara a copiar. Revisa el disco.",
+      });
+    }
+
+    log.warn("recuperacion_congelada", {
+      cuantos,
+      marcados,
+      desde,
+      horas,
+      detalle:
+        cuantos > 0
+          ? `${cuantos} evento(s) esperan a que se descongele. Siguen reclamados en disco y NO han gastado intentos. Ejecuta \`npm run descongelar\` y reinicia.`
+          : "Escrituras congeladas. No hay pendientes.",
+    });
+    diario.anotar("recuperacion_congelada", { cuantos, marcados, desde, horas });
+    return resumen;
+  }
 
   let pendientes;
   try {
@@ -104,6 +184,10 @@ async function recuperarPendientes({ atender = null } = {}) {
       const r = await atenderEvento(registro.evento, { enRecuperacion: true, idEntrega: "recuperacion" });
       if (r && r.accion === "fallo") {
         resumen.fallidos++;
+      } else if (r && r.accion === "diferido") {
+        // Alguien congelo a mitad de la recuperacion. Sigue pendiente: no
+        // es un exito, y contarlo como tal diria que el trabajo se hizo.
+        resumen.diferidos++;
       } else if (r && r.accion === "duplicado") {
         // Se termino entre medias, o se agotaron los intentos.
         if (r.motivo === "agotado") resumen.agotados++;

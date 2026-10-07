@@ -41,29 +41,69 @@ De aquí sale una **asimetría deliberada**: ante una ambigüedad, nunca se desc
 
 ```
 src/
-  config.js            único sitio que lee process.env; valida y falla rápido
-  aislamiento.js       candados NOVIKA ≠ BIKERPRO (arranque y por evento)
-  log.js               una línea JSON por evento; enmascara datos del cliente
-  app.js               cableado de Express; sin lógica de negocio
-  server.js            arranque, apagado ordenado
-  comprobar-config.js  `npm run comprobar-config`
+  config.js             único sitio que lee process.env; valida y falla rápido
+  aislamiento.js        candados NOVIKA ≠ BIKERPRO (arranque y por evento)
+  log.js                una línea JSON por evento; enmascara datos del cliente
+  metricas.js           contadores en memoria para /metricas
+  app.js                cableado de Express; sin lógica de negocio
+  server.js             arranque, apagado ordenado
+
+  comprobar-config.js   `npm run comprobar-config`
+  comprobar-postgres.js `npm run comprobar-postgres`  · solo lectura
+  migrar.js             `npm run migrar`
+  cutover.js            `npm run cutover`             · archivos ↔ postgres
+  congelar.js           `npm run congelar` / `descongelar` / `congelado`
 
   webhook/
-    firma.js           HMAC X-Hub-Signature-256
-    rutas.js           GET verificación · POST recepción
-    normalizar.js      payload de Meta → eventos de NOVIKA
-    procesar.js        compuertas: aislamiento → clase → dedup → manejo
+    firma.js            HMAC X-Hub-Signature-256
+    rutas.js            GET verificación · POST recepción
+    normalizar.js       payload de Meta → eventos de NOVIKA
+    procesar.js         compuertas: aislamiento → clase → dedup → manejo
+    recuperar.js        reprocesa al arrancar lo reclamado sin terminar
+
+  dominio/              negocio puro, sin red ni disco
+    estados.js          máquina de estados de la conversación
+    extraer.js          texto del cliente → campos
+    campos.js           qué falta por preguntar
+    cotizador.js        precios; nunca inventa
+    confirmacion.js     qué cuenta como un "sí"
+    pedido.js           construcción y transiciones
+    destino.js          envío por ciudad
+    texto.js            normalización (tildes, mayúsculas)
+
+  cerebro/
+    index.js            fachada
+    orquestar.js        un turno de conversación
+    responder.js        redacción; en modo sombra solo registra
+
+  ia/                   desacoplada: el negocio no depende del proveedor
+    contrato.js         interfaz que cualquier proveedor debe cumplir
+    cliente.js          selección y reintentos
+    proveedores/        falso.js (pruebas) · openai.js
 
   almacen/
-    diario.js          registro append-only, un JSONL por día
-    vistos.js          ids ya procesados; persistido
+    diario.js           registro append-only, un JSONL por día
+    trabajo.js          bitácora reclamado/terminado/agotado · dedup y crash
+    congelar.js         marca de escrituras congeladas (cutover)
+    persistencia.js     comprueba si el disco es realmente persistente
+    mutex.js            serialización por contacto dentro del proceso
+    repos/
+      index.js          fábrica: elige backend según DATABASE_URL
+      contrato.js       pruebas que AMBOS backends deben pasar
+      archivos.js       disco persistente                      ← hoy
+      postgres/         PostgreSQL + ejecutor de migraciones    ← preparado
 
   catalogo/
-    esquema.js         validación del producto
-    index.js           carga desde /catalogo/productos
+    esquema.js          validación del producto
+    index.js            carga desde /catalogo/productos
+    senales.js          palabras que apuntan a un producto
 
-catalogo/productos/    un JSON por producto (fuente de verdad)
-test/                  una batería por comportamiento crítico
+  whatsapp/
+    enviar.js           único punto de salida; silenciado si RESPUESTA_AUTOMATICA=0
+
+catalogo/productos/     un JSON por producto (fuente de verdad)
+migraciones/            SQL numerado, aplicado por `npm run migrar`
+test/                   una batería por comportamiento crítico
 ```
 
 Separación deliberada: `app.js` solo cablea, `normalizar.js` es la única frontera que conoce la forma del payload de Meta, y el negocio no vive en el mismo archivo que las rutas. Cuando Meta cambie de versión, se toca un archivo.
@@ -74,17 +114,23 @@ Separación deliberada: `app.js` solo cablea, `normalizar.js` es la única front
 Meta
  │
  ├─ POST /webhook
- │   1. ¿firma válida?        no → 403, no se procesa
- │   2. escribir en el diario              ← ANTES del acuse
- │   3. responder 200 a Meta
- │   4. procesar aparte
+ │   1. ¿firma válida?         no → 403, no se procesa
+ │   2. escribir en el diario               ← ANTES del acuse
+ │   3. reclamar el trabajo en disco        ← ANTES del acuse
+ │      no se pudo reclamar → 503, Meta reintenta
+ │   4. responder 200 a Meta
+ │   5. procesar aparte
  │
  └─ procesar
      1. ¿es del número de NOVIKA?   no → descartar, avisar
      2. ¿mensaje o acuse de entrega?
-     3. ¿wamid ya visto?            sí → descartar
-     4. manejar
+     3. ¿ya terminado?              sí → descartar
+     4. ¿escrituras congeladas?     sí → dejarlo reclamado, no procesar
+     5. manejar
+     6. marcar terminado
 ```
+
+Los pasos 2 y 3 van **los dos** antes del acuse, y por motivos distintos: el diario deja constancia de lo que llegó, el reclamo es lo que permite **reprocesarlo** si el proceso muere. El diario solo no basta — se midió.
 
 ### Por qué el trabajo se reclama antes del 200
 
@@ -104,7 +150,9 @@ Escribir antes cuesta un append de unos cientos de bytes.
 
 Ese reintento de Meta trae el mismo mensaje otra vez. Si se procesa dos veces, hoy significa responder dos veces; cuando haya pedidos, significa un pedido que nadie hizo. Y un pedido inventado es peor que un paquete de más: el dueño decide con esos números —coste por venta, tasa de cierre— y un pedido fantasma los corrompe todos.
 
-El candado está antes de cualquier efecto, no después. `vistos.esNuevo(id)` marca y pregunta en la misma operación, a propósito: si fueran dos llamadas, cualquier `await` entre ellas abriría la ventana que el candado cierra.
+El candado está antes de cualquier efecto, no después. `trabajo.reclamar(id)` marca y pregunta en la **misma** operación, a propósito: si fueran dos llamadas, cualquier `await` entre ellas abriría la ventana que el candado cierra.
+
+Y hay **un solo** mecanismo de deduplicación, no dos. La Fase 1 tenía un `almacen/vistos.js` aparte; se eliminó al construir `trabajo.js`. Dos registros de "esto ya pasó" son dos fuentes de verdad que acaban discrepando, y el día que discrepen una de las dos deja pasar un pedido duplicado.
 
 ### Por qué los acuses de entrega se procesan
 

@@ -87,7 +87,7 @@ Detalle en `docs/CEREBRO.md`.
 - Pruebas con `node:test`. `npm test`. Sin credenciales, sin red, sin escribir fuera de `/tmp`.
 - Código y comentarios en español, sin acentos en el código fuente (sí en la documentación).
 - Un único módulo lee `process.env`: `src/config.js`. **Ningún secreto tiene valor por defecto**; si falta, el proceso no arranca.
-- Nombres por lo que hacen: `vistos.esNuevo()`, `diario.anotar()`, `revisarFirma()`.
+- Nombres por lo que hacen: `trabajo.reclamar()`, `diario.anotar()`, `revisarFirma()`.
 - Los comentarios explican **por qué**, no qué. Si una decisión viene de un incidente, se cita el incidente.
 - Los datos de clientes se enmascaran en los logs salvo `LOG_PII=1`. El log **no** es la base de datos.
 
@@ -96,19 +96,45 @@ Detalle en `docs/CEREBRO.md`.
 El sistema de archivos de un Web Service de Render es **efímero**. Nada crítico —deduplicación, diario, y más adelante pedidos, conversaciones y estados— puede depender de almacenamiento que desaparezca en un despliegue.
 
 - **Fase 1:** Render Disk de 1 GB en `/var/data`. El servidor **comprueba** que el disco exista (comparando sistemas de archivos) en vez de confiar en `DATA_DIR`, y lleva un contador de arranques como prueba empírica.
-- **Fase 2:** Render Postgres **de pago**. Nunca el gratuito: expira 30 días después de crearse y luego se elimina con sus datos.
-- Todo el acceso a almacenamiento pasa por `src/almacen/diario.js` y `src/almacen/vistos.js`. Ningún otro módulo abre un archivo, para que migrar sea un cambio y no una reescritura.
-- `esNuevo(id)` marca y pregunta en una sola operación, porque en Postgres eso es un `INSERT ... ON CONFLICT` atómico. Dos llamadas separadas heredarían una carrera.
+- **Fase 3A (hecha):** adaptador de PostgreSQL listo y verificado contra una base real, pasando **las mismas** pruebas de contrato que el de archivos. Sin activar: `DATABASE_URL` vacía en producción. Render Postgres **de pago**; nunca el gratuito, que expira a los 30 días y luego se elimina con sus datos.
+- **La bitácora de trabajo del webhook NO se mueve a Postgres.** Es lo único que tiene que funcionar cuando la base no responda: de ella depende contestar 200 a Meta sin perder el mensaje. Si el reclamo dependiera de la base, una caída obligaría a devolver 503 y Meta acabaría desactivando la suscripción.
+- **El cutover exige congelar las escrituras y lo VERIFICA con una huella** del origen antes y después. Un cutover que copia un origen en movimiento se declara exitoso dejando pedidos fuera; se midió. Congelado, el webhook sigue contestando 200 y reclamando en el disco, pero no procesa: el recuperador vacía la cola al reiniciar.
+- **Congelado significa "no entra trabajo nuevo", NO "el origen está quieto".** Un turno que ya había pasado la compuerta sigue escribiendo después del 200, y con un proveedor de IA en medio puede tardar lo que quiera.
+- **Una espera no es un candado.** El cutover NO se valida esperando y comparando dos huellas: dos lecturas iguales solo prueban que no hubo escrituras entre ellas, y un turno bloqueado en la red las atraviesa sin escribir. El drenaje es verificable y se lee del disco: (1) el servicio tiene que haber arrancado DESPUÉS de congelar —el reinicio mata el turno bloqueado y el proceso nuevo arranca congelado— y (2) la bitácora no puede tener turnos en vuelo. Si no se puede comprobar, no se copia.
+- **Un turno puede escribir exactamente mientras su registro está RECLAMADO** (el reclamo va antes de procesar, el `terminar` después de escribir). De ahí que "sin registros en vuelo" equivalga a "nadie puede estar escribiendo". Los diferidos se marcan para distinguir "turno vivo" de "resto de un proceso muerto", que desde otro proceso son indistinguibles.
+- **Desde otro proceso, la bitácora se lee con `trabajo.inspeccionar()` y el marcador con `persistencia.leerMarcador()`.** Nunca `cargar()` (compacta con `tmp+rename` y se llevaría las líneas que el servicio acaba de escribir: perder reclamos es perder mensajes) ni `registrarArranque()` (el cutover estaría satisfaciendo su propia comprobación).
+- **La compuerta de congelación vive en `atenderEvento()`, el camino único, y va ANTES del reclamo.** En `admitir()` sola no bastaba: la recuperación de arranque entra por `atenderEvento()` directamente, y en Render cada despliegue es un reinicio. Antes del reclamo porque reclamar consume un intento, y tres reinicios durante un cutover agotarían el mensaje sin haberlo intentado una vez.
+- **Un turno con `fallo` NO se marca terminado.** Se llama a `trabajo.fallar()`, que lo deja recuperable y lo agota en `MAX_INTENTOS`. Terminar un turno fallido lo hace desaparecer de todas las listas: ni se recupera, ni se agota, ni nadie lo mira.
+- **Un reclamo que no está en disco no es un reclamo.** Si `anotarLinea` falla, `reclamar()` deshace la entrada en memoria. Dejarla hacía que la retransmisión de Meta —provocada por nuestro propio 503— se descartara como "en_curso" y se contestara 200: el mensaje se perdía por el mecanismo que existe para rescatarlo. Nunca se contesta 200 sin respaldo en disco, **tampoco estando congelado**.
+- **El punto de no retorno** es el reinicio con `DATABASE_URL` puesta y las escrituras descongeladas. Antes: quitar la variable es seguro. Después: hay que hacer el cutover inverso (`npm run cutover -- --inverso`), porque quitar la variable perdería lo escrito en PostgreSQL.
+- **Las migraciones no se aplican al arrancar.** `npm run migrar` es una decisión, no un efecto secundario de desplegar. Si falta el esquema, el arranque falla y lo dice.
+- Todo el acceso a almacenamiento pasa por `src/almacen/` (`diario.js`, `trabajo.js`, `repos/`). Ningún otro módulo abre un archivo ni habla con la base, para que cambiar de backend sea un cambio y no una reescritura.
+- **Hay un solo mecanismo de deduplicación: `src/almacen/trabajo.js`.** El `almacen/vistos.js` de la Fase 1 se eliminó al construirlo — no lo recrees. Dos registros de "esto ya pasó" son dos fuentes de verdad, y el día que discrepen una deja pasar un pedido duplicado. Se deduplica por `terminado`, no por "visto": lo que quede en `reclamado` al arrancar se reprocesa.
+- `trabajo.reclamar(id)` marca y pregunta en una sola operación, porque en Postgres eso es un `INSERT ... ON CONFLICT` atómico. Dos llamadas separadas heredarían una carrera.
 - Con almacenamiento efímero, `RESPUESTA_AUTOMATICA=1` **bloquea el arranque**.
 
 Detalle en `docs/PERSISTENCIA.md`.
 
 ## Estado
 
-Fase 1 (recepción) completa: webhook verificable, firma obligatoria, deduplicación persistida, diario en disco, esquema de catálogo.
+- **Fase 1 · recepción — completa y desplegada.** Webhook verificado en Meta, firma obligatoria, deduplicación persistida, diario en disco, disco persistente comprobado empíricamente.
+- **Fase 2 · cerebro — completa, en modo sombra.** Dominio puro, cotizador, máquina de estados, IA desacoplada, capa transaccional y recuperación durable tras crash (verificada con `SIGKILL`).
+- **Fase 3A · PostgreSQL — preparada y verificada, SIN activar.** `DATABASE_URL` vacía en producción; el servicio sigue sobre archivos. Cutover, congelación de escrituras y rollback inverso implementados y probados contra una base real.
 
-Pendiente: definir productos reales, envío de mensajes, flujo conversacional, cotización, pedidos, panel.
+Pendiente: definir los productos reales, el cutover real a PostgreSQL, y el panel.
 
-`RESPUESTA_AUTOMATICA=0`: **NOVIKA no le escribe a ningún cliente todavía.** No cambiar sin autorización explícita del dueño. Las pruebas de respuesta usan dobles; nunca mensajes reales.
+`RESPUESTA_AUTOMATICA=0`: **NOVIKA no le ha escrito a ningún cliente todavía.** No cambiar sin autorización explícita del dueño. Las pruebas de respuesta usan dobles; nunca mensajes reales.
 
-Fase 2 (cerebro) completa en modo sombra: 372 pruebas en verde, sin credenciales y sin red.
+## Comandos
+
+```
+npm start               arrancar
+npm test                batería completa (sin red, sin credenciales)
+npm run comprobar-config    qué falta en la configuración
+npm run comprobar-postgres  revisión de SOLO LECTURA de la base
+npm run migrar              aplicar el esquema  (· --estado para solo mirar)
+npm run congelar            frenar las escrituras  (· descongelar · congelado)
+npm run cutover             archivos → postgres  (· --simular · --inverso)
+```
+
+El cutover se ejecuta **desde el Shell de `novika-bot`** en Render: la Internal Database URL solo resuelve dentro de su red privada, y el cutover necesita el disco y la base a la vez. Detalle en `docs/POSTGRES.md`.

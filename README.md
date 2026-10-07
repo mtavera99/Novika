@@ -8,7 +8,7 @@ E-commerce colombiano **multiproducto y multicategoría**: hogar, tecnología, b
 
 ## Estado
 
-**Fase 2 — el cerebro, en modo sombra.** NOVIKA procesa el mensaje de principio a fin, prepara la respuesta, la valida contra los hechos y la registra. **No la envía.**
+**Fase 2 (cerebro) en modo sombra · Fase 3A (PostgreSQL) preparada sin activar.** NOVIKA procesa el mensaje de principio a fin, prepara la respuesta, la valida contra los hechos y la registra. **No la envía.**
 
 | | |
 |---|---|
@@ -28,7 +28,7 @@ E-commerce colombiano **multiproducto y multicategoría**: hogar, tecnología, b
 | Modo sombra + métricas | ✅ |
 | Productos reales en el catálogo | ❌ pendiente de la ficha |
 | Proveedor de IA configurado | ❌ funciona sin él |
-| PostgreSQL | ❌ interfaces y esquema listos |
+| PostgreSQL | ⏳ adaptador listo y verificado, **sin activar** |
 | **Respuestas a clientes** | ❌ **`RESPUESTA_AUTOMATICA=0`** |
 
 **No hay productos, precios, promesas ni políticas definidas.** A propósito: el catálogo solo tiene la plantilla. Un dato comercial inventado que se cuela es un cobro incorrecto.
@@ -41,6 +41,15 @@ cp .env.example .env     # rellena WHATSAPP_VERIFY_TOKEN
 npm run comprobar-config # dice qué falta, sin levantar nada
 npm start
 npm test
+```
+
+Comandos de la base de datos (ninguno se ejecuta al desplegar):
+
+```bash
+npm run comprobar-postgres  # revisión de SOLO LECTURA: ¿se puede migrar?
+npm run migrar              # aplicar el esquema
+npm run cutover             # archivos → postgres (· --simular · --inverso)
+npm run congelar            # frenar las escrituras durante el cutover
 ```
 
 ## Conectarlo a WhatsApp
@@ -78,7 +87,22 @@ La línea que hay que mirar en `/metricas`:
 ```
 respuesta_preparada   puede subir
 respuesta_enviada     tiene que quedarse en 0
-``` Qué se guarda, qué se pierde en un redeploy y a dónde va a migrar: [`docs/PERSISTENCIA.md`](docs/PERSISTENCIA.md).
+```
+
+Qué se guarda, qué se pierde en un redeploy y a dónde va a migrar: [`docs/PERSISTENCIA.md`](docs/PERSISTENCIA.md).
+
+## Almacenamiento transaccional
+
+Hoy: **archivos** sobre el Render Disk. Preparado y verificado: **PostgreSQL**, con el mismo contrato y las mismas pruebas.
+
+```
+repos/index.js  --+- archivos/   <- hoy (DATABASE_URL vacia)
+                  +- postgres/   <- verificado, sin activar
+```
+
+Lo que aporta la base: la idempotencia de pedidos deja de depender de un indice en disco y pasa a dos indices `UNIQUE` del motor; la concurrencia por contacto deja de depender de una cola en memoria y pasa a `pg_advisory_xact_lock`.
+
+Lo que **no** se mueve: la bitacora de trabajo del webhook se queda en el disco, porque es lo unico que tiene que funcionar cuando la base no responda. Detalle y que hay que crear en Render: [`docs/POSTGRES.md`](docs/POSTGRES.md).
 
 ## Almacenamiento
 
@@ -95,7 +119,7 @@ Para verificar la Callback URL en Meta **no hace falta disco ni `META_APP_SECRET
 ## Siguiente
 
 1. **Definir los primeros productos** (decisión del dueño: precios, políticas, garantías, cobertura)
-2. Crear la base PostgreSQL y escribir su adaptador, que tendrá que pasar las mismas pruebas de contrato
+2. Ejecutar el cutover a PostgreSQL — el adaptador ya pasa las mismas pruebas de contrato; falta la operación, desde el Shell de Render
 3. Configurar el proveedor de IA
 4. Auditar conversaciones reales en modo sombra
 5. Panel de administración

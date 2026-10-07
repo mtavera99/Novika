@@ -11,10 +11,18 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test \"test/*.test.js\"",
-    "comprobar-config": "node src/comprobar-config.js"
+    "comprobar-config": "node src/comprobar-config.js",
+    "migrar": "node src/migrar.js",
+    "migrar-estado": "node src/migrar.js --estado",
+    "cutover": "node src/cutover.js",
+    "congelar": "node src/congelar.js congelar",
+    "descongelar": "node src/congelar.js descongelar",
+    "congelado": "node src/congelar.js estado",
+    "comprobar-postgres": "node src/comprobar-postgres.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "pg": "^8.13.0"
   }
 }

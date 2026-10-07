@@ -1,7 +1,8 @@
 name: pruebas
 
-# La bateria no necesita credenciales, no sale a la red y no toca Meta.
-# Por eso puede correr en cada push sin riesgo de escribirle a un cliente.
+# La bateria no necesita credenciales de produccion, no sale a internet y no
+# toca Meta. Por eso puede correr en cada push sin riesgo de escribirle a un
+# cliente.
 
 on:
   push:
@@ -11,7 +12,33 @@ on:
 jobs:
   pruebas:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+
+    # PostgreSQL de verdad, para que las garantias del motor -indices unicos,
+    # advisory locks, transacciones- se verifiquen en cada push y no solo en
+    # la maquina de quien las escribio.
+    #
+    # Sin esta base, esas pruebas se SALTAN. Y saltarse no es pasar: por eso
+    # mas abajo hay un paso que falla si se saltan teniendo base.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: novika
+          POSTGRES_PASSWORD: pruebas_de_ci
+          POSTGRES_DB: novika_prueba
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Base efimera de CI. No es un secreto de produccion: se crea y se
+      # destruye con el trabajo, y no contiene datos de nadie.
+      DATABASE_URL_PRUEBAS: postgres://novika:pruebas_de_ci@127.0.0.1:5432/novika_prueba
 
     steps:
       - uses: actions/checkout@v4
@@ -34,4 +61,15 @@ jobs:
           echo "Sin archivos .env en el repositorio."
 
       - name: Pruebas
-        run: npm test
+        run: npm test | tee /tmp/salida-pruebas.txt
+
+      - name: Comprobar que las pruebas de PostgreSQL NO se saltaron
+        run: |
+          # Una bateria que se salta en silencio es una bateria que no
+          # existe. Si CI tiene base de datos, esas pruebas tienen que
+          # haberse ejecutado.
+          if grep -q "sin DATABASE_URL_PRUEBAS" /tmp/salida-pruebas.txt; then
+            echo "Las pruebas de PostgreSQL se saltaron, pero CI SI tiene base de datos."
+            exit 1
+          fi
+          echo "Las pruebas de PostgreSQL se ejecutaron contra la base de CI."

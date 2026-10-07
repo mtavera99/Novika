@@ -23,6 +23,7 @@ const { config } = require("../config");
 const log = require("../log");
 const diario = require("../almacen/diario");
 const trabajo = require("../almacen/trabajo");
+const congelacion = require("../almacen/congelar");
 const aislamiento = require("../aislamiento");
 const metricas = require("../metricas");
 const { obtenerCerebro } = require("../cerebro");
@@ -146,7 +147,10 @@ async function manejarMensaje(evento) {
     diario.anotar("fallo_del_cerebro", { wamid: evento.wamid, error: e.message, pila: e.stack });
     log.error("fallo_del_cerebro", { wamid: evento.wamid, detalle: e.message });
     metricas.incrementar("error_interno");
-    return { accion: "registrado", respondido: false, fallo: true };
+    // `fallo` y `error` los lee atenderEvento para dejar el trabajo
+    // RECLAMABLE en vez de terminado. Sin esta senal, un turno que falla
+    // queda cerrado y nadie lo vuelve a mirar.
+    return { accion: "registrado", respondido: false, fallo: true, error: e.message };
   }
 }
 
@@ -190,6 +194,11 @@ function admitir(cuerpo, idEntrega = null) {
   let mensajes = 0;
   let sinRespaldoEnDisco = 0;
 
+  // Se lee del disco en cada lote, sin cache: congelar es un comando de otro
+  // proceso, y un valor cacheado dejaria al servicio operando con una idea
+  // vieja de la realidad.
+  const { congelado } = congelacion.estado(config.dirDatos);
+
   for (const evento of eventos) {
     // Aislamiento. Se evalua aqui porque es sincrono y porque no tiene
     // sentido reclamar trabajo de un numero que no es el nuestro.
@@ -218,7 +227,10 @@ function admitir(cuerpo, idEntrega = null) {
     }
 
     mensajes++;
-    const reclamo = trabajo.reclamar(evento.wamid, { evento });
+    // `diferido` se decide AQUI, en la misma escritura que el reclamo. Si se
+    // marcara despues, habria un instante en el que el registro parece un
+    // turno en vuelo, y el cutover se negaria sin motivo.
+    const reclamo = trabajo.reclamar(evento.wamid, { evento, diferido: congelado });
 
     // El unico caso malo es "aceptamos trabajo nuevo y no pudimos
     // anotarlo". Un reclamo RECHAZADO (terminado, en curso, agotado) si es
@@ -229,19 +241,48 @@ function admitir(cuerpo, idEntrega = null) {
     // replay normal de Meta -que siempre se rechaza por "terminado"- se
     // respondia con 503. Eso le dice a Meta que reintente algo que ya esta
     // hecho, y un 5xx repetido acaba desactivando la suscripcion.
+    //
+    // ESTA COMPROBACION VA ANTES DE LA RAMA DE CONGELACION, no despues.
+    // Estaba despues, y el `continue` de la rama congelada se la saltaba:
+    // congelado + disco que no acepta la escritura devolvia durable:true y
+    // se contestaba 200 sin respaldo. El mensaje quedaba sin rastro y sin
+    // nadie que lo reclamara. La congelacion no exime de tener respaldo:
+    // precisamente lo que hace que congelar no cueste ventas es que el
+    // trabajo SI esta en el disco.
     if (reclamo.ok && reclamo.persistido === false) sinRespaldoEnDisco++;
+
+    // CONGELADO: se reclama igual -el trabajo queda en el disco y no se
+    // pierde- pero NO se procesa. Un evento reclamado y sin terminar es
+    // exactamente lo que el recuperador busca al arrancar, asi que al
+    // descongelar y reiniciar estos mensajes se procesan solos.
+    //
+    // Se contesta 200 a Meta de todas formas: devolver 503 habria
+    // funcionado -Meta reintenta 36 horas- pero convertiria una operacion
+    // controlada en una carrera contra un reloj ajeno.
+    if (reclamo.ok && congelado) {
+      diario.anotar("diferido_por_congelacion", { idEntrega, wamid: evento.wamid });
+      metricas.incrementar("evento_diferido");
+      admitidos.push({ evento, reclamo, diferido: true });
+      continue;
+    }
 
     admitidos.push({ evento, reclamo });
   }
 
   const durable = sinRespaldoEnDisco === 0;
-  return { admitidos, durable, mensajes, sinRespaldoEnDisco };
+  return { admitidos, durable, mensajes, sinRespaldoEnDisco, congelado };
 }
 
 /** Procesa lo ya admitido. Asincrono, DESPUES del 200. */
 async function procesarAdmitidos(admitidos, idEntrega = null) {
   const resultados = [];
-  for (const { evento, reclamo } of admitidos) {
+  for (const { evento, reclamo, diferido } of admitidos) {
+    if (diferido) {
+      // Reclamado pero no procesado: queda pendiente a proposito. NO se
+      // llama a trabajo.terminar(), que es lo que lo deja recuperable.
+      resultados.push({ wamid: evento.wamid, accion: "diferido" });
+      continue;
+    }
     resultados.push(await atenderEvento(evento, { idEntrega, reclamoPrevio: reclamo }));
   }
   return resultados;
@@ -315,6 +356,34 @@ async function atenderEvento(evento, { idEntrega = null, enRecuperacion = false,
       return { accion: "desconocido" };
     }
 
+    // 2.b CONGELACION. Va AQUI, y no solo en admitir(), por dos razones.
+    //
+    // La primera es que la recuperacion de arranque entra por esta funcion
+    // directamente, sin pasar por admitir(). Con la compuerta solo en
+    // admitir(), un reinicio durante el cutover -y un disco persistente en
+    // Render hace que cada despliegue sea un reinicio- procesaba los
+    // mensajes diferidos CONTRA EL ORIGEN QUE SE ESTA COPIANDO y los
+    // marcaba como terminados. La congelacion dejaba de ser una compuerta y
+    // pasaba a ser un retraso de un reinicio, que es justo lo que no es.
+    //
+    // La segunda es la regla que ya aplica el aislamiento unas lineas mas
+    // arriba: un candado que depende de quien llame no es un candado.
+    //
+    // Va DESPUES de la clase -un acuse de entrega no escribe en el almacen
+    // transaccional, y un `failed` perdido no se recupera de ningun sitio- y
+    // ANTES del reclamo, para no consumir un intento. Consumirlo seria
+    // fatal: tres reinicios durante un cutover agotarian el mensaje y lo
+    // dejarian fuera para siempre, sin haberlo intentado ni una vez.
+    if (congelacion.estado(config.dirDatos).congelado) {
+      // Si ya habia un registro reclamado, se marca diferido: deja de
+      // contar como turno en vuelo para el cutover, sin dejar de ser
+      // recuperable. No consume intentos.
+      trabajo.diferir(evento.wamid);
+      diario.anotar("diferido_por_congelacion", { idEntrega, wamid: evento.wamid, enRecuperacion });
+      metricas.incrementar("evento_diferido");
+      return { wamid: evento.wamid, accion: "diferido" };
+    }
+
     // 3. Reclamo. Si viene del webhook ya se hizo ANTES del 200; si no, se
     //    hace aqui (recuperacion y pruebas).
     const reclamo = reclamoPrevio || trabajo.reclamar(evento.wamid, { evento, enRecuperacion });
@@ -338,8 +407,26 @@ async function atenderEvento(evento, { idEntrega = null, enRecuperacion = false,
 
     const r = await manejarMensaje(evento);
 
-    // 5. Terminado (durable). Desde aqui, este wamid no vuelve a ejecutarse.
-    trabajo.terminar(evento.wamid, { accion: r.accion, situacion: r.situacion || null });
+    // 5. Cierre durable.
+    //
+    // UN TURNO QUE FALLO NO ESTA TERMINADO. manejarMensaje() captura la
+    // excepcion del cerebro para poder anotarla en el diario con su pila, y
+    // devuelve `fallo:true`. La version anterior llamaba a terminar() de
+    // todas formas, asi que el evento quedaba cerrado sin haberse
+    // procesado: no se recuperaba (terminado no se reintenta), no se agotaba
+    // (nunca llegaba a agotarse) y no aparecia en ninguna lista que alguien
+    // mirara. Desaparecia en silencio, que es exactamente el modo de fallo
+    // que esta bitacora existe para impedir.
+    //
+    // fallar() lo deja RECLAMADO -recuperable en el proximo arranque- y lo
+    // pasa a AGOTADO al llegar a MAX_INTENTOS, que es lo que evita que un
+    // mensaje que rompe el cerebro de forma determinista gire para siempre.
+    if (r.fallo) {
+      trabajo.fallar(evento.wamid, r.error || "fallo al manejar el mensaje");
+    } else {
+      // Desde aqui, este wamid no vuelve a ejecutarse.
+      trabajo.terminar(evento.wamid, { accion: r.accion, situacion: r.situacion || null });
+    }
 
     return { wamid: evento.wamid, ...r, intentos: reclamo.intentos };
   } catch (e) {

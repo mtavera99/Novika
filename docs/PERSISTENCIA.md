@@ -2,19 +2,23 @@
 
 Documento de decisión. Responde qué se guarda, qué se pierde, dónde va a vivir y por qué, y qué se puede hacer sin nada de eso.
 
+> **Escrito en la Fase 1**, para decidir el almacenamiento. Las decisiones siguen vigentes; el inventario de archivos se actualizó en las fases 2 y 3A. Para el estado actual de PostgreSQL y del cutover, ver [`POSTGRES.md`](POSTGRES.md).
+
 ---
 
-## 1 · Qué se guarda hoy en disco
+## 1 · Qué se guarda en disco
 
-Tres archivos bajo `DATA_DIR`. Nada más:
+Bajo `DATA_DIR`:
 
 | Archivo | Contenido | Volumen | Crítico |
 |---|---|---|---|
 | `diario/<AAAA-MM-DD>.jsonl` | Cada evento recibido (cuerpo crudo del webhook), cada decisión tomada sobre él, cada acuse de entrega, cada error | ~1–3 KB por mensaje | **Sí** — es la auditoría |
-| `vistos.jsonl` | Un `wamid` por línea, con su marca de tiempo. Memoria de qué eventos ya se procesaron | ~80 bytes por mensaje | **Sí** — es el antiduplicados |
+| `trabajo/*.json` | Un evento por archivo con su estado: `reclamado` / `terminado` / `agotado` | ~200 bytes por mensaje | **Sí** — es el antiduplicados **y** la recuperación tras un crash |
+| `transaccional/` | Pedidos, conversaciones y contactos (backend de archivos) | ~1–2 KB por pedido | **Sí** — es el negocio |
 | `marcador-de-disco.json` | Contador de arranques | ~100 bytes | No — es diagnóstico |
+| `escrituras-congeladas.json` | Marca temporal durante un cutover | ~100 bytes | No — operativo |
 
-**No se guarda** —porque todavía no existe— ningún pedido, conversación, estado conversacional ni dato de cliente más allá del propio mensaje registrado en el diario.
+> En la Fase 1 el antiduplicados era un `vistos.jsonl` aparte. Se **eliminó** en la Fase 2: se deduplica por `terminado` en la bitácora de trabajo, porque un registro de "visto" impedía reprocesar un mensaje cuyo procesamiento se murió a medias. Dos registros de lo mismo son dos fuentes de verdad.
 
 ---
 
@@ -103,21 +107,24 @@ El disco **no se tira** al llegar Postgres. El diario append-only sigue siendo �
 
 ## 4 · Que la migración sea un cambio, no una reescritura
 
-Todo el acceso a almacenamiento pasa por dos módulos con una interfaz estrecha:
+Todo el acceso a almacenamiento pasa por `src/almacen/`, con interfaces estrechas:
 
 ```
 src/almacen/diario.js    anotar(tipo, datos) · ultimas(n) · resumenDeHoy()
-src/almacen/vistos.js    esNuevo(id) · cuantos()
+src/almacen/trabajo.js   reclamar(id) · terminar(id) · pendientes()
+src/almacen/repos/       contactos · conversaciones · pedidos
 ```
 
-Ningún otro módulo abre un archivo. `procesar.js` y `rutas.js` solo conocen esas funciones. Sustituir la implementación por Postgres es reescribir dos archivos sin tocar la lógica.
+Ningún otro módulo abre un archivo ni habla con la base. `procesar.js` y `rutas.js` solo conocen esas funciones.
 
-Dos decisiones de diseño que ya apuntan ahí:
+Dos decisiones de diseño que ya apuntaban ahí:
 
-- **`esNuevo(id)` marca y pregunta en una sola operación.** No es por comodidad: en Postgres eso es un `INSERT ... ON CONFLICT DO NOTHING RETURNING`, atómico de verdad. Si la interfaz fueran dos llamadas (`yaVisto()` y luego `marcar()`), cualquier `await` entre ellas abriría la ventana que el candado cierra, y la migración heredaría la carrera.
+- **`reclamar(id)` marca y pregunta en una sola operación.** No es por comodidad: en Postgres eso es un `INSERT ... ON CONFLICT DO NOTHING RETURNING`, atómico de verdad. Si la interfaz fueran dos llamadas (`yaVisto()` y luego `marcar()`), cualquier `await` entre ellas abriría la ventana que el candado cierra, y la migración heredaría la carrera.
 - **El diario es append-only.** Traducir a `INSERT` es directo. Un almacén que se reescribe entero —como el de BIKERPRO— no tiene traducción: hay que rediseñarlo.
 
-**Esquema previsto para Fase 2** (`eventos`, `conversaciones`, `pedidos`, `vistos`), con los candados que ya sabemos que hacen falta: `oferta_id` para ligar la confirmación a una oferta concreta, estado de pedido explícito, y anulación como borrado suave idempotente.
+**Esto es lo que hizo posible la Fase 3A:** el backend de PostgreSQL se añadió detrás de `repos/` y pasa **las mismas** pruebas de contrato que el de archivos, sin tocar el dominio ni las rutas. Funcionó como se esperaba con una excepción que las pruebas destaparon: el adaptador de archivos no tiene esquema y guarda el objeto entero, así que Postgres necesitó una columna `extra JSONB` para no perder campos en silencio.
+
+La bitácora de trabajo es la excepción deliberada: **no** se migra. Ver [`POSTGRES.md`](POSTGRES.md).
 
 ---
 
@@ -152,10 +159,10 @@ Y está probado, no afirmado. `test/fase1-sin-persistencia.test.js` corre con `M
 
 | Pregunta | Respuesta |
 |---|---|
-| ¿Qué se guarda en disco? | Diario de eventos, ids ya vistos, marcador de arranques. Ningún pedido todavía |
+| ¿Qué se guarda en disco? | Diario, bitácora de trabajo, marcador de arranques y —hoy— pedidos, conversaciones y contactos |
 | ¿Qué se pierde en un redeploy? | Con el disco montado, nada. Sin disco, todo — y antes esto no se detectaba |
-| ¿Qué almacenamiento se propone? | Fase 1: Render Disk de 1 GB. Fase 2: Render Postgres de pago, nunca el gratuito |
-| ¿Se puede migrar sin reescribir? | Sí: dos módulos con interfaz estrecha, append-only y marcar-y-preguntar atómico |
+| ¿Qué almacenamiento se propone? | Render Disk de 1 GB + Render Postgres **de pago**, nunca el gratuito (expira a los 30 días) |
+| ¿Se puede migrar sin reescribir? | Sí, y **se comprobó** en la Fase 3A: interfaz estrecha, append-only y marcar-y-preguntar atómico |
 | ¿Infraestructura cara ahora? | No. US$0.25/mes por 1 GB de disco. Postgres entra cuando entren los pedidos |
 | ¿Hace falta `META_APP_SECRET` para el handshake? | **No.** Solo para validar la firma de los POST |
 

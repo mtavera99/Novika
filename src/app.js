@@ -20,6 +20,7 @@ const diario = require("./almacen/diario");
 const trabajo = require("./almacen/trabajo");
 const persistencia = require("./almacen/persistencia");
 const metricas = require("./metricas");
+const congelacion = require("./almacen/congelar");
 const { capturarCuerpoCrudo } = require("./webhook/firma");
 const webhook = require("./webhook/rutas");
 
@@ -85,6 +86,9 @@ function crearApp() {
 
       // Fase 2
       modo_sombra: config.modoSombra,
+      // Un congelado olvidado es un bot que acumula mensajes sin atender.
+      // Por eso se publica sin token: tiene que verse.
+      escrituras_congeladas: congelacion.estado(config.dirDatos).congelado,
       ia_configurada: Boolean(config.iaApiKey),
       almacen_transaccional: config.databaseUrl ? "postgres" : "archivos",
     };
@@ -101,6 +105,7 @@ function crearApp() {
       // configuracion.
       marcador_de_disco: MARCADOR,
       trabajo: trabajo.estado(),
+      congelacion: congelacion.estado(config.dirDatos),
       zona_horaria: config.zonaHoraria,
       version_graph: config.versionGraph,
       diario_de_hoy: diario.resumenDeHoy(),
