@@ -324,6 +324,163 @@ function cancelar({ pedido, motivo = "", wamid = null, ahora = new Date() }) {
 }
 
 /** ¿Esta listo para despachar sin que nadie lo mire? */
+/**
+ * Tipos de novedad de entrega.
+ *
+ * Son los tres que la transportadora reporta y que tienen una accion
+ * distinta del cliente. No es una lista abierta a proposito: una novedad
+ * con tipo libre no se puede contar, y lo que no se cuenta no se corrige.
+ */
+const TIPOS_DE_NOVEDAD = {
+  AUSENTE: "ausente", // nadie en la direccion
+  DIRECCION: "direccion", // direccion incorrecta o incompleta
+  OFICINA: "oficina", // hay que recogerlo en oficina
+};
+
+/**
+ * DESPACHAR: el pedido sale con su numero de guia.
+ *
+ * --------------------------------------------------------------------------
+ * POR QUE LA GUIA ES OBLIGATORIA
+ * --------------------------------------------------------------------------
+ *
+ * Un pedido "despachado" sin numero de guia no se puede rastrear, y es
+ * exactamente el estado en el que un cliente pregunta "¿donde va mi
+ * pedido?" y nadie sabe responder. Marcarlo despachado sin guia convierte
+ * una venta en un paquete perdido con contabilidad correcta.
+ *
+ * IDEMPOTENTE con la MISMA guia: reenviar el mismo despacho no es un error
+ * -el panel puede reintentar, el PDF puede subirse dos veces- y no sube la
+ * version. Con una guia DISTINTA si falla: dos guias para un pedido
+ * significa que una de las dos es de otro cliente, y eso no lo puede
+ * resolver el codigo.
+ */
+function despachar({ pedido, guia, transportadora = null, wamid = null, ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido que despachar" };
+
+  const numero = String(guia || "").trim();
+  if (!numero) {
+    return { ok: false, motivo: "hace falta el numero de guia: sin el, el pedido no se puede rastrear" };
+  }
+
+  if (pedido.estado === ESTADOS_PEDIDO.DESPACHADO) {
+    const yaTiene = String((pedido.despacho && pedido.despacho.guia) || "").trim();
+    if (yaTiene === numero) return { ok: true, pedido, yaEstaba: true };
+    return {
+      ok: false,
+      motivo: `el pedido ya salio con la guia ${yaTiene}; no se puede cambiar por ${numero} sin que lo revise una persona`,
+      guiaActual: yaTiene,
+    };
+  }
+
+  const listo = listoParaDespachar(pedido);
+  if (!listo.ok) return { ok: false, motivo: `no se puede despachar: ${listo.motivo}` };
+
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  nuevo.version = pedido.version + 1;
+  nuevo.estado = ESTADOS_PEDIDO.DESPACHADO;
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.despacho = {
+    guia: numero,
+    transportadora: transportadora || null,
+    despachadoEn: ahora.toISOString(),
+  };
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "despachado",
+    cuando: ahora.toISOString(),
+    guia: numero,
+    transportadora: transportadora || null,
+    wamid,
+  });
+
+  return { ok: true, pedido: nuevo, yaEstaba: false };
+}
+
+/**
+ * Registra una novedad de entrega.
+ *
+ * No cambia el estado del pedido: sigue despachado. Una novedad es algo que
+ * le paso al paquete, no un estado distinto de la venta, y mezclarlas haria
+ * que un pedido con novedad desapareciera de los despachados.
+ *
+ * No sube la version del pedido: la venta no cambio. Pero SI queda en el
+ * historial, porque es lo que explica por que una entrega tardo.
+ */
+function registrarNovedad({ pedido, tipo, detalle = "", ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido" };
+  if (!Object.values(TIPOS_DE_NOVEDAD).includes(tipo)) {
+    return {
+      ok: false,
+      motivo: `"${tipo}" no es un tipo de novedad conocido (${Object.values(TIPOS_DE_NOVEDAD).join(", ")})`,
+    };
+  }
+  if (pedido.estado !== ESTADOS_PEDIDO.DESPACHADO) {
+    // Una novedad sobre un pedido que no salio significa que alguien se
+    // equivoco de pedido, y avisar al cliente equivocado es peor que no
+    // avisar.
+    return { ok: false, motivo: "solo un pedido despachado puede tener una novedad de entrega" };
+  }
+
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  nuevo.novedades = Array.isArray(nuevo.novedades) ? nuevo.novedades : [];
+
+  const abierta = nuevo.novedades.find((n) => n.tipo === tipo && !n.resueltaEn);
+  if (abierta) {
+    // Idempotente: la transportadora reporta la misma novedad varias veces.
+    return { ok: true, pedido, yaEstaba: true, novedad: abierta };
+  }
+
+  const novedad = {
+    id: `nov-${nuevo.novedades.length + 1}`,
+    tipo,
+    detalle: String(detalle || "").slice(0, 300),
+    creadaEn: ahora.toISOString(),
+    resueltaEn: null,
+    avisoAlCliente: null, // lo rellena quien intente avisar, con su resultado REAL
+  };
+  nuevo.novedades.push(novedad);
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "novedad",
+    cuando: ahora.toISOString(),
+    tipo,
+    porQue: novedad.detalle || null,
+  });
+
+  return { ok: true, pedido: nuevo, yaEstaba: false, novedad };
+}
+
+/** Cierra una novedad. Idempotente. */
+function resolverNovedad({ pedido, id, comoSeResolvio = "", ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido" };
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  nuevo.novedades = Array.isArray(nuevo.novedades) ? nuevo.novedades : [];
+  const n = nuevo.novedades.find((x) => x.id === id);
+  if (!n) return { ok: false, motivo: `no hay una novedad ${id} en este pedido` };
+  if (n.resueltaEn) return { ok: true, pedido, yaEstaba: true };
+
+  n.resueltaEn = ahora.toISOString();
+  n.comoSeResolvio = String(comoSeResolvio || "").slice(0, 300);
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "novedad_resuelta",
+    cuando: ahora.toISOString(),
+    tipo: n.tipo,
+    porQue: n.comoSeResolvio || null,
+  });
+
+  return { ok: true, pedido: nuevo, yaEstaba: false };
+}
+
+/** Novedades sin resolver de un pedido. */
+function novedadesAbiertas(pedido) {
+  const lista = (pedido && pedido.novedades) || [];
+  return Array.isArray(lista) ? lista.filter((n) => !n.resueltaEn) : [];
+}
+
 function listoParaDespachar(pedido) {
   if (!pedido) return { ok: false, motivo: "no hay pedido" };
   if (pedido.estado === ESTADOS_PEDIDO.CANCELADO) return { ok: false, motivo: "cancelado" };
@@ -349,6 +506,11 @@ module.exports = {
   construir,
   modificar,
   cancelar,
+  despachar,
+  registrarNovedad,
+  resolverNovedad,
+  novedadesAbiertas,
+  TIPOS_DE_NOVEDAD,
   requiereRecotizar,
   listoParaDespachar,
 };

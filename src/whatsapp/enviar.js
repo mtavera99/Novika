@@ -32,6 +32,18 @@ const PERMISOS = {
   AVISO_AL_DUENO: "aviso_al_dueno",
   /** Prueba controlada, autorizada por una persona para un numero concreto. */
   PRUEBA_AUTORIZADA: "prueba_autorizada",
+  /**
+   * Una PERSONA escribiendo desde el panel.
+   *
+   * Es un permiso aparte y no "conversacion" por dos razones:
+   *
+   *   - No lo gobierna RESPUESTA_AUTOMATICA. Ese interruptor existe para
+   *     que el BOT no hable; un operador que pulsa enviar no es el bot.
+   *     Tiene su propio interruptor, PANEL_ENVIO_MANUAL.
+   *   - No lo frena la pausa del chat. Al contrario: tomar el control
+   *     pausa el bot justo para que escriba la persona.
+   */
+  ATENCION_MANUAL: "atencion_manual",
 };
 
 const MOTIVOS_BLOQUEO = {
@@ -40,6 +52,10 @@ const MOTIVOS_BLOQUEO = {
   SIN_PERMISO: "sin_permiso",
   SIN_DESTINO: "sin_destino",
   TEXTO_VACIO: "texto_vacio",
+  /** El panel puede enviar, pero su interruptor esta apagado. */
+  ENVIO_MANUAL_APAGADO: "envio_manual_apagado",
+  /** Una persona tiene el control de este chat: el bot no habla. */
+  CONVERSACION_PAUSADA: "conversacion_pausada",
 };
 
 /** Codigos de Meta que pueden salir distinto al reintentar. */
@@ -54,7 +70,18 @@ const ESPERAS_MS = [1500, 4000];
  * @param {object} [opciones.metricas]
  * @param {Function} [opciones.fetchImpl]  inyectable para pruebas
  */
-function crearEmisor({ config, log = null, metricas = null, fetchImpl = null } = {}) {
+function crearEmisor({
+  config,
+  log = null,
+  metricas = null,
+  fetchImpl = null,
+  // Para el candado contra las dos voces. Se inyectan para que el emisor no
+  // dependa del almacen: sin ellos sigue funcionando -y las pruebas que solo
+  // miran el interruptor no tienen que montar repositorios-, pero entonces
+  // no hay pausa que comprobar y hay que pasarla por otro lado.
+  repos = null,
+  atencion = null,
+} = {}) {
   const hacerFetch = fetchImpl || globalThis.fetch;
 
   function contar(nombre) {
@@ -74,6 +101,18 @@ function crearEmisor({ config, log = null, metricas = null, fetchImpl = null } =
     }
     if (!para) return { puede: false, motivo: MOTIVOS_BLOQUEO.SIN_DESTINO };
     if (!texto || !String(texto).trim()) return { puede: false, motivo: MOTIVOS_BLOQUEO.TEXTO_VACIO };
+
+    // La atencion manual tiene su propio interruptor. No depende de
+    // RESPUESTA_AUTOMATICA porque no es el bot hablando.
+    if (permiso === PERMISOS.ATENCION_MANUAL) {
+      if (!config.panelEnvioManual) {
+        return { puede: false, motivo: MOTIVOS_BLOQUEO.ENVIO_MANUAL_APAGADO };
+      }
+      if (!config.whatsappToken || !config.idNumero) {
+        return { puede: false, motivo: MOTIVOS_BLOQUEO.SIN_CREDENCIALES };
+      }
+      return { puede: true };
+    }
 
     // EL CANDADO. Una prueba autorizada es la unica excepcion, y tiene que
     // pedirse por su nombre.
@@ -96,8 +135,39 @@ function crearEmisor({ config, log = null, metricas = null, fetchImpl = null } =
    * @returns {Promise<{enviado: boolean, bloqueado?: boolean, motivo?: string,
    *                    estado?: number, wamid?: string, intentos?: number}>}
    */
-  async function enviarTexto({ para, texto, permiso = PERMISOS.CONVERSACION }) {
+  async function enviarTexto({ para, texto, permiso = PERMISOS.CONVERSACION, conversacionId = null }) {
     const permitido = revisarPermiso({ para, texto, permiso });
+
+    // ----------------------------------------------------------------------
+    // EL CANDADO CONTRA LAS DOS VOCES
+    //
+    // Se comprueba AQUI, en el punto unico de salida, y no al empezar el
+    // turno. Esa diferencia es todo el arreglo.
+    //
+    // BIKERPRO lo comprueba al principio:
+    //
+    //   if (store.isPaused(from)) continue;   <- aqui
+    //   await ...                             <- la IA piensa, segundos
+    //   await sendText(from, reply);          <- envia sin volver a mirar
+    //
+    // Si el operador toma el control mientras el modelo piensa, el bot
+    // contesta igual y el cliente recibe dos voces. Con Gemini en medio esa
+    // ventana son segundos de verdad, no microsegundos.
+    //
+    // Aqui la pregunta se hace cuando la IA YA respondio y justo antes de
+    // escribir a la red. Y se hace en el emisor, que es el unico camino al
+    // exterior, para que ningun flujo nuevo tenga que acordarse.
+    // ----------------------------------------------------------------------
+    if (permitido.puede && permiso === PERMISOS.CONVERSACION && conversacionId && atencion && repos) {
+      const pausada = await atencion.estaPausada(repos, conversacionId);
+      if (pausada) {
+        contar("respuesta_bloqueada_por_pausa");
+        registrar("info", "envio_bloqueado_por_pausa", {
+          detalle: "Una persona tomo el control de este chat mientras se preparaba la respuesta. El bot no escribe.",
+        });
+        return { enviado: false, bloqueado: true, motivo: MOTIVOS_BLOQUEO.CONVERSACION_PAUSADA };
+      }
+    }
 
     if (!permitido.puede) {
       if (permitido.motivo === MOTIVOS_BLOQUEO.INTERRUPTOR) {

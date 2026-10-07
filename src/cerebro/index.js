@@ -66,7 +66,16 @@ async function obtenerCerebro() {
       metricas,
     });
 
-    const emisor = crearEmisor({ config, log, metricas });
+    // `repos` y `atencion` van al emisor para que pueda comprobar la pausa
+    // JUSTO ANTES de enviar, cuando la IA ya respondio. Ver el candado
+    // contra las dos voces en src/whatsapp/enviar.js.
+    const emisor = crearEmisor({
+      config,
+      log,
+      metricas,
+      repos,
+      atencion: require("../almacen/atencion"),
+    });
 
     log.info("cerebro_listo", {
       almacen: repos.tipo,

@@ -99,7 +99,7 @@ const CAMPOS_PEDIDO_CONOCIDOS = new Set([
   "id", "version", "estado", "claveDeEvento", "claveDeOferta", "contactoId", "conversacionId",
   "ofertaId", "wamidConfirmacion", "producto", "cantidad", "destinatario", "cotizacion",
   "firmaDeCondiciones", "origen", "revisiones", "historial", "creadoEn", "actualizadoEn",
-  "canceladoEn", "motivoCancelacion",
+  "canceladoEn", "motivoCancelacion", "despacho", "novedades",
 ]);
 
 /**
@@ -176,6 +176,8 @@ function pedidoAFila(p) {
     // La restriccion `cancelacion_coherente` exige que vayan de la mano.
     cancelado_en: p.estado === "cancelado" ? p.canceladoEn || new Date().toISOString() : null,
     motivo_cancelacion: p.estado === "cancelado" ? p.motivoCancelacion || "sin motivo registrado" : null,
+    despacho: p.despacho || null,
+    novedades: p.novedades || [],
     extra: sobrantes(p, CAMPOS_PEDIDO_CONOCIDOS),
   };
 }
@@ -209,12 +211,14 @@ function filaAPedido(f, historial = []) {
     actualizadoEn: aIso(f.actualizado_en),
     canceladoEn: aIso(f.cancelado_en),
     motivoCancelacion: f.motivo_cancelacion,
+    despacho: f.despacho || null,
+    novedades: f.novedades || [],
   };
 }
 
 const CAMPOS_CONVERSACION_CONOCIDOS = new Set([
   "contactoId", "estado", "productoId", "ofertaId", "resumenMostrado", "cotizacion",
-  "ficha", "ventana", "ultimoWamid", "creadoEn", "actualizadoEn",
+  "ficha", "ventana", "ultimoWamid", "atencion", "mensajes", "creadoEn", "actualizadoEn",
 ]);
 
 function filaAConversacion(f) {
@@ -226,6 +230,8 @@ function filaAConversacion(f) {
     productoId: f.producto_id,
     ofertaId: f.oferta_id,
     resumenMostrado: f.resumen_mostrado,
+    atencion: f.atencion || {},
+    mensajes: f.mensajes || [],
     cotizacion: f.cotizacion,
     ficha: f.ficha || {},
     ventana: f.ventana || [],
@@ -257,10 +263,15 @@ const COLUMNAS_PEDIDO = [
   "subtotal_pesos", "envio_pesos", "descuento_pesos", "total_pesos", "moneda",
   "destinatario", "cotizacion", "firma_condiciones", "politica_version", "version_catalogo",
   "origen", "revisiones", "creado_en", "actualizado_en", "cancelado_en", "motivo_cancelacion",
+  // `guia` NO va aqui: es una columna GENERADA a partir de despacho->>'guia'
+  // y PostgreSQL rechaza que se escriba. Existe solo para poder indexarla.
+  "despacho", "novedades",
   "extra",
 ];
 
-const JSONB_PEDIDO = new Set(["variante", "destinatario", "cotizacion", "origen", "revisiones", "extra"]);
+const JSONB_PEDIDO = new Set([
+  "variante", "destinatario", "cotizacion", "origen", "revisiones", "despacho", "novedades", "extra",
+]);
 
 function valoresDePedido(fila) {
   return COLUMNAS_PEDIDO.map((c) => (JSONB_PEDIDO.has(c) ? (fila[c] === null ? null : JSON.stringify(fila[c])) : fila[c]));
@@ -416,8 +427,8 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
         await asegurarContacto(cli, c.contactoId);
         const { rows } = await cli.query(
           `INSERT INTO conversaciones
-             (contacto_id, estado, producto_id, oferta_id, resumen_mostrado, cotizacion, ficha, ventana, ultimo_wamid, extra, actualizado_en)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+             (contacto_id, estado, producto_id, oferta_id, resumen_mostrado, cotizacion, ficha, ventana, ultimo_wamid, atencion, mensajes, extra, actualizado_en)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
            ON CONFLICT (contacto_id) DO UPDATE SET
              estado           = EXCLUDED.estado,
              producto_id      = EXCLUDED.producto_id,
@@ -427,6 +438,8 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
              ficha            = EXCLUDED.ficha,
              ventana          = EXCLUDED.ventana,
              ultimo_wamid     = EXCLUDED.ultimo_wamid,
+             atencion         = EXCLUDED.atencion,
+             mensajes         = EXCLUDED.mensajes,
              extra            = EXCLUDED.extra,
              actualizado_en   = now()
            RETURNING *`,
@@ -440,11 +453,28 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
             JSON.stringify(c.ficha || {}),
             JSON.stringify(c.ventana || []),
             c.ultimoWamid || null,
+            JSON.stringify(c.atencion || {}),
+            JSON.stringify(c.mensajes || []),
             (() => { const e = sobrantes(c, CAMPOS_CONVERSACION_CONOCIDOS); return e ? JSON.stringify(e) : null; })(),
           ]
         );
         return filaAConversacion(rows[0]);
       });
+    },
+
+    /**
+     * Conversaciones, la mas recientemente actualizada primero.
+     *
+     * `limite` siempre tiene tope: una pantalla no puede pedir "todo". El
+     * dia que haya decenas de miles de conversaciones, una consulta sin
+     * tope tumba el servicio justo cuando mas se usa el panel.
+     */
+    async listar({ limite = 200 } = {}) {
+      const { rows } = await pool.query(
+        "SELECT * FROM conversaciones ORDER BY actualizado_en DESC NULLS LAST LIMIT $1",
+        [limite]
+      );
+      return rows.map(filaAConversacion);
     },
   };
 
@@ -459,6 +489,48 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
       const cli = await pool.connect();
       try {
         return filaAPedido(rows[0], await historialDe(cli, codigo));
+      } finally {
+        cli.release();
+      }
+    },
+
+    /**
+     * Pedidos, el mas reciente primero. Opcionalmente por rango de dias.
+     *
+     * El filtro se hace EN LA BASE y en hora de Bogota:
+     *
+     *   (creado_en AT TIME ZONE 'America/Bogota')::date
+     *
+     * Comparar el timestamp en UTC mandaria los pedidos de despues de las
+     * 19:00 al dia siguiente, que es el error que el panel de BIKERPRO ya
+     * cometio. Y filtrar en JavaScript obligaria a traerse todo primero.
+     */
+    async listar({ limite = 500, desde = null, hasta = null } = {}) {
+      const condiciones = [];
+      const valores = [];
+      if (desde) {
+        valores.push(desde);
+        condiciones.push(`(creado_en AT TIME ZONE 'America/Bogota')::date >= $${valores.length}::date`);
+      }
+      if (hasta) {
+        valores.push(hasta);
+        condiciones.push(`(creado_en AT TIME ZONE 'America/Bogota')::date <= $${valores.length}::date`);
+      }
+      valores.push(limite);
+
+      const { rows } = await pool.query(
+        `SELECT * FROM pedidos
+          ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
+          ORDER BY creado_en DESC NULLS LAST
+          LIMIT $${valores.length}`,
+        valores
+      );
+
+      const cli = await pool.connect();
+      try {
+        const salida = [];
+        for (const f of rows) salida.push(filaAPedido(f, await historialDe(cli, f.codigo)));
+        return salida;
       } finally {
         cli.release();
       }

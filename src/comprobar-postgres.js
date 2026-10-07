@@ -126,7 +126,7 @@ async function principal() {
     const pendientes = migraciones.filter((m) => !m.aplicada);
 
     // ---- 5. Tablas ----
-    const { TABLAS_REQUERIDAS } = require("./almacen/repos");
+    const { TABLAS_REQUERIDAS, COLUMNAS_REQUERIDAS } = require("./almacen/repos");
     const { rows: tablas } = await cliente.query(
       `SELECT table_name FROM information_schema.tables
         WHERE table_schema = current_schema() AND table_name = ANY($1)`,
@@ -139,7 +139,37 @@ async function principal() {
     console.log(`  tablas del esquema ......... ${presentes.size}/${TABLAS_REQUERIDAS.length}`);
     if (faltan.length) console.log(`    faltan: ${faltan.join(", ")}`);
 
-    const esquemaListo = faltan.length === 0;
+    // Columnas de las migraciones posteriores a la 001. Las tablas pueden
+    // estar y faltar columnas: ese es el caso de una base migrada a medias,
+    // y sin esto el arranque pasaria para fallar en la primera venta.
+    const { rows: columnas } = await cliente.query(
+      `SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = ANY($1)`,
+      [Object.keys(COLUMNAS_REQUERIDAS)]
+    );
+    const porTabla = new Map();
+    for (const c of columnas) {
+      if (!porTabla.has(c.table_name)) porTabla.set(c.table_name, new Set());
+      porTabla.get(c.table_name).add(c.column_name);
+    }
+    const columnasQueFaltan = [];
+    for (const [t, reqs] of Object.entries(COLUMNAS_REQUERIDAS)) {
+      const hay = porTabla.get(t) || new Set();
+      for (const c of reqs) if (!hay.has(c)) columnasQueFaltan.push(`${t}.${c}`);
+    }
+    if (presentes.size === TABLAS_REQUERIDAS.length) {
+      console.log(
+        `  columnas del panel ......... ${columnasQueFaltan.length === 0 ? "completas" : `FALTAN ${columnasQueFaltan.length}`}`
+      );
+      if (columnasQueFaltan.length) {
+        console.log(`    faltan: ${columnasQueFaltan.join(", ")}`);
+        problemas.push(
+          `faltan columnas (${columnasQueFaltan.join(", ")}): hay migraciones sin aplicar. Ejecuta \`npm run migrar\`.`
+        );
+      }
+    }
+
+    const esquemaListo = faltan.length === 0 && columnasQueFaltan.length === 0;
 
     // ---- 6. Los candados de idempotencia ----
     if (esquemaListo) {

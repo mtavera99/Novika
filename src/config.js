@@ -59,6 +59,17 @@ const config = {
   nivelLog: texto("LOG_NIVEL", "info"),
   logPii: bandera("LOG_PII", false),
   respuestaAutomatica: bandera("RESPUESTA_AUTOMATICA", false),
+  // Interruptor PROPIO del panel para los envios manuales de un operador.
+  //
+  // Aparte de RESPUESTA_AUTOMATICA a proposito: ese interruptor existe para
+  // que el BOT no hable, y una persona que pulsa enviar no es el bot. Pero
+  // tampoco puede quedar implicito, porque entonces el panel seria una
+  // puerta abierta a enviar WhatsApps reales sin haberlo decidido.
+  //
+  // Apagado por defecto: el panel se opera completo y el resultado que
+  // muestra es el real -"bloqueado por el interruptor"-, nunca un envio
+  // fingido.
+  panelEnvioManual: bandera("PANEL_ENVIO_MANUAL", false),
   zonaHoraria: texto("ZONA_HORARIA", "America/Bogota"),
   ownerWhatsapp: texto("OWNER_WHATSAPP"),
 
