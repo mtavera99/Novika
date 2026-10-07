@@ -47,6 +47,12 @@ Reglas:
 
 ## Paso 2 · Consigue la clave secreta de la app
 
+> **¿Hace falta para el handshake? No.** La documentación de Meta describe dos tipos de petición al webhook. La *Verification Request* es un `GET` con `hub.mode`, `hub.challenge` y `hub.verify_token`, y se valida comparando el token y devolviendo el challenge: **no lleva firma**. Solo las *Event Notifications* (los `POST`) van firmadas con `X-Hub-Signature-256`.
+>
+> Puedes pulsar "Verificar y guardar" con **solo** `WHATSAPP_VERIFY_TOKEN` configurado. Esto está probado en `test/fase1-sin-persistencia.test.js`, no es una suposición.
+>
+> Consíguela igual en este paso, porque sin ella los mensajes entrantes se registran pero **no se procesan**, y vas a querer el siguiente paso listo.
+
 En **Meta Developers → Bot Novika → Configuración de la app → Básica → Clave secreta de la app → Mostrar**.
 
 Esta clave es con la que se comprueba que cada mensaje entrante viene de verdad de Meta. Sin ella, la URL del webhook es una API pública: cualquiera que la descubra puede inventarse un cliente y hacer que el bot responda.
@@ -73,7 +79,7 @@ Comprobaciones antes de seguir:
 | Ajuste | Valor correcto | Por qué |
 |---|---|---|
 | Plan | **Starter**, no Free | El Free duerme y despertar tarda ~50 s: el primer mensaje del cliente se pierde |
-| Disk | montado en `/var/data` | Sin disco, cada despliegue borra el diario y la memoria de duplicados |
+| Disk | montado en `/var/data` | **El filesystem de un Web Service es efímero.** Sin disco, cada despliegue borra el diario y la memoria de duplicados |
 | `DATA_DIR` | `/var/data` | Tiene que apuntar al disco |
 | Health check | `/health` | Para que Render sepa si el proceso vive |
 | Nombre del servicio | **no** debe contener `bikerpro` | NOVIKA se niega a arrancar si lo detecta |
@@ -84,7 +90,9 @@ Cuando termine el despliegue, abre en el navegador:
 https://<tu-servicio>.onrender.com/health
 ```
 
-Tiene que devolver un JSON con `"marca": "novika"` y `"firma_activa": true`.
+Tiene que devolver un JSON con `"marca": "novika"`, `"firma_activa": true` y —esto importa— **`"persistencia": "disco-persistente"`**.
+
+Si dice `"persistencia": "efimera"`, el Disk no está montado: `/var/data` existe pero se borra en cada despliegue. Arréglalo antes de seguir, o al menos antes de encender las respuestas. El detalle está en [`PERSISTENCIA.md`](PERSISTENCIA.md).
 
 **Si eso responde, ya tienes la URL de devolución de llamada.**
 

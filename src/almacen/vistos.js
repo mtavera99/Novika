@@ -3,9 +3,14 @@
 // ==========================================================================
 // IDS YA VISTOS (deduplicacion de eventos entrantes)
 //
-// Meta reentrega un webhook cuando no recibe un 200 a tiempo. Si el mismo
-// mensaje se procesa dos veces, el cliente recibe dos respuestas y, cuando
-// haya pedidos, puede nacer un pedido fantasma.
+// Meta reentrega un webhook cuando no recibe un 200 a tiempo. Su
+// documentacion es concreta: reintenta de inmediato y luego varias veces con
+// frecuencia decreciente "durante las siguientes 36 horas", descarta lo no
+// confirmado a las 36 horas, y dice explicitamente que el servidor debe
+// encargarse de deduplicar.
+//
+// Si el mismo mensaje se procesa dos veces, el cliente recibe dos respuestas
+// y, cuando haya pedidos, puede nacer un pedido fantasma.
 //
 // BIKERPRO no tiene este candado: su handleWebhook nunca lee msg.id, y toda
 // la defensa contra duplicados esta aguas abajo, comparando pedidos ya
@@ -25,6 +30,11 @@ const { config } = require("../config");
 const log = require("./../log");
 
 const ARCHIVO = path.join(config.dirDatos, "vistos.jsonl");
+
+// 7 dias, no 36 horas. La ventana de reintentos de Meta es de 36 horas, asi
+// que 7 dias la cubre con holgura y deja margen para un fin de semana con
+// incidencias. El coste de recordar de mas es una linea de texto por
+// mensaje; el de recordar de menos es un pedido duplicado.
 const DIAS_QUE_SE_RECUERDAN = 7;
 const MS_QUE_SE_RECUERDAN = DIAS_QUE_SE_RECUERDAN * 24 * 60 * 60 * 1000;
 

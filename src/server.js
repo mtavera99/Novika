@@ -44,12 +44,13 @@ function arrancar() {
       respuesta_automatica: config.respuestaAutomatica,
       filtro_de_numero: config.idNumero ? "activo" : "inactivo",
       dir_datos: config.dirDatos,
-      disco_propio: config.discoPropio,
+      persistencia: config.persistencia.modo,
     });
     diario.anotar("arranque", {
       commit: config.commit || null,
       firma_activa: config.firmaActiva,
       respuesta_automatica: config.respuestaAutomatica,
+      persistencia: config.persistencia.modo,
     });
   });
 

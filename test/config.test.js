@@ -31,7 +31,8 @@ function base(extra = {}) {
     dirDatos: "/var/data",
     panelToken: "otro_secreto_distinto",
     firmaActiva: true,
-    discoPropio: true,
+    persistencia: { modo: "disco-persistente", esDurable: true, motivo: "disco montado" },
+    permitirSinPersistencia: false,
     logPii: false,
     respuestaAutomatica: false,
     ...extra,
@@ -82,9 +83,28 @@ test("sin id de numero avisa de que el filtro de aislamiento esta inactivo", () 
   assert.ok(avisos.some((a) => /filtro/.test(a)));
 });
 
-test("sin disco propio avisa de que el estado se borra en cada despliegue", () => {
-  const { avisos } = revisar(base({ discoPropio: false }));
-  assert.ok(avisos.some((a) => /se borra en cada despliegue/.test(a)));
+test("con almacenamiento efimero avisa, pero deja verificar el webhook", () => {
+  // Recibir y verificar no escribe nada, asi que la Fase 1 no necesita disco.
+  const efimero = { modo: "efimera", esDurable: false, motivo: "no hay disco montado" };
+  const { errores, avisos } = revisar(base({ persistencia: efimero }));
+  assert.deepEqual(errores, []);
+  assert.ok(avisos.some((a) => /EFIMERO/.test(a)));
+  assert.ok(avisos.some((a) => /handshake no escribe nada/.test(a)));
+});
+
+test("almacenamiento efimero + responder a clientes NO arranca", () => {
+  // Responder sin memoria durable duplica respuestas y, en fase 2, pedidos.
+  const efimero = { modo: "efimera", esDurable: false, motivo: "no hay disco montado" };
+  const { errores } = revisar(base({ persistencia: efimero, respuestaAutomatica: true }));
+  assert.ok(errores.some((e) => /almacenamiento es efimero/.test(e)));
+  assert.ok(errores.some((e) => /PERMITIR_SIN_PERSISTENCIA/.test(e)), "el error tiene que decir como saltarselo a proposito");
+});
+
+test("el escape explicito permite la prueba controlada, pero avisa", () => {
+  const efimero = { modo: "efimera", esDurable: false, motivo: "no hay disco montado" };
+  const { errores, avisos } = revisar(base({ persistencia: efimero, respuestaAutomatica: true, permitirSinPersistencia: true }));
+  assert.deepEqual(errores, []);
+  assert.ok(avisos.some((a) => /Solo para pruebas/.test(a)));
 });
 
 test("con los logs de datos personales encendidos, avisa", () => {
