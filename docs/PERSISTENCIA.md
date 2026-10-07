@@ -63,8 +63,10 @@ GET /health?token=…
 | | |
 |---|---|
 | Qué | Render Disk, 1 GB, `/var/data` |
-| Coste | El disco se factura por GB/mes; **confírmalo en render.com/pricing**, no pude verificar la cifra exacta y no te la voy a inventar. Con 1 GB es un cargo marginal al lado de los $7 del servicio |
+| Coste | **US$0.25/GB/mes** (confirmado por el dueño en octubre de 2026). Con 1 GB son US$0.25/mes, frente a los US$7 del servicio Starter |
 | Suficiente para | Unos cientos de miles de mensajes de diario |
+
+> Coste total de la Fase 1: **US$7 del servicio Starter + US$0.25 del disco = US$7.25/mes.** El plan gratuito no es una alternativa: duerme a los 15 minutos sin tráfico y despertar tarda decenas de segundos, así que el primer mensaje del cliente -el que llega desde el anuncio- se pierde. Y los discos persistentes requieren un servicio de pago.
 
 **Por qué basta ahora:** en Fase 1 solo hay un registro append-only y un conjunto de ids. No hay consultas relacionales, ni concurrencia entre instancias, ni transacciones. Montar Postgres para esto sería pagar y operar una base de datos para escribir dos archivos de texto.
 
@@ -152,7 +154,7 @@ Y está probado, no afirmado. `test/fase1-sin-persistencia.test.js` corre con `M
 | ¿Qué se pierde en un redeploy? | Con el disco montado, nada. Sin disco, todo — y antes esto no se detectaba |
 | ¿Qué almacenamiento se propone? | Fase 1: Render Disk de 1 GB. Fase 2: Render Postgres de pago, nunca el gratuito |
 | ¿Se puede migrar sin reescribir? | Sí: dos módulos con interfaz estrecha, append-only y marcar-y-preguntar atómico |
-| ¿Infraestructura cara ahora? | No. Un disco de 1 GB. Postgres entra cuando entren los pedidos |
+| ¿Infraestructura cara ahora? | No. US$0.25/mes por 1 GB de disco. Postgres entra cuando entren los pedidos |
 | ¿Hace falta `META_APP_SECRET` para el handshake? | **No.** Solo para validar la firma de los POST |
 
 ### Antes de desplegar, comprueba
