@@ -28,9 +28,10 @@ console.log(`  token de WhatsApp .......... ${marca(config.whatsappToken)}`);
 console.log(`  id del numero .............. ${marca(config.idNumero)}  (filtro de aislamiento)`);
 console.log(`  id de la WABA .............. ${marca(config.idWaba)}`);
 console.log(`  token del panel ............ ${marca(config.panelToken)}`);
-console.log(`  disco propio (DATA_DIR) .... ${marca(config.discoPropio)}`);
+console.log(`  almacenamiento ............. ${config.persistencia.modo}${config.persistencia.esDurable ? "" : "  <-- SE BORRA EN CADA DESPLIEGUE"}`);
 console.log(`  respuesta automatica ....... ${config.respuestaAutomatica ? "ENCENDIDA" : "apagada"}`);
 console.log(`  carpeta de datos ........... ${config.dirDatos}`);
+console.log(`    ${config.persistencia.motivo}`);
 console.log("".padEnd(60, "-"));
 
 const catalogo = cargarCatalogo();

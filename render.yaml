@@ -23,9 +23,32 @@ services:
     startCommand: npm start
     healthCheckPath: /health
 
+    # Un disco obliga a una sola instancia. Es explicito para que nadie lo
+    # suba sin darse cuenta: con dos instancias, cada una tendria su propia
+    # memoria de ids ya vistos y el antiduplicados dejaria de servir.
+    numInstances: 1
+
     disk:
-      # Sin disco, cada despliegue borra el diario de eventos y la memoria de
-      # ids ya vistos. Disco propio de NOVIKA, no compartido.
+      # EL SISTEMA DE ARCHIVOS DE UN WEB SERVICE ES EFIMERO. Sin este disco,
+      # cada despliegue y cada reinicio borra el diario de eventos y la
+      # memoria de ids ya vistos; el antiduplicados deja de funcionar y el
+      # reintento de Meta -que llega hasta 36 horas despues- se procesa como
+      # un mensaje nuevo.
+      #
+      # Declarar DATA_DIR=/var/data NO crea este disco. Si el disco no esta
+      # montado, /var/data es una carpeta corriente que desaparece en el
+      # siguiente despliegue, con un nombre que tranquiliza. El servidor lo
+      # COMPRUEBA al arrancar y lo publica en /health como
+      # "persistencia": "efimera".
+      #
+      # Lo que cuesta tener disco, y conviene saberlo:
+      #   - desactiva los despliegues sin interrupcion (hueco de segundos en
+      #     cada deploy; Meta reintenta, y el antiduplicados cubre el resto);
+      #   - una sola instancia, sin escalado horizontal;
+      #   - no esta disponible durante buildCommand ni preDeployCommand.
+      #
+      # Se puede ampliar, no reducir: empezar en 1 GB.
+      # Disco propio de NOVIKA, no compartido con ningun otro servicio.
       name: novika-datos
       mountPath: /var/data
       sizeGB: 1

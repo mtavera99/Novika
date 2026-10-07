@@ -18,10 +18,12 @@ const { config } = require("./config");
 const log = require("./log");
 const diario = require("./almacen/diario");
 const vistos = require("./almacen/vistos");
+const persistencia = require("./almacen/persistencia");
 const { capturarCuerpoCrudo } = require("./webhook/firma");
 const webhook = require("./webhook/rutas");
 
 const ARRANCADO_EN = Date.now();
+const MARCADOR = persistencia.registrarArranque(config.dirDatos);
 
 /** Puerta unica para las rutas de diagnostico. */
 function exigePanelToken(req, res, siguiente) {
@@ -43,7 +45,10 @@ function crearApp() {
   app.use(
     express.json({
       verify: capturarCuerpoCrudo,
-      limit: "1mb", // los payloads de WhatsApp son pequeños; mas que esto es ruido
+      // Meta agrupa hasta 1.000 actualizaciones en un solo POST (lo dice su
+      // documentacion de webhooks). Un lote grande de acuses de entrega
+      // supera 1 MB con facilidad, y rechazarlo seria perder el lote entero.
+      limit: "5mb",
     })
   );
 
@@ -71,7 +76,11 @@ function crearApp() {
       puede_enviar: config.puedeEnviar, // false -> no hay token o no hay id de numero
       respuesta_automatica: config.respuestaAutomatica, // false -> nunca escribe a clientes
       filtro_de_numero: config.idNumero ? "activo" : "inactivo",
-      disco_propio: config.discoPropio,
+
+      // Comprobado, no deducido de la variable de entorno. Si dice "efimera",
+      // el diario y la memoria de duplicados se borran en cada despliegue.
+      persistencia: config.persistencia.modo,
+      almacenamiento_durable: config.persistencia.esDurable,
     };
 
     const conToken = config.panelToken && (req.query.token || req.get("x-panel-token")) === config.panelToken;
@@ -80,6 +89,11 @@ function crearApp() {
     return res.json({
       ...base,
       dir_datos: config.dirDatos,
+      persistencia_motivo: config.persistencia.motivo,
+      // La prueba empirica: si `arranques` sigue en 1 despues de varios
+      // despliegues, la carpeta se esta borrando, diga lo que diga la
+      // configuracion.
+      marcador_de_disco: MARCADOR,
       ids_recordados: vistos.cuantos(),
       zona_horaria: config.zonaHoraria,
       version_graph: config.versionGraph,
@@ -125,7 +139,7 @@ function crearApp() {
   // ------------------------------------------------------------------------
   app.use((err, req, res, _siguiente) => {
     const porTipo = {
-      "entity.too.large": "El cuerpo de la peticion supera el limite de 1 MB.",
+      "entity.too.large": "El cuerpo de la peticion supera el limite de 5 MB.",
       "entity.parse.failed": "El cuerpo no es JSON valido.",
       "request.aborted": "El cliente corto la conexion antes de terminar de enviar.",
       "request.size.invalid": "El tamaño declarado no coincide con lo recibido.",

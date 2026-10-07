@@ -17,9 +17,10 @@ E-commerce colombiano **multiproducto y multicategoría**: hogar, tecnología, b
 | Deduplicación de eventos | ✅ persistida |
 | Diario de eventos en disco | ✅ |
 | Aislamiento respecto a BIKERPRO | ✅ arranque + por evento |
+| Persistencia comprobada, no supuesta | ✅ disco de Render + candado |
 | Esquema de catálogo multiproducto | ✅ sin productos activos |
 | Respuestas a clientes | ❌ `RESPUESTA_AUTOMATICA=0` |
-| Cotización y pedidos | ❌ fase 2 |
+| Cotización y pedidos | ❌ fase 2 (migra a Postgres) |
 
 **No hay productos, precios, promesas ni políticas definidas.** A propósito: el catálogo solo tiene la plantilla. Un dato comercial inventado que se cuela es un cobro incorrecto.
 
@@ -44,7 +45,7 @@ Resumen: generar el token de verificación → desplegar en Render → pegar `ht
 | Ruta | Acceso | Para qué |
 |---|---|---|
 | `GET /` | público | ¿vive el proceso? |
-| `GET /health` | público | ¿está en condiciones de atender? |
+| `GET /health` | público | ¿está en condiciones de atender? ¿el almacenamiento es durable? |
 | `GET /health?token=…` | `PANEL_TOKEN` | detalle operativo |
 | `GET /eventos?token=…` | `PANEL_TOKEN` | diario: ¿llegó el evento y fallamos, o Meta no llegó? |
 | `GET /webhook` | Meta | handshake de verificación |
@@ -60,7 +61,19 @@ La IA entiende, conversa y redacta. Todo lo que puede causar un cobro, un despac
 
 Y una asimetría deliberada: ante la ambigüedad **nunca se descarta una venta real**; se guarda marcada y la revisa una persona.
 
-Detalle completo en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+Detalle completo en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md). Qué se guarda, qué se pierde en un redeploy y a dónde va a migrar: [`docs/PERSISTENCIA.md`](docs/PERSISTENCIA.md).
+
+## Almacenamiento
+
+El sistema de archivos de un Web Service de Render es **efímero**. `render.yaml` monta un Disk de 1 GB en `/var/data`, y el servidor **comprueba** al arrancar que ese disco exista de verdad —comparando sistemas de archivos— en vez de confiar en que `DATA_DIR` esté definida. `/health` lo publica:
+
+```json
+{ "persistencia": "disco-persistente", "almacenamiento_durable": true }
+```
+
+Con almacenamiento efímero, recibir y verificar el webhook funciona igual, pero **el servidor se niega a arrancar con `RESPUESTA_AUTOMATICA=1`**: sin memoria que sobreviva al despliegue, un reintento de Meta se procesa dos veces.
+
+Para verificar la Callback URL en Meta **no hace falta disco ni `META_APP_SECRET`**: basta `WHATSAPP_VERIFY_TOKEN`. Está probado en `test/fase1-sin-persistencia.test.js`.
 
 ## Siguiente
 

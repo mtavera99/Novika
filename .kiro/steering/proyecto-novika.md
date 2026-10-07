@@ -67,6 +67,18 @@ Si una decisión podría contaminar BIKERPRO o mezclar los dos proyectos: **para
 - Los comentarios explican **por qué**, no qué. Si una decisión viene de un incidente, se cita el incidente.
 - Los datos de clientes se enmascaran en los logs salvo `LOG_PII=1`. El log **no** es la base de datos.
 
+## Almacenamiento
+
+El sistema de archivos de un Web Service de Render es **efímero**. Nada crítico —deduplicación, diario, y más adelante pedidos, conversaciones y estados— puede depender de almacenamiento que desaparezca en un despliegue.
+
+- **Fase 1:** Render Disk de 1 GB en `/var/data`. El servidor **comprueba** que el disco exista (comparando sistemas de archivos) en vez de confiar en `DATA_DIR`, y lleva un contador de arranques como prueba empírica.
+- **Fase 2:** Render Postgres **de pago**. Nunca el gratuito: expira 30 días después de crearse y luego se elimina con sus datos.
+- Todo el acceso a almacenamiento pasa por `src/almacen/diario.js` y `src/almacen/vistos.js`. Ningún otro módulo abre un archivo, para que migrar sea un cambio y no una reescritura.
+- `esNuevo(id)` marca y pregunta en una sola operación, porque en Postgres eso es un `INSERT ... ON CONFLICT` atómico. Dos llamadas separadas heredarían una carrera.
+- Con almacenamiento efímero, `RESPUESTA_AUTOMATICA=1` **bloquea el arranque**.
+
+Detalle en `docs/PERSISTENCIA.md`.
+
 ## Estado
 
 Fase 1 (recepción) completa: webhook verificable, firma obligatoria, deduplicación persistida, diario en disco, esquema de catálogo.

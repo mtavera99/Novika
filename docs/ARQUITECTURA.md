@@ -102,6 +102,29 @@ El candado está antes de cualquier efecto, no después. `vistos.esNuevo(id)` ma
 
 `messages` trae también `statuses`. Un `failed` ahí es la única forma de saber que Meta aceptó un mensaje con 200 y después no lo entregó, y el motivo viene en `errors[].code`. Ignorarlos hace que el bot crea que contestó cuando no llegó nada.
 
+### Por qué la persistencia se comprueba y no se supone
+
+El sistema de archivos de un Web Service de Render es efímero. Lo peligroso no es olvidarse del disco: es declarar `DATA_DIR=/var/data` y creer que eso lo crea. Si el Disk no está montado, `/var/data` es una carpeta corriente del contenedor que se borra en cada despliegue, con un nombre que tranquiliza.
+
+Y lo que se borra es el antiduplicados. Meta reintenta durante 36 horas, así que el reintento llega después del despliegue que borró la memoria.
+
+Por eso se comparan los ids de dispositivo de `DATA_DIR` y del código —un disco montado es otro sistema de archivos— y además se lleva un contador de arranques: si tras varios despliegues sigue en 1, la carpeta se está borrando, diga lo que diga la configuración. Ambas cosas se publican en `/health`.
+
+Y hay un candado: con almacenamiento efímero, `RESPUESTA_AUTOMATICA=1` bloquea el arranque. Recibir y verificar funciona igual; responder sin memoria durable, no.
+
+Qué se guarda, qué se pierde en cada escenario y a dónde migra: [`PERSISTENCIA.md`](PERSISTENCIA.md).
+
+### Una puerta única al almacenamiento
+
+```
+src/almacen/diario.js    anotar(tipo, datos) · ultimas(n) · resumenDeHoy()
+src/almacen/vistos.js    esNuevo(id) · cuantos()
+```
+
+Ningún otro módulo abre un archivo. Cuando los pedidos obliguen a migrar a Postgres, se reescriben esos dos y la lógica no se toca.
+
+Dos detalles que ya apuntan ahí: el diario es **append-only** (traducir a `INSERT` es directo; un almacén que se reescribe entero no tiene traducción), y `esNuevo(id)` **marca y pregunta en una sola operación**, que en Postgres es un `INSERT ... ON CONFLICT DO NOTHING RETURNING` atómico. Partirlo en dos llamadas heredaría la carrera que el candado cierra.
+
 ## Catálogo multiproducto
 
 El producto es **dato**, no código: un JSON por producto en `catalogo/productos/`. Añadir un producto no es un despliegue.
@@ -163,6 +186,7 @@ BIKERPRO (`mtavera99/impermeables`) se auditó **en solo lectura**. Nada de su c
 | 200 antes de guardar nada | diario antes del 200 |
 | secretos con respaldo en el código | sin respaldos; no arranca si faltan |
 | bitácora en memoria, 60 entradas | diario en disco |
+| `DATA_DIR` se avisa pero no se verifica de verdad | se comprueba el dispositivo + contador de arranques |
 | productos en código, y dos catálogos que pueden divergir | un catálogo, en datos |
 | producto por defecto | sin producto por defecto |
 | un archivo de 3.000 líneas | módulos por responsabilidad |

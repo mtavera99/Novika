@@ -62,6 +62,11 @@ const config = {
   zonaHoraria: texto("ZONA_HORARIA", "America/Bogota"),
   ownerWhatsapp: texto("OWNER_WHATSAPP"),
 
+  // Escape explicito para pruebas controladas. Permite responder a clientes
+  // sabiendo que el almacenamiento es efimero. Existe para que esa decision
+  // sea un acto deliberado y no un descuido.
+  permitirSinPersistencia: bandera("PERMITIR_SIN_PERSISTENCIA", false),
+
   // --- Metadatos del despliegue (los inyecta Render) ---
   commit: texto("RENDER_GIT_COMMIT"),
   rama: texto("RENDER_GIT_BRANCH"),
@@ -71,7 +76,12 @@ const config = {
 // "¿por que no esta procesando mensajes?" sin entrar al servidor.
 config.firmaActiva = Boolean(config.appSecret);
 config.puedeEnviar = Boolean(config.whatsappToken && config.idNumero);
-config.discoPropio = Boolean(texto("DATA_DIR"));
+
+// Se COMPRUEBA si el almacenamiento sobrevive a un despliegue; no se deduce
+// de que DATA_DIR este definida. Declarar DATA_DIR=/var/data no crea un
+// disco: si no esta montado, es una carpeta corriente que se borra en cada
+// despliegue, con un nombre que tranquiliza.
+config.persistencia = require("./almacen/persistencia").revisar(config.dirDatos);
 
 /**
  * Valida la configuracion. Devuelve { errores, avisos }.
@@ -120,9 +130,39 @@ function revisar(c = config) {
       "WHATSAPP_PHONE_NUMBER_ID no esta configurado: el filtro que descarta eventos de otros numeros (BIKERPRO incluido) esta inactivo."
     );
   }
-  if (!c.discoPropio) {
+  // --- Persistencia ---
+  //
+  // La asimetria importa. Con almacenamiento efimero:
+  //
+  //   RECIBIR y VERIFICAR el webhook funciona perfectamente. El handshake de
+  //   Meta no escribe nada, asi que la Fase 1 no necesita disco.
+  //
+  //   RESPONDER no es seguro. La deduplicacion vive en disco; si se borra en
+  //   cada despliegue, el reintento de Meta -que puede llegar hasta 36 horas
+  //   despues- se procesa como un mensaje nuevo. Hoy eso es responder dos
+  //   veces; con pedidos, es un pedido que nadie hizo. Y un pedido inventado
+  //   es peor que un paquete de mas: el dueno decide con esos numeros.
+  //
+  // Por eso efimero + responder es un ERROR de arranque, y efimero sin
+  // responder es solo un aviso.
+  const p = c.persistencia || { esDurable: true, modo: "desconocida", motivo: "" };
+
+  if (!p.esDurable && c.respuestaAutomatica && !c.permitirSinPersistencia) {
+    errores.push(
+      `RESPUESTA_AUTOMATICA esta encendida pero el almacenamiento es efimero. ${p.motivo} ` +
+        "Sin memoria que sobreviva al despliegue, un reintento de Meta se procesa dos veces. " +
+        "Monta el disco, o pon PERMITIR_SIN_PERSISTENCIA=1 si es una prueba controlada y asumes el riesgo."
+    );
+  } else if (!p.esDurable) {
     avisos.push(
-      `DATA_DIR no esta configurado: el estado se guarda en ${c.dirDatos}, que en Render se borra en cada despliegue. Monta un Disk propio de NOVIKA.`
+      `Almacenamiento EFIMERO. ${p.motivo} Verificar el webhook en Meta funciona igual (el handshake no escribe nada), ` +
+        "pero el diario y la memoria de ids ya vistos se borran en cada despliegue."
+    );
+  }
+
+  if (!p.esDurable && c.permitirSinPersistencia && c.respuestaAutomatica) {
+    avisos.push(
+      "PERMITIR_SIN_PERSISTENCIA=1 con almacenamiento efimero: se pueden duplicar respuestas y, mas adelante, pedidos. Solo para pruebas."
     );
   }
   if (!c.panelToken) {
