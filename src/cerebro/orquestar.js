@@ -1,0 +1,691 @@
+"use strict";
+
+// ==========================================================================
+// EL CEREBRO
+//
+// Coordina el camino completo de un mensaje:
+//
+//   mensaje -> contexto -> producto -> intencion -> respuesta
+//           -> cotizacion -> captura -> confirmacion -> pedido
+//
+// Este modulo COORDINA. No decide hechos. Cada hecho lo decide el modulo de
+// dominio que le corresponde, y aqui solo se encadenan:
+//
+//   que producto es .......... catalogo/senales.js
+//   si confirmo o no ......... dominio/confirmacion.js
+//   cuanto vale .............. dominio/cotizador.js
+//   si un dato es valido ..... dominio/destino.js  +  dominio/campos.js
+//   si puede haber pedido .... dominio/pedido.js
+//   si el estado permite X ... dominio/estados.js
+//
+// TRES REGLAS DE ORDEN, Y LAS TRES SON DELIBERADAS:
+//
+//   1. LA CONFIRMACION SE EVALUA ANTES DE LLAMAR A LA IA.
+//      Asi el modelo no puede influir en si hay pedido. Aunque devolviera
+//      intencion "confirma", la decision ya esta tomada por codigo.
+//
+//   2. TODO EL TURNO VA DENTRO DE UNA COLA POR CONTACTO.
+//      Leer, decidir y guardar tiene que ser indivisible para un mismo
+//      cliente. Sin eso, dos mensajes seguidos del mismo numero crean dos
+//      pedidos: cada uno comprueba "no hay pedido" antes de que el otro
+//      acabe de escribir.
+//
+//   3. LA RESPUESTA SE PREPARA SIEMPRE, SE ENVIA SOLO SI EL INTERRUPTOR LO
+//      PERMITE. Es el modo sombra: se procesa la conversacion real, se
+//      genera lo que se habria dicho, se valida contra los hechos, se
+//      registra, y no sale. Permite auditar con trafico real antes de
+//      soltar el bot.
+// ==========================================================================
+
+const estados = require("../dominio/estados");
+const confirmacion = require("../dominio/confirmacion");
+const cotizador = require("../dominio/cotizador");
+const campos = require("../dominio/campos");
+const destino = require("../dominio/destino");
+const pedidos = require("../dominio/pedido");
+const texto = require("../dominio/texto");
+const extraer = require("../dominio/extraer");
+const senales = require("../catalogo/senales");
+const responder = require("./responder");
+const { enSerie } = require("../almacen/mutex");
+const { PERMISOS } = require("../whatsapp/enviar");
+
+/** Datos del destinatario que se piden siempre. */
+const REQUERIDOS_BASE = ["nombre", "telefono", "ciudad", "direccion"];
+
+const SISTEMA_BASE = [
+  "Eres el asistente comercial de NOVIKA, tienda colombiana multiproducto.",
+  "Tu trabajo es entender al cliente y redactar. NO decides precios, totales, envios ni confirmaciones.",
+  "Responde SIEMPRE en JSON con esta forma:",
+  '{"intencion":"...","candidatos":{},"productoSugerido":null,"borradorRespuesta":null,"preguntasDelCliente":[]}',
+  "NUNCA incluyas precios, totales, importes ni cifras de dinero en borradorRespuesta.",
+  "NUNCA afirmes caracteristicas, garantias ni tiempos de entrega que no aparezcan en los datos autorizados.",
+  "Si no tienes un dato autorizado, di que lo confirmas en seguida.",
+].join("\n");
+
+/**
+ * @param {object} deps
+ * @param {object} deps.config
+ * @param {object} deps.repos
+ * @param {object} deps.catalogo
+ * @param {object} [deps.ia]        cliente de IA (puede faltar)
+ * @param {object} [deps.emisor]
+ * @param {object} [deps.log]
+ * @param {object} [deps.metricas]
+ * @param {object} [deps.diario]
+ */
+function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log = null, metricas = null, diario = null }) {
+  function contar(n) {
+    if (metricas && typeof metricas.incrementar === "function") metricas.incrementar(n);
+  }
+  function registrar(nivel, evento, datos) {
+    if (log && typeof log[nivel] === "function") log[nivel](evento, datos);
+  }
+  function anotar(tipo, datos) {
+    if (diario && typeof diario.anotar === "function") diario.anotar(tipo, datos);
+  }
+
+  // ----------------------------------------------------------------------
+  // Contexto
+  // ----------------------------------------------------------------------
+  function conversacionNueva(contactoId) {
+    return {
+      contactoId,
+      estado: estados.ESTADOS.NUEVO,
+      productoId: null, // DESCONOCIDO. No hay producto por defecto.
+      ofertaId: null,
+      cotizacion: null,
+      resumenMostrado: false,
+      ficha: campos.fichaVacia(),
+      ventana: [], // ultimos mensajes, para resolver producto si se rota
+      creadoEn: new Date().toISOString(),
+    };
+  }
+
+  async function cargarContexto(evento) {
+    const id = evento.idCliente;
+
+    let contacto = await repos.contactos.obtener(id);
+    if (!contacto) {
+      contacto = {
+        id,
+        telefono: evento.telefono || null,
+        bsuid: evento.bsuid || null,
+        nombrePerfil: evento.nombre || null,
+        creadoEn: new Date().toISOString(),
+      };
+      await repos.contactos.guardar(contacto);
+    }
+
+    let conversacion = await repos.conversaciones.obtener(id);
+    if (!conversacion) conversacion = conversacionNueva(id);
+    // Una ficha que viene del disco de una version anterior puede no tener
+    // todos los campos. Se completa en vez de fallar.
+    conversacion.ficha = { ...campos.fichaVacia(), ...(conversacion.ficha || {}) };
+
+    return { contacto, conversacion };
+  }
+
+  // ----------------------------------------------------------------------
+  // Candidatos: la IA y las heuristicas PROPONEN
+  // ----------------------------------------------------------------------
+
+  /**
+   * Heuristicas que no necesitan modelo. Son las mas fiables que hay:
+   * el telefono del chat es un hecho, no una inferencia.
+   */
+  function candidatosHeuristicos(evento) {
+    const propuestas = {};
+
+    // El telefono con el que escribe es el mejor candidato que existe: es un
+    // hecho del canal, no una inferencia. Ojo: los clientes con nombre de
+    // usuario de WhatsApp NO tienen telefono, y en ese caso no se inventa.
+    if (evento.telefono) propuestas.telefono = evento.telefono;
+    if (evento.nombre) propuestas.nombre = evento.nombre;
+
+    // Cantidad, ciudad y direccion salen del texto con reglas, no con
+    // modelo. Ver dominio/extraer.js: ante la duda, no propone.
+    const { candidatos } = extraer.deTexto(evento.texto || "");
+    return { ...propuestas, ...candidatos };
+  }
+
+  function aplicarCandidatos(ficha, propuestas, origen) {
+    let actualizada = { ...ficha };
+    for (const [campo, valor] of Object.entries(propuestas || {})) {
+      if (!campos.CAMPOS.includes(campo)) continue;
+      const antes = actualizada[campo];
+      actualizada[campo] = campos.proponer(antes, valor, origen);
+      if (actualizada[campo] !== antes) contar("dato_propuesto");
+    }
+    return actualizada;
+  }
+
+  /**
+   * Valida los candidatos y confirma los que pasan.
+   *
+   * Aqui es donde una frase deja de ser una ciudad. El modelo puede proponer
+   * "a mi casa" como direccion; esta funcion lo rechaza y lo deja marcado.
+   */
+  function validarYConfirmar(ficha) {
+    let f = { ...ficha };
+    const revisiones = [];
+    const ambiguedades = [];
+
+    // Telefono: candado duro. Sin telefono valido no hay despacho posible.
+    f.telefono = campos.confirmar(f.telefono, (v) => destino.validarTelefono(v));
+
+    f.nombre = campos.confirmar(f.nombre, (v) => {
+      const r = destino.validarNombre(v);
+      if (r.ok && r.revisar) revisiones.push({ campo: "nombre", motivo: r.motivo });
+      return r;
+    });
+
+    // Ciudad: se resuelve contra el listado, usando el departamento si ya se
+    // conoce, para poder desambiguar homonimos.
+    const depCandidato = campos.valorConfirmado(f.departamento) || campos.valorCandidato(f.departamento);
+    f.ciudad = campos.confirmar(f.ciudad, (v) => {
+      const r = destino.resolverCiudad(v, depCandidato);
+      if (r.ambigua) {
+        ambiguedades.push({ campo: "ciudad", opciones: r.opciones, motivo: r.motivo });
+        return { ok: false, motivo: r.motivo };
+      }
+      if (!r.ok) return { ok: false, motivo: r.motivo };
+      if (r.revisar) revisiones.push({ campo: "ciudad", motivo: r.motivo });
+      // El departamento se deriva de la ciudad: lo calcula el codigo, no se
+      // le pregunta al cliente ni se le pide al modelo.
+      if (r.departamento && !campos.estaConfirmado(f.departamento)) {
+        f.departamento = campos.confirmar(
+          campos.proponer(f.departamento, r.departamento, campos.ORIGENES.CODIGO),
+          () => ({ ok: true, valor: r.departamento })
+        );
+      }
+      return { ok: true, valor: r.ciudad };
+    });
+
+    f.direccion = campos.confirmar(f.direccion, (v) => {
+      const r = destino.validarDireccion(v);
+      if (r.ok && r.revisar) revisiones.push({ campo: "direccion", motivo: r.motivo });
+      return r;
+    });
+
+    f.cantidad = campos.confirmar(f.cantidad, (v) =>
+      Number.isInteger(v) && v >= 1 && v <= 50
+        ? { ok: true, valor: v }
+        : { ok: false, motivo: `cantidad "${v}" fuera de rango razonable` }
+    );
+
+    for (const r of campos.rechazados(f)) contar("dato_rechazado");
+    for (const nombre of campos.CAMPOS) {
+      if (campos.estaConfirmado(f[nombre]) && !campos.estaConfirmado(ficha[nombre])) contar("dato_confirmado");
+    }
+
+    return { ficha: f, revisiones, ambiguedades };
+  }
+
+  // ----------------------------------------------------------------------
+  // Cotizacion
+  // ----------------------------------------------------------------------
+  function intentarCotizar(conversacion, producto) {
+    if (!producto) return { ok: false, motivo: "producto desconocido", falta: ["producto"] };
+
+    const datos = campos.soloConfirmado(conversacion.ficha);
+    const cantidad = datos.cantidad ?? null;
+    if (!cantidad) return { ok: false, motivo: "cantidad no confirmada", falta: ["cantidad"] };
+
+    const r = cotizador.cotizar({
+      producto,
+      cantidad,
+      destino: datos.ciudad ? { ciudad: datos.ciudad, departamento: datos.departamento || null } : null,
+      variante: datos.variante || null,
+    });
+
+    if (r.ok) contar("cotizacion_correcta");
+    else if (r.escalar) contar("cotizacion_escalada");
+    else contar("cotizacion_datos_faltantes");
+
+    return r;
+  }
+
+  /** Emite oferta nueva solo si las condiciones cambiaron. */
+  function actualizarOferta(conversacion, cotizacion) {
+    const firmaNueva = cotizador.firmaDeCondiciones(cotizacion);
+    const firmaVieja = conversacion.cotizacion ? cotizador.firmaDeCondiciones(conversacion.cotizacion) : null;
+
+    if (!conversacion.ofertaId || firmaNueva !== firmaVieja) {
+      // Condiciones distintas: lo que el cliente pudo haber confirmado antes
+      // YA NO APLICA. Oferta nueva, y el resumen deja de estar mostrado.
+      return {
+        ofertaId: pedidos.nuevoIdDeOferta(),
+        cotizacion,
+        resumenMostrado: false,
+        ofertaCambio: Boolean(firmaVieja && firmaNueva !== firmaVieja),
+      };
+    }
+    return { ofertaId: conversacion.ofertaId, cotizacion, resumenMostrado: conversacion.resumenMostrado, ofertaCambio: false };
+  }
+
+  // ----------------------------------------------------------------------
+  // Turno completo
+  // ----------------------------------------------------------------------
+
+  /**
+   * Procesa un mensaje entrante ya normalizado y deduplicado por el webhook.
+   *
+   * @param {object} evento  evento de src/webhook/normalizar.js
+   * @returns {Promise<object>} traza de lo que se decidio
+   */
+  async function procesar(evento) {
+    const contactoId = evento.idCliente;
+    if (!contactoId) {
+      contar("error_interno");
+      return { ok: false, motivo: "evento sin identificador de cliente" };
+    }
+
+    // REGLA 2: todo el turno, en exclusiva para este contacto.
+    return enSerie(`turno:${contactoId}`, () => turno(evento, contactoId));
+  }
+
+  async function turno(evento, contactoId) {
+    const traza = {
+      ok: true,
+      contactoId,
+      wamid: evento.wamid,
+      estadoPrevio: null,
+      estadoNuevo: null,
+      producto: null,
+      intencion: null,
+      accion: null,
+      cotizacion: null,
+      pedido: null,
+      respuesta: null,
+      enviada: false,
+      bloqueos: [],
+      avisos: [],
+    };
+
+    const { conversacion } = await cargarContexto(evento);
+    traza.estadoPrevio = conversacion.estado;
+
+    const pedidoActivo = await repos.pedidos.activoDeContacto(contactoId);
+
+    // ------------------------------------------------------------------
+    // REGLA 1: la confirmacion se decide ANTES de la IA
+    // ------------------------------------------------------------------
+    const decision = confirmacion.evaluar({
+      texto: evento.texto || "",
+      estado: conversacion.estado,
+      resumenMostrado: conversacion.resumenMostrado === true,
+    });
+    traza.accion = decision.accion;
+    traza.clase = decision.clase;
+
+    // ------------------------------------------------------------------
+    // Producto
+    // ------------------------------------------------------------------
+    const resolucion = senales.resolver({
+      texto: evento.texto || "",
+      referral: evento.referral,
+      conversacion,
+      catalogo,
+      ventana: conversacion.ventana || [],
+    });
+    traza.producto = { ...resolucion };
+
+    if (resolucion.ambiguo) contar("producto_ambiguo");
+    else if (resolucion.productoId) contar("producto_identificado");
+    else contar("producto_desconocido");
+
+    // Un cambio de producto solo se acepta si NO hay un pedido confirmado.
+    // Cambiar el producto de una conversacion con pedido vivo es como se
+    // despacha el articulo equivocado.
+    const blindado = estados.estaBlindado(conversacion.estado);
+    if (resolucion.esCambio && !blindado) {
+      contar("producto_cambiado");
+      // La cotizacion anterior era de otro producto: se descarta entera.
+      conversacion.cotizacion = null;
+      conversacion.ofertaId = null;
+      conversacion.resumenMostrado = false;
+      conversacion.ficha.cantidad = campos.reabrir(conversacion.ficha.cantidad, "cambio de producto");
+    } else if (resolucion.esCambio && blindado) {
+      traza.avisos.push("se menciono otro producto pero hay un pedido vivo: no se cambia");
+    }
+
+    if (resolucion.productoId && !blindado) conversacion.productoId = resolucion.productoId;
+    if (resolucion.esCambio === false && resolucion.motivo && /pregunta sobre el producto actual/.test(resolucion.motivo)) {
+      contar("falsa_senal_de_cambio");
+    }
+
+    // SOLO PRODUCTOS ACTIVOS. `porId` incluye tambien los borradores, y un
+    // borrador tiene los datos comerciales a medias: precios vacios,
+    // descripcion sin aprobar, claims sin revisar.
+    //
+    // El caso concreto que esto cierra: una conversacion guardada con el id
+    // de un producto que luego se desactiva -o que nunca estuvo activo y
+    // entro por un referral mal configurado- volveria a cargarse del disco y
+    // el cerebro intentaria venderlo. El cotizador se negaria, pero el bot ya
+    // habria dado el producto por bueno en la conversacion. Mejor no llegar
+    // ahi: si no esta activo, es como si no existiera.
+    const candidato = conversacion.productoId ? catalogo.porId.get(conversacion.productoId) || null : null;
+    const producto = candidato && candidato.activo === true ? candidato : null;
+
+    if (candidato && !producto) {
+      conversacion.productoId = null; // vuelve a DESCONOCIDO: se preguntara
+      traza.avisos.push(`el producto "${candidato.id}" no esta activo: no se puede ofrecer`);
+      contar("producto_desconocido");
+    }
+
+    // ------------------------------------------------------------------
+    // IA: intencion, candidatos y borrador. Nunca hechos.
+    // ------------------------------------------------------------------
+    let analisis = null;
+    if (ia && ia.disponible) {
+      const r = await ia.analizar({
+        sistema: SISTEMA_BASE,
+        usuario: construirPrompt(evento, conversacion, producto),
+      });
+      analisis = r.analisis;
+      traza.intencion = analisis.intencion;
+      if (!r.ok) {
+        traza.avisos.push(`ia no utilizable: ${r.motivo}`);
+        // La IA fallo. El mensaje NO se pierde y NO se inventa nada: se
+        // sigue con el camino determinista y, si hace falta, se escala.
+      } else {
+        contar("intencion_detectada");
+      }
+    } else {
+      traza.avisos.push("sin proveedor de IA: solo camino determinista");
+    }
+
+    // ------------------------------------------------------------------
+    // Candidatos -> validacion -> confirmacion de datos
+    // ------------------------------------------------------------------
+    // La IA propone primero y la heuristica despues, porque en combinar()
+    // gana la heuristica: ella solo propone lo que reconocio contra una
+    // lista o un patron, mientras el modelo propone lo que le parece.
+    if (analisis && analisis.candidatos) {
+      conversacion.ficha = aplicarCandidatos(conversacion.ficha, analisis.candidatos, campos.ORIGENES.IA);
+    }
+    conversacion.ficha = aplicarCandidatos(conversacion.ficha, candidatosHeuristicos(evento), campos.ORIGENES.CLIENTE);
+
+    const validacion = validarYConfirmar(conversacion.ficha);
+    conversacion.ficha = validacion.ficha;
+    traza.revisiones = validacion.revisiones;
+    traza.ambiguedades = validacion.ambiguedades;
+
+    // ------------------------------------------------------------------
+    // Accion
+    // ------------------------------------------------------------------
+    let situacion = "escalado";
+    let estadoDestino = conversacion.estado;
+
+    if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
+      // "si" / "ok" / "gracias" sobre un pedido ya confirmado. NO se cotiza,
+      // NO se crea pedido. Esta es la regla que pidio Marco.
+      situacion = "ya_confirmado";
+      traza.pedido = pedidoActivo ? { id: pedidoActivo.id, estado: pedidoActivo.estado } : null;
+      estadoDestino = conversacion.estado;
+    } else if (decision.accion === confirmacion.ACCIONES.RESPONDER_ESTADO && pedidoActivo) {
+      situacion = "ya_confirmado";
+      traza.pedido = { id: pedidoActivo.id, estado: pedidoActivo.estado };
+      estadoDestino = estados.ESTADOS.POSVENTA;
+    } else if (decision.accion === confirmacion.ACCIONES.CANCELAR) {
+      const r = await cancelarPedido(pedidoActivo, evento);
+      situacion = r.cancelado ? "cancelado" : "escalado";
+      traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado } : null;
+      estadoDestino = estados.ESTADOS.CANCELADO;
+    } else if (decision.accion === confirmacion.ACCIONES.CONFIRMAR) {
+      const r = await confirmarPedido({ conversacion, producto, evento, revisiones: validacion.revisiones });
+      traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado, creado: r.creado } : null;
+      traza.cotizacion = conversacion.cotizacion;
+      if (r.ok) {
+        situacion = r.creado ? "confirmado" : "ya_confirmado";
+        estadoDestino = estados.ESTADOS.CONFIRMADO;
+      } else {
+        situacion = "escalado";
+        traza.avisos.push(`no se pudo confirmar: ${r.motivo}`);
+        contar("escalado_a_persona");
+        estadoDestino = estados.ESTADOS.ESCALADO;
+      }
+    } else {
+      // Flujo normal: identificar, cotizar, pedir lo que falte.
+      const r = avanzarVenta({ conversacion, producto, resolucion });
+      situacion = r.situacion;
+      estadoDestino = r.estadoDestino;
+      traza.cotizacion = r.cotizacion;
+      traza.faltan = r.faltan;
+    }
+
+    // ------------------------------------------------------------------
+    // Estado
+    // ------------------------------------------------------------------
+    const transicion = estados.transicionar(conversacion.estado, estadoDestino, decision.accion);
+    if (!transicion.ok) {
+      contar("transicion_invalida");
+      registrar("warn", "transicion_invalida", { motivo: transicion.motivo });
+      traza.avisos.push(transicion.motivo);
+    }
+    conversacion.estado = transicion.estado;
+    traza.estadoNuevo = conversacion.estado;
+
+    // ------------------------------------------------------------------
+    // REGLA 3: preparar siempre, enviar solo si procede
+    // ------------------------------------------------------------------
+    const preparada = responder.preparar({
+      situacion,
+      cotizacion: conversacion.cotizacion,
+      faltan: traza.faltan || [],
+      opciones: (resolucion.opciones || []).map((id) => {
+        const p = catalogo.porId.get(id);
+        return (p && (p.nombreCorto || p.nombre)) || id;
+      }),
+      pedido: traza.pedido,
+      producto,
+      borradorIA: analisis ? analisis.borradorRespuesta : null,
+    });
+
+    contar("respuesta_preparada");
+    for (const b of preparada.bloqueos) {
+      if (b.tipo === responder.BLOQUEOS.IMPORTE_NO_AUTORIZADO) contar("importe_no_autorizado_bloqueado");
+      if (b.tipo === responder.BLOQUEOS.CLAIM_PROHIBIDO) contar("claim_prohibido_bloqueado");
+    }
+    traza.respuesta = { texto: preparada.texto, origen: preparada.origen, situacion };
+    traza.bloqueos = preparada.bloqueos;
+
+    if (emisor && config.respuestaAutomatica) {
+      const envio = await emisor.enviarTexto({
+        para: evento.telefono || evento.idCliente,
+        texto: preparada.texto,
+        permiso: PERMISOS.CONVERSACION,
+      });
+      traza.enviada = envio.enviado === true;
+    }
+
+    // ------------------------------------------------------------------
+    // Guardar
+    // ------------------------------------------------------------------
+    conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
+    conversacion.ultimoWamid = evento.wamid;
+    await repos.conversaciones.guardar(conversacion);
+
+    // Registro del modo sombra. El texto preparado SI se guarda -es lo que
+    // hay que auditar- pero en el diario, que vive en el disco privado del
+    // servicio, no en los logs del hosting.
+    anotar("turno_procesado", {
+      wamid: evento.wamid,
+      estadoPrevio: traza.estadoPrevio,
+      estadoNuevo: traza.estadoNuevo,
+      productoId: conversacion.productoId,
+      productoOrigen: resolucion.origen,
+      intencion: traza.intencion,
+      accion: traza.accion,
+      situacion,
+      respuestaPreparada: preparada.texto,
+      respuestaOrigen: preparada.origen,
+      bloqueos: preparada.bloqueos,
+      enviada: traza.enviada,
+      pedido: traza.pedido,
+      total: conversacion.cotizacion ? conversacion.cotizacion.total : null,
+      avisos: traza.avisos,
+    });
+
+    // En los logs, nada de contenido: solo lo que permite diagnosticar.
+    registrar("info", "turno", {
+      wamid: evento.wamid,
+      estado: traza.estadoNuevo,
+      accion: traza.accion,
+      situacion,
+      productoId: conversacion.productoId,
+      origenRespuesta: preparada.origen,
+      bloqueos: preparada.bloqueos.length,
+      enviada: traza.enviada,
+    });
+
+    return traza;
+  }
+
+  // ----------------------------------------------------------------------
+  // Sub-acciones
+  // ----------------------------------------------------------------------
+
+  function avanzarVenta({ conversacion, producto, resolucion }) {
+    if (resolucion.ambiguo) {
+      return { situacion: "producto_ambiguo", estadoDestino: estados.ESTADOS.EXPLORANDO, cotizacion: null, faltan: [] };
+    }
+    if (!producto) {
+      return { situacion: "producto_desconocido", estadoDestino: estados.ESTADOS.EXPLORANDO, cotizacion: null, faltan: [] };
+    }
+
+    const cot = intentarCotizar(conversacion, producto);
+
+    if (!cot.ok) {
+      if (cot.escalar) {
+        return { situacion: "escalado", estadoDestino: estados.ESTADOS.ESCALADO, cotizacion: null, faltan: cot.falta || [] };
+      }
+      // Faltan datos: se piden, no se inventan.
+      const requeridos = [...new Set([...REQUERIDOS_BASE, ...(producto.datosRequeridos || []), "cantidad"])];
+      const faltan = [...new Set([...(cot.falta || []), ...campos.faltantes(conversacion.ficha, requeridos)])];
+      return {
+        situacion: faltan.length ? "faltan_datos" : "escalado",
+        estadoDestino: conversacion.cotizacion ? estados.ESTADOS.CAPTURANDO_DATOS : estados.ESTADOS.PRODUCTO_IDENTIFICADO,
+        cotizacion: conversacion.cotizacion,
+        faltan,
+      };
+    }
+
+    const oferta = actualizarOferta(conversacion, cot.cotizacion);
+    conversacion.ofertaId = oferta.ofertaId;
+    conversacion.cotizacion = oferta.cotizacion;
+    conversacion.resumenMostrado = oferta.resumenMostrado;
+
+    const requeridos = [...new Set([...REQUERIDOS_BASE, ...(producto.datosRequeridos || [])])];
+    const faltan = campos.faltantes(conversacion.ficha, requeridos);
+
+    if (faltan.length) {
+      return { situacion: "faltan_datos", estadoDestino: estados.ESTADOS.CAPTURANDO_DATOS, cotizacion: cot.cotizacion, faltan };
+    }
+
+    // Todo listo: se muestra el resumen y se marca que esta mostrado. Ese
+    // marcador es lo que permite que un "si" posterior cuente.
+    conversacion.resumenMostrado = true;
+    return { situacion: "resumen", estadoDestino: estados.ESTADOS.PENDIENTE_CONFIRMACION, cotizacion: cot.cotizacion, faltan: [] };
+  }
+
+  async function confirmarPedido({ conversacion, producto, evento, revisiones }) {
+    if (!conversacion.cotizacion || !conversacion.ofertaId) {
+      return { ok: false, motivo: "no hay una cotizacion vigente que confirmar" };
+    }
+    if (!producto) {
+      return { ok: false, motivo: "no se sabe que producto se esta confirmando" };
+    }
+
+    // Se recotiza en el momento de confirmar y se compara. Si el catalogo
+    // cambio entre la cotizacion y el "si", el cliente estaria confirmando
+    // un precio que ya no existe.
+    const ahora = intentarCotizar(conversacion, producto);
+    if (ahora.ok) {
+      const firmaGuardada = cotizador.firmaDeCondiciones(conversacion.cotizacion);
+      const firmaActual = cotizador.firmaDeCondiciones(ahora.cotizacion);
+      if (firmaGuardada !== firmaActual) {
+        return {
+          ok: false,
+          motivo: `las condiciones cambiaron entre la cotizacion y la confirmacion (${conversacion.cotizacion.total} -> ${ahora.cotizacion.total})`,
+        };
+      }
+    }
+
+    const construido = pedidos.construir({
+      cotizacion: conversacion.cotizacion,
+      datos: campos.soloConfirmado(conversacion.ficha),
+      contactoId: conversacion.contactoId,
+      conversacionId: conversacion.contactoId,
+      ofertaId: conversacion.ofertaId,
+      wamidConfirmacion: evento.wamid,
+      origen: evento.referral ? { tipo: "anuncio", referral: evento.referral } : null,
+      revisiones: revisiones || [],
+    });
+
+    if (!construido.ok) {
+      return { ok: false, motivo: construido.motivo };
+    }
+
+    const r = await repos.pedidos.crearSiNoExiste(construido.pedido);
+
+    if (!r.creado) {
+      // Idempotencia: la retransmision o el "si" repetido no crean otro.
+      contar("pedido_duplicado_evitado");
+      registrar("warn", "pedido_duplicado_evitado", { motivo: r.motivo, pedidoId: r.pedido && r.pedido.id });
+      return { ok: true, creado: false, pedido: r.pedido, motivo: r.motivo };
+    }
+
+    contar(construido.pedido.estado === pedidos.ESTADOS_PEDIDO.EN_REVISION ? "pedido_en_revision" : "pedido_confirmado");
+    registrar("info", "pedido_creado", { pedidoId: r.pedido.id, estado: r.pedido.estado, total: r.pedido.cotizacion.total });
+    return { ok: true, creado: true, pedido: r.pedido };
+  }
+
+  async function cancelarPedido(pedidoActivo, evento) {
+    if (!pedidoActivo) return { cancelado: false, pedido: null };
+    const r = pedidos.cancelar({ pedido: pedidoActivo, motivo: "el cliente lo pidio por WhatsApp", wamid: evento.wamid });
+    if (!r.ok) return { cancelado: false, pedido: pedidoActivo };
+    if (!r.yaEstaba) {
+      await repos.pedidos.reemplazar(r.pedido);
+      contar("pedido_cancelado");
+    }
+    return { cancelado: true, pedido: r.pedido };
+  }
+
+  /**
+   * Prompt del turno.
+   *
+   * Solo lleva datos AUTORIZADOS del producto. No lleva precios: el modelo
+   * no tiene por que verlos, porque no los va a escribir. Lo que no entra en
+   * el prompt no se puede filtrar en la respuesta.
+   */
+  function construirPrompt(evento, conversacion, producto) {
+    const partes = [`Mensaje del cliente: ${evento.texto || "(sin texto)"}`, `Estado de la conversacion: ${conversacion.estado}`];
+
+    if (producto) {
+      partes.push(`Producto en contexto: ${producto.nombre || producto.id}`);
+      if (producto.descripcionAutorizada) partes.push(`Descripcion autorizada: ${producto.descripcionAutorizada}`);
+      if ((producto.caracteristicasAutorizadas || []).length) {
+        partes.push(`Caracteristicas autorizadas: ${producto.caracteristicasAutorizadas.join("; ")}`);
+      }
+      if ((producto.claimsProhibidos || []).length) {
+        partes.push(`PROHIBIDO AFIRMAR: ${producto.claimsProhibidos.join("; ")}`);
+      }
+      if ((producto.sinDatoConfirmado || []).length) {
+        partes.push(`Si el cliente pregunta por esto, di que lo confirmas: ${producto.sinDatoConfirmado.join("; ")}`);
+      }
+    } else {
+      partes.push("Producto en contexto: DESCONOCIDO. Pregunta cual le interesa; no supongas ninguno.");
+    }
+
+    const faltan = campos.faltantes(conversacion.ficha, REQUERIDOS_BASE);
+    if (faltan.length) partes.push(`Datos que faltan: ${faltan.join(", ")}`);
+
+    return partes.join("\n");
+  }
+
+  return { procesar, SISTEMA_BASE, REQUERIDOS_BASE, _interno: { avanzarVenta, validarYConfirmar, intentarCotizar } };
+}
+
+module.exports = { crearCerebro, REQUERIDOS_BASE };

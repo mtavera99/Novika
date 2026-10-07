@@ -15,6 +15,7 @@ const { config, revisar } = require("./config");
 const log = require("./log");
 const diario = require("./almacen/diario");
 const { crearApp } = require("./app");
+const { recuperarPendientes } = require("./webhook/recuperar");
 
 function arrancar() {
   const { errores, avisos } = revisar();
@@ -51,6 +52,20 @@ function arrancar() {
       firma_activa: config.firmaActiva,
       respuesta_automatica: config.respuestaAutomatica,
       persistencia: config.persistencia.modo,
+    });
+
+    // RECUPERACION DE TRABAJO PENDIENTE.
+    //
+    // Va DESPUES de escuchar, no antes: el servicio tiene que poder
+    // responder al health check y aceptar mensajes nuevos mientras recupera
+    // los viejos. Hacerlo antes de listen retrasaria el arranque y Render
+    // podria darlo por caido.
+    //
+    // Y no se espera (`.catch` en vez de `await`): un problema recuperando
+    // mensajes viejos no puede impedir atender los nuevos.
+    recuperarPendientes().catch((e) => {
+      log.error("recuperacion_no_arranco", { detalle: e.message });
+      diario.anotar("recuperacion_no_arranco", { error: e.message });
     });
   });
 

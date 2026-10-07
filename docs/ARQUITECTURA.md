@@ -86,6 +86,14 @@ Meta
      4. manejar
 ```
 
+### Por qué el trabajo se reclama antes del 200
+
+> **Nunca se contesta 200 sin que el trabajo esté reclamado en disco.**
+
+Se midió con SIGKILL: el evento quedaba en el diario y **sin procesar para siempre**, porque Meta ya tenía su 200 y nada volvía a mirarlo. Y como el `wamid` figuraba como "visto", ni una retransmisión hipotética lo habría salvado — el propio candado antiduplicados impedía la recuperación.
+
+El arreglo está en `src/almacen/trabajo.js`: se deduplica por **`terminado`**, no por "visto", y lo que queda en `reclamado` al arrancar se reprocesa (`src/webhook/recuperar.js`). Detalle en [`CEREBRO.md`](CEREBRO.md).
+
 ### Por qué el diario se escribe antes del 200
 
 Meta reintenta mientras no recibe un 200, y deja de reintentar en cuanto lo recibe. Si el proceso muere entre el acuse y el final del procesamiento —un SIGTERM de despliegue, por ejemplo— el mensaje se perdió para siempre. Desde fuera eso es indistinguible de "hoy no escribió nadie": no hay error, no hay alerta, solo una venta que no ocurrió.
@@ -118,12 +126,12 @@ Qué se guarda, qué se pierde en cada escenario y a dónde migra: [`PERSISTENCI
 
 ```
 src/almacen/diario.js    anotar(tipo, datos) · ultimas(n) · resumenDeHoy()
-src/almacen/vistos.js    esNuevo(id) · cuantos()
+src/almacen/trabajo.js   reclamar(id) · terminar(id) · fallar(id) · paraRecuperar()
 ```
 
 Ningún otro módulo abre un archivo. Cuando los pedidos obliguen a migrar a Postgres, se reescriben esos dos y la lógica no se toca.
 
-Dos detalles que ya apuntan ahí: el diario es **append-only** (traducir a `INSERT` es directo; un almacén que se reescribe entero no tiene traducción), y `esNuevo(id)` **marca y pregunta en una sola operación**, que en Postgres es un `INSERT ... ON CONFLICT DO NOTHING RETURNING` atómico. Partirlo en dos llamadas heredaría la carrera que el candado cierra.
+Dos detalles que ya apuntan ahí: el diario y la bitácora de trabajo son **append-only** (traducir a `INSERT` es directo; un almacén que se reescribe entero no tiene traducción), y `reclamar(id)` **comprueba y escribe en una sola operación síncrona**, que en Postgres es un `INSERT ... ON CONFLICT DO NOTHING RETURNING` atómico. Partirlo en dos llamadas heredaría la carrera que el candado cierra.
 
 ## Catálogo multiproducto
 
@@ -187,6 +195,7 @@ BIKERPRO (`mtavera99/impermeables`) se auditó **en solo lectura**. Nada de su c
 | secretos con respaldo en el código | sin respaldos; no arranca si faltan |
 | bitácora en memoria, 60 entradas | diario en disco |
 | `DATA_DIR` se avisa pero no se verifica de verdad | se comprueba el dispositivo + contador de arranques |
+| un crash tras el 200 pierde el mensaje en silencio | trabajo reclamado antes del acuse + recuperación al arrancar |
 | productos en código, y dos catálogos que pueden divergir | un catálogo, en datos |
 | producto por defecto | sin producto por defecto |
 | un archivo de 3.000 líneas | módulos por responsabilidad |

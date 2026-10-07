@@ -1,0 +1,97 @@
+{
+  "_LEEME": "BORRADOR. activo=false. NINGUN dato comercial de este archivo esta definido todavia: no hay precio, ni caracteristicas, ni garantia, ni claims. Los campos de texto estan VACIOS a proposito, no con ejemplos, para que nadie confunda un placeholder con un dato aprobado. Marco entregara la ficha real. Mientras 'pendientes' tenga elementos, la validacion impide ponerlo activo.",
+
+  "id": "cinturon-termico-colicos",
+  "slug": "cinturon-termico-colicos",
+  "nombre": "",
+  "nombreCorto": "",
+  "categoria": "bienestar",
+  "activo": false,
+
+  "aliases": [
+    {
+      "patron": "\\bcinturon(es)?\\s+termic",
+      "confianza": "alta",
+      "senal": "cinturon termico"
+    },
+    {
+      "patron": "\\bfaja\\s+termic",
+      "confianza": "alta",
+      "senal": "faja termica"
+    },
+    {
+      "patron": "\\b(para|contra|de)\\s+(los\\s+)?colicos\\b",
+      "confianza": "alta",
+      "senal": "para colicos"
+    },
+    {
+      "patron": "\\bcolico(s)?\\s+menstrual",
+      "confianza": "alta",
+      "senal": "colicos menstruales"
+    }
+  ],
+  "_nota_aliases": "OJO con 'termico' a secas: es un adjetivo y NOVIKA vendera mas productos termicos. Por eso ningun alias de aqui es solo 'termico'; todos exigen una segunda palabra. Si se añade un alias de una sola palabra generica, dos productos se confundiran entre si. Ver src/catalogo/senales.js.",
+
+  "descripcionAutorizada": "",
+  "caracteristicasAutorizadas": [],
+
+  "datosConfirmados": {},
+  "sinDatoConfirmado": [],
+
+  "claimsPermitidos": [],
+  "claimsProhibidos": [
+    "cura los colicos",
+    "sustituye un tratamiento medico",
+    "es un dispositivo medico",
+    "elimina el dolor garantizado",
+    "sirve para la endometriosis",
+    "sirve para quistes",
+    "apto durante el embarazo",
+    "aprobado por el Invima",
+    "recomendado por medicos"
+  ],
+  "_nota_claims": "Esta lista SI se puede llenar antes de tener la ficha, porque no afirma nada: solo prohibe. Es un producto de bienestar que se compra por dolor menstrual, asi que el riesgo no es exagerar el precio: es hacer una promesa medica. Una afirmacion de salud sin respaldo es una devolucion, y puede ser un problema regulatorio. Ampliar esta lista no necesita aprobacion; reducirla si.",
+
+  "motorDePrecio": "tabla",
+  "precios": {},
+  "ofertaPrincipal": "",
+  "promociones": [],
+
+  "variantes": [],
+  "presentaciones": [],
+  "contenidoDelPaquete": [],
+
+  "logistica": {
+    "pesoGr": null,
+    "dimensionesCm": { "largo": null, "ancho": null, "alto": null },
+    "politicaEnvio": {
+      "tipo": "",
+      "provisional": true,
+      "porQue": "",
+      "noHeredar": [],
+      "revisarCuando": ""
+    }
+  },
+
+  "datosRequeridos": [],
+  "faq": [],
+  "garantia": "",
+  "restricciones": [],
+
+  "pendientes": [
+    "nombre comercial definitivo",
+    "descripcion autorizada",
+    "caracteristicas autorizadas (sin afirmaciones medicas)",
+    "precio por cantidad",
+    "costo y margen",
+    "promociones si aplica",
+    "variantes: tallas, colores o presentaciones",
+    "contenido exacto del paquete",
+    "peso y dimensiones para el flete",
+    "politica de envio: tipo e importes",
+    "garantia",
+    "claims permitidos revisados uno por uno",
+    "restricciones de venta o de uso",
+    "datos que hay que capturarle al cliente antes de cerrar"
+  ]
+}

@@ -17,8 +17,9 @@ const express = require("express");
 const { config } = require("./config");
 const log = require("./log");
 const diario = require("./almacen/diario");
-const vistos = require("./almacen/vistos");
+const trabajo = require("./almacen/trabajo");
 const persistencia = require("./almacen/persistencia");
+const metricas = require("./metricas");
 const { capturarCuerpoCrudo } = require("./webhook/firma");
 const webhook = require("./webhook/rutas");
 
@@ -81,6 +82,11 @@ function crearApp() {
       // el diario y la memoria de duplicados se borran en cada despliegue.
       persistencia: config.persistencia.modo,
       almacenamiento_durable: config.persistencia.esDurable,
+
+      // Fase 2
+      modo_sombra: config.modoSombra,
+      ia_configurada: Boolean(config.iaApiKey),
+      almacen_transaccional: config.databaseUrl ? "postgres" : "archivos",
     };
 
     const conToken = config.panelToken && (req.query.token || req.get("x-panel-token")) === config.panelToken;
@@ -94,10 +100,11 @@ function crearApp() {
       // despliegues, la carpeta se esta borrando, diga lo que diga la
       // configuracion.
       marcador_de_disco: MARCADOR,
-      ids_recordados: vistos.cuantos(),
+      trabajo: trabajo.estado(),
       zona_horaria: config.zonaHoraria,
       version_graph: config.versionGraph,
       diario_de_hoy: diario.resumenDeHoy(),
+      salud: metricas.salud(),
     });
   });
 
@@ -119,6 +126,20 @@ function crearApp() {
         : "El diario esta vacio. Si Meta deberia estar entregando, el problema esta en la configuracion del webhook en Meta, no en el bot.",
       entradas,
     });
+  });
+
+  // ------------------------------------------------------------------------
+  // Metricas
+  //
+  // Solo numeros: ni un telefono, ni un texto, ni un documento. Por eso la
+  // vista completa se puede exponer sin filtrar nada.
+  //
+  // La linea que hay que mirar: con RESPUESTA_AUTOMATICA en 0,
+  // respuestas_preparadas puede subir y respuestas_enviadas tiene que
+  // quedarse en cero.
+  // ------------------------------------------------------------------------
+  app.get("/metricas", exigePanelToken, (_req, res) => {
+    res.json({ ok: true, ...metricas.instantanea(), salud: metricas.salud() });
   });
 
   webhook.montar(app);

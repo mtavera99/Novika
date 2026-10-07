@@ -8,19 +8,28 @@ E-commerce colombiano **multiproducto y multicategoría**: hogar, tecnología, b
 
 ## Estado
 
-**Fase 1 — recepción.** El webhook está listo. NOVIKA recibe, verifica y registra. Todavía no responde.
+**Fase 2 — el cerebro, en modo sombra.** NOVIKA procesa el mensaje de principio a fin, prepara la respuesta, la valida contra los hechos y la registra. **No la envía.**
 
 | | |
 |---|---|
 | Verificación del webhook de Meta | ✅ |
 | Firma `X-Hub-Signature-256` | ✅ obligatoria para procesar |
-| Deduplicación de eventos | ✅ persistida |
+| Deduplicación de eventos | ✅ persistida, por *terminado* |
+| Recuperación de trabajo tras un crash | ✅ automática al arrancar |
 | Diario de eventos en disco | ✅ |
 | Aislamiento respecto a BIKERPRO | ✅ arranque + por evento |
 | Persistencia comprobada, no supuesta | ✅ disco de Render + candado |
 | Esquema de catálogo multiproducto | ✅ sin productos activos |
-| Respuestas a clientes | ❌ `RESPUESTA_AUTOMATICA=0` |
-| Cotización y pedidos | ❌ fase 2 (migra a Postgres) |
+| Identificación de producto con prioridad y falsa señal | ✅ |
+| Confirmación determinista y blindaje de lo confirmado | ✅ |
+| Cotizador determinista (el LLM no produce importes) | ✅ |
+| Pedidos con snapshot e idempotencia doble | ✅ |
+| Modificaciones y cancelaciones versionadas | ✅ |
+| Modo sombra + métricas | ✅ |
+| Productos reales en el catálogo | ❌ pendiente de la ficha |
+| Proveedor de IA configurado | ❌ funciona sin él |
+| PostgreSQL | ❌ interfaces y esquema listos |
+| **Respuestas a clientes** | ❌ **`RESPUESTA_AUTOMATICA=0`** |
 
 **No hay productos, precios, promesas ni políticas definidas.** A propósito: el catálogo solo tiene la plantilla. Un dato comercial inventado que se cuela es un cobro incorrecto.
 
@@ -48,6 +57,7 @@ Resumen: generar el token de verificación → desplegar en Render → pegar `ht
 | `GET /health` | público | ¿está en condiciones de atender? ¿el almacenamiento es durable? |
 | `GET /health?token=…` | `PANEL_TOKEN` | detalle operativo |
 | `GET /eventos?token=…` | `PANEL_TOKEN` | diario: ¿llegó el evento y fallamos, o Meta no llegó? |
+| `GET /metricas?token=…` | `PANEL_TOKEN` | contadores. Sólo números, sin PII |
 | `GET /webhook` | Meta | handshake de verificación |
 | `POST /webhook` | Meta (firmado) | eventos |
 
@@ -61,7 +71,14 @@ La IA entiende, conversa y redacta. Todo lo que puede causar un cobro, un despac
 
 Y una asimetría deliberada: ante la ambigüedad **nunca se descarta una venta real**; se guarda marcada y la revisa una persona.
 
-Detalle completo en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md). Qué se guarda, qué se pierde en un redeploy y a dónde va a migrar: [`docs/PERSISTENCIA.md`](docs/PERSISTENCIA.md).
+Cómo viaja un mensaje y dónde está cada candado: [`docs/CEREBRO.md`](docs/CEREBRO.md). Arquitectura general: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
+La línea que hay que mirar en `/metricas`:
+
+```
+respuesta_preparada   puede subir
+respuesta_enviada     tiene que quedarse en 0
+``` Qué se guarda, qué se pierde en un redeploy y a dónde va a migrar: [`docs/PERSISTENCIA.md`](docs/PERSISTENCIA.md).
 
 ## Almacenamiento
 
@@ -77,13 +94,12 @@ Para verificar la Callback URL en Meta **no hace falta disco ni `META_APP_SECRET
 
 ## Siguiente
 
-1. Verificar el webhook en Meta y recibir el primer mensaje real
-2. Definir los primeros productos de NOVIKA (**decisión del dueño**: precios, políticas, garantías, cobertura)
-3. Envío de mensajes con política de reintentos
-4. Flujo conversacional con IA, acotado a datos autorizados
-5. Cotización determinista
-6. Pedidos: confirmación inequívoca, modificaciones, cancelaciones, antiduplicados
-7. Panel y auditoría
+1. **Definir los primeros productos** (decisión del dueño: precios, políticas, garantías, cobertura)
+2. Crear la base PostgreSQL y escribir su adaptador, que tendrá que pasar las mismas pruebas de contrato
+3. Configurar el proveedor de IA
+4. Auditar conversaciones reales en modo sombra
+5. Panel de administración
+6. Encender `RESPUESTA_AUTOMATICA` — sólo después de 4
 
 ## Repositorio
 
