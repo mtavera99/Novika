@@ -385,6 +385,10 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
           const quien = m.de === "cliente" ? "cliente" : m.por ? "operador" : "bot";
           const autor = m.de === "cliente" ? "cliente" : m.por ? `operador (${esc(m.por)})` : "bot";
           // El estado REAL. Nunca se muestra como dicho algo que no salio.
+          // Un mensaje guarda el resultado REAL del intento en su momento.
+          // Un intento hecho con el interruptor apagado seguira diciendo
+          // "no enviado" para siempre, aunque despues se encienda: no salio,
+          // y cambiarlo seria reescribir lo que paso.
           const noSalio = m.estado && m.estado !== "enviado";
           return `<div class="burbuja ${quien}">${esc(m.texto)}
 <span class="meta">${esc(fecha.horaBogota(m.ts))} · ${autor}${
@@ -450,7 +454,8 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
         ${
           envioManualActivo
             ? "Al enviar, el bot queda pausado en este chat."
-            : "Los envios manuales estan apagados: se registrara el intento y su motivo real."
+            : "Los env\u00edos manuales est\u00e1n <b>apagados</b>: se registrar\u00e1 el intento y su motivo real, pero no saldr\u00e1 nada. " +
+              "Se encienden con <code>PANEL_ENVIO_MANUAL=1</code> en Render."
         }
       </span>
     </div>
