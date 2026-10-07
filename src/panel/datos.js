@@ -208,6 +208,9 @@ async function conversacionCompleta(repos, contactoId) {
     atencion: atencion.leer(conv),
     mensajes: atencion.mensajes(conv),
     clase: clasificar(conv),
+    // Para el boton de fotos. `fotosEnviadas` lo anota el envio en la
+    // propia conversacion, asi que sobrevive a un reinicio.
+    fotosYaEnviadas: Boolean((conv.fotosEnviadas || {})[conv.productoId]),
   };
 }
 

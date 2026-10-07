@@ -56,7 +56,18 @@ const MOTIVOS_BLOQUEO = {
   ENVIO_MANUAL_APAGADO: "envio_manual_apagado",
   /** Una persona tiene el control de este chat: el bot no habla. */
   CONVERSACION_PAUSADA: "conversacion_pausada",
+  /** La imagen no cumple lo que Meta exige, o no se puede alcanzar. */
+  IMAGEN_NO_ENVIABLE: "imagen_no_enviable",
 };
+
+/**
+ * Tope del pie de foto de WhatsApp.
+ *
+ * Meta lo corta sin avisar, asi que se recorta aqui: un texto cortado a
+ * mitad de una frase por el servidor de otro es peor que uno que nosotros
+ * decidimos acortar.
+ */
+const MAX_PIE_DE_FOTO = 1024;
 
 /** Codigos de Meta que pueden salir distinto al reintentar. */
 const CODIGOS_TEMPORALES = new Set([2, 4, 80007, 130429, 131000, 131056]);
@@ -135,7 +146,14 @@ function crearEmisor({
    * @returns {Promise<{enviado: boolean, bloqueado?: boolean, motivo?: string,
    *                    estado?: number, wamid?: string, intentos?: number}>}
    */
-  async function enviarTexto({ para, texto, permiso = PERMISOS.CONVERSACION, conversacionId = null }) {
+  /**
+   * ENTREGAR: permisos, candado de pausa, construccion y reintentos.
+   *
+   * Texto e imagen pasan por aqui. Tener dos caminos de salida habria
+   * significado dos sitios donde acordarse del interruptor y de la pausa, y
+   * el que menos se usa es el que se queda sin el candado.
+   */
+  async function entregar({ para, permiso, conversacionId, texto, contenido, tipo, aLog = {} }) {
     const permitido = revisarPermiso({ para, texto, permiso });
 
     // ----------------------------------------------------------------------
@@ -185,8 +203,8 @@ function crearEmisor({
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: String(para),
-      type: "text",
-      text: { preview_url: false, body: String(texto) },
+      type: tipo,
+      [tipo]: contenido,
     };
 
     let ultimo = { estado: 0, codigo: null };
@@ -219,13 +237,13 @@ function crearEmisor({
       if (respuesta.ok) {
         const wamid = datos?.messages?.[0]?.id || null;
         contar("respuesta_enviada");
-        registrar("info", "respuesta_enviada", { wamid, intentos: intento });
+        registrar("info", "respuesta_enviada", { wamid, intentos: intento, tipo, ...aLog });
         return { enviado: true, estado: respuesta.status, wamid, intentos: intento };
       }
 
       const codigo = datos?.error?.code ?? null;
       ultimo = { estado: respuesta.status, codigo };
-      registrar("warn", "envio_rechazado", { intento, estado: respuesta.status, codigo });
+      registrar("warn", "envio_rechazado", { intento, estado: respuesta.status, codigo, tipo, ...aLog });
 
       const temporal = HTTP_TEMPORALES.has(respuesta.status) || CODIGOS_TEMPORALES.has(codigo);
       if (temporal && (await esperar(intento))) continue;
@@ -233,8 +251,87 @@ function crearEmisor({
     }
 
     contar("error_interno");
-    registrar("error", "envio_fallido", { estado: ultimo.estado, codigo: ultimo.codigo });
+    registrar("error", "envio_fallido", { estado: ultimo.estado, codigo: ultimo.codigo, tipo, ...aLog });
     return { enviado: false, motivo: "no se pudo enviar", estado: ultimo.estado, codigoMeta: ultimo.codigo };
+  }
+
+  /** Texto. */
+  async function enviarTexto({ para, texto, permiso = PERMISOS.CONVERSACION, conversacionId = null }) {
+    return entregar({
+      para,
+      permiso,
+      conversacionId,
+      texto,
+      tipo: "text",
+      contenido: { preview_url: false, body: String(texto || "") },
+      aLog: { longitud: String(texto || "").length },
+    });
+  }
+
+  /**
+   * UNA IMAGEN, por `link`.
+   *
+   * ------------------------------------------------------------------------
+   * POR QUE SE COMPRUEBA LA IMAGEN ANTES DE LLAMAR A META
+   * ------------------------------------------------------------------------
+   *
+   * Con `link`, Meta descarga la URL con SUS servidores. Si la foto no
+   * existe, no es jpeg/png, pasa de 5 MB o la URL no es publica, Meta
+   * responde un error 131053 ("Media upload error") — y eso ocurre DESPUES
+   * de que el cliente haya preguntado por el producto, con el esperando.
+   *
+   * Comprobarlo antes convierte ese fallo en un motivo claro y sin gastar
+   * una llamada a la API. `revisarImagen` mira el archivo en ESTE
+   * despliegue, no solo lo que dice el catalogo.
+   *
+   * El `texto` del permiso se rellena con el pie o con la propia URL: un
+   * envio sin texto no debe caer en TEXTO_VACIO, que es una comprobacion
+   * pensada para mensajes de texto.
+   */
+  async function enviarImagen({
+    para,
+    archivo = null,
+    url: urlDirecta = null,
+    pie = "",
+    permiso = PERMISOS.CONVERSACION,
+    conversacionId = null,
+  }) {
+    let enlace = urlDirecta;
+    let revision = null;
+
+    if (!enlace) {
+      if (!archivo) {
+        return { enviado: false, bloqueado: true, motivo: MOTIVOS_BLOQUEO.IMAGEN_NO_ENVIABLE, detalle: "sin archivo ni url" };
+      }
+      revision = require("../catalogo/imagenes").revisarImagen(archivo, config.urlPublica);
+      if (!revision.sePuedeEnviar) {
+        contar("imagen_no_enviable");
+        registrar("warn", "imagen_no_enviable", { archivo, problemas: revision.problemas });
+        return {
+          enviado: false,
+          bloqueado: true,
+          motivo: MOTIVOS_BLOQUEO.IMAGEN_NO_ENVIABLE,
+          detalle: revision.problemas.join("; "),
+        };
+      }
+      enlace = revision.url;
+    }
+
+    const pieRecortado = String(pie || "").slice(0, MAX_PIE_DE_FOTO);
+
+    const r = await entregar({
+      para,
+      permiso,
+      conversacionId,
+      // Para la comprobacion de permisos basta con que haya "algo que
+      // mandar": aqui el contenido es la imagen, no el texto.
+      texto: pieRecortado || enlace,
+      tipo: "image",
+      contenido: pieRecortado ? { link: enlace, caption: pieRecortado } : { link: enlace },
+      aLog: { archivo: archivo || null },
+    });
+
+    return { ...r, url: enlace, archivo: archivo || null };
   }
 
   async function esperar(intento) {
@@ -244,7 +341,14 @@ function crearEmisor({
     return true;
   }
 
-  return { enviarTexto, revisarPermiso, PERMISOS, MOTIVOS_BLOQUEO };
+  return { enviarTexto, enviarImagen, revisarPermiso, PERMISOS, MOTIVOS_BLOQUEO };
 }
 
-module.exports = { crearEmisor, PERMISOS, MOTIVOS_BLOQUEO, CODIGOS_TEMPORALES, HTTP_TEMPORALES };
+module.exports = {
+  crearEmisor,
+  PERMISOS,
+  MOTIVOS_BLOQUEO,
+  MAX_PIE_DE_FOTO,
+  CODIGOS_TEMPORALES,
+  HTTP_TEMPORALES,
+};
