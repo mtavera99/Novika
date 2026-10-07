@@ -36,6 +36,8 @@ const ORIGENES = {
   CONTEXTO: "contexto_confirmado",
   REFERRAL: "referral",
   VENTANA: "ventana_reciente",
+  /** La tienda vende un solo producto activo: no hay entre que elegir. */
+  UNICO_ACTIVO: "unico_activo",
 };
 
 /**
@@ -305,7 +307,46 @@ function resolver({ texto = "", referral = null, conversacion = null, catalogo, 
     }
   }
 
-  // ---- 5. Desconocido. NO hay producto por defecto. ----
+  // ------------------------------------------------------------------------
+  // ---- 5. SI LA TIENDA VENDE UN SOLO PRODUCTO, ES ESE ----
+  //
+  // Esto NO contradice la regla de "no hay producto por defecto": la
+  // contradiccion seria elegir uno entre varios. Aqui no hay entre.
+  //
+  // El caso que lo hizo necesario, probando la conversacion completa: la
+  // clienta escribe "Hola, buenas tardes", y despues "¿tiene garantía?",
+  // "¿de qué color viene?", "lo quiero" — sin volver a nombrar el cinturon.
+  // Cada mensaje caia en DESCONOCIDO y el bot contestaba "cuéntame qué
+  // producto te interesa" seis veces seguidas, teniendo UN solo producto en
+  // venta. Eso no es prudencia, es no saber lo que uno mismo vende.
+  //
+  // EL LIMITE, Y SE APAGA SOLO: en cuanto haya DOS productos activos esta
+  // rama deja de aplicar y se vuelve a preguntar, que es lo correcto cuando
+  // hay entre que elegir. No hay que recordar desactivarla.
+  //
+  // El origen queda registrado como `unico_activo` para que en el panel se
+  // distinga de una señal que dio el cliente. No es lo mismo "me dijo que
+  // queria el cinturon" que "es el unico que vendemos": si algun dia se
+  // despacha algo equivocado, esa diferencia es la que explica por que.
+  //
+  // RIESGO CONOCIDO: si el cliente pregunta por algo que NO vendemos
+  // ("¿tienen zapatos?"), esto lo resuelve al cinturon y el bot le hablara
+  // del cinturon. Se asume a sabiendas: con un catalogo de uno, "lo unico
+  // que vendemos es esto" es la respuesta correcta casi siempre, y el costo
+  // de equivocarse es un mensaje raro, no un despacho errado.
+  // ------------------------------------------------------------------------
+  const activos = catalogo.activos || [];
+  if (activos.length === 1) {
+    return {
+      productoId: activos[0].id,
+      origen: ORIGENES.UNICO_ACTIVO,
+      confianza: "media",
+      esCambio: false,
+      motivo: "es el único producto activo del catálogo: no hay entre qué elegir",
+    };
+  }
+
+  // ---- 6. Desconocido. NO hay producto por defecto. ----
   return {
     productoId: DESCONOCIDO,
     origen: null,

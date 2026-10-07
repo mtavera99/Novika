@@ -36,8 +36,8 @@
   "_nota_aliases": "OJO con 'termico' a secas: es un adjetivo y NOVIKA vendera mas productos termicos. Por eso ningun alias exige solo 'termico'; todos los de dos palabras piden una segunda. Si se anade un alias de una sola palabra generica, dos productos se confundiran entre si. Ver src/catalogo/senales.js. \n\n'cinturon' a secas SI esta, con confianza media, y es una decision distinta: es un SUSTANTIVO y hoy hay exactamente un cinturon en el catalogo. El cliente escribe 'fotos del cinturon', no 'del cinturon termico', y sin este alias el bot le volvia a preguntar que producto queria. El dia que haya un segundo cinturon, los dos coincidiran y el sistema preguntara cual -que es lo correcto- porque dos senales en el mismo mensaje se resuelven como ambiguo en vez de elegir. Y los alias de dos palabras siguen ganando por tener confianza alta.",
   "descripcionAutorizada": "Cinturón térmico con correa ajustable y panel de control. Se entrega con su empaque.",
   "caracteristicasAutorizadas": [
-    "viene unicamente en color rosado",
-    "es talla unica, con correa ajustable",
+    "viene únicamente en color rosado",
+    "es talla única, con correa ajustable",
     "se entrega con su empaque",
     "tiene panel de control"
   ],
@@ -153,5 +153,6 @@
   "garantia": "",
   "restricciones": [],
   "pendientes": [],
-  "_nota_pendientes": "VACIA desde el 2026-10-07: los tres bloqueantes se resolvieron -nombre comercial, descripcion autorizada y variantes (talla y color unicos, asi que no hay nada que elegir)- y el producto quedo activo. La lista llego a tener 14 elementos; nueve se movieron a sinDatoConfirmado, donde el bot los admite en voz alta en vez de inventarlos, y cinco se confirmaron. Si manana vuelve a aparecer un hueco que impida vender, se añade aqui y el producto se desactiva solo: la validacion no deja activo un producto con pendientes."
+  "_nota_pendientes": "VACIA desde el 2026-10-07: los tres bloqueantes se resolvieron -nombre comercial, descripcion autorizada y variantes (talla y color unicos, asi que no hay nada que elegir)- y el producto quedo activo. La lista llego a tener 14 elementos; nueve se movieron a sinDatoConfirmado, donde el bot los admite en voz alta en vez de inventarlos, y cinco se confirmaron. Si manana vuelve a aparecer un hueco que impida vender, se añade aqui y el producto se desactiva solo: la validacion no deja activo un producto con pendientes.",
+  "_nota_caracteristicas": "Estas frases SE LE MUESTRAN AL CLIENTE tal cual, asi que van con sus tildes y redactadas para leerse en un chat. El modulo que contesta las usa sin reescribirlas: reformular un dato aprobado seria editarlo. OJO: no entran en la huella comercial del cotizador -esa solo cubre precios, motor, politica de envio, promociones y pago-, asi que corregir una tilde aqui NO caduca las ofertas vivas. Si algun dia se añade una medida de ajuste, eso SI necesita aprobacion de Marco: hoy esta prohibido prometer contorno."
 }

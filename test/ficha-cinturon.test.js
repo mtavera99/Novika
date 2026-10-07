@@ -312,7 +312,7 @@ test("el resumen dice el total, que el envio va incluido y que paga al recibir",
   assert.match(texto, /49\.900/);
   assert.match(texto, /Envío incluido/);
   assert.match(texto, /al recibir/);
-  assert.match(texto, /¿Confirmas\?/);
+  assert.match(texto, /¿Está todo bien\?/, "el resumen tiene que decir qué contestar");
 
   // Y no promete nada que no este confirmado.
   assert.equal(/garant/i.test(texto), false, "el resumen menciona una garantia que no existe");
