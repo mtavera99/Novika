@@ -116,7 +116,21 @@ test("NO hay garantia ni claims inventados", () => {
   const p = elCinturon();
   assert.equal(p.garantia, "", "se escribio una garantia que Marco no ha definido");
   assert.deepEqual(p.claimsPermitidos, [], "se autorizo una afirmacion sin revisarla una por una");
-  assert.deepEqual(p.caracteristicasAutorizadas, []);
+
+  // ANTES EXIGIA `caracteristicasAutorizadas` VACIA, y dejo de valer el
+  // 2026-10-07: Marco aprobo el color, la talla, el empaque y el panel de
+  // control. Mantener la asercion obligaria a borrar datos aprobados.
+  //
+  // Lo que se vigila ahora es que ahi SOLO haya cosas aprobadas, y en
+  // particular que no se haya colado una medida de ajuste -que es
+  // justamente lo que Marco dijo que no se puede prometer.
+  for (const c of p.caracteristicasAutorizadas) {
+    assert.equal(
+      /\bcm\b|centimetro|contorno|cualquier/.test(c),
+      false,
+      `se autorizo una caracteristica de ajuste que nadie midio: "${c}"`
+    );
+  }
 
   // La lista de prohibidos SI tiene que estar llena: es la que no afirma
   // nada, solo prohibe, y en un producto que se compra por dolor el riesgo
@@ -130,7 +144,10 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
   // Son las preguntas que mas se repiten en este producto y ninguna tiene
   // respuesta aprobada. Si no estuvieran declaradas, el modelo las
   // contestaria con algo verosimil.
-  for (const tema of [/garantia/, /tiempo de entrega/, /dos o mas unidades/, /tallas/]) {
+  // "tallas" salio de esta lista el 2026-10-07 porque Marco confirmo que es
+  // talla unica; en su lugar entro el contorno del ajuste, que sigue sin
+  // medir y es la pregunta peligrosa de este producto.
+  for (const tema of [/garantia/, /tiempo de entrega/, /dos o mas unidades/, /contorno/]) {
     assert.ok(
       p.sinDatoConfirmado.some((s) => tema.test(s)),
       `falta declarar ${tema} como dato sin confirmar: el modelo lo rellenaria`
@@ -146,36 +163,53 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
 // activar y por que, la segunda dice que resolviendo esos puntos si.
 // --------------------------------------------------------------------------
 
-test("el archivo del catalogo sigue INACTIVO", () => {
-  const p = elCinturon();
-  assert.equal(p.activo, false, "el producto se activo sin que la ficha este completa");
-  assert.equal(catalogoReal().activos.length, 0);
-  assert.ok(p.pendientes.length > 0);
-});
-
-test("activarlo HOY tal cual lo rechaza la validacion, y dice por que", () => {
-  const errores = validarProducto({ ...elCinturon(), activo: true }, "simulacion").errores;
-  assert.ok(errores.length > 0, "se podria activar un producto sin nombre ni descripcion");
-  assert.ok(errores.some((e) => /pendiente\(s\) sin resolver/.test(e)));
-  assert.ok(
-    errores.some((e) => /descripcionAutorizada/.test(e)),
-    `el motivo tiene que nombrar el campo que falta: ${JSON.stringify(errores)}`
-  );
-});
-
-test("resueltos los 3 pendientes, la validacion lo deja activar: la lista es exacta", () => {
-  // Esto es lo que convierte la lista de bloqueantes en una afirmacion
-  // comprobable. Si manana alguien añade una exigencia nueva al esquema sin
-  // ponerla en `pendientes`, esta prueba falla y la lista se corrige.
-  const listo = {
-    ...elCinturon(),
+test("el candado de activacion sigue puesto: sin ficha no se activa", () => {
+  // ESTAS DOS PRUEBAS MIRABAN EL CINTURON y exigian que estuviera inactivo y
+  // que activarlo fallara. Eran correctas mientras le faltaban el nombre y
+  // la descripcion; Marco los entrego el 2026-10-07 y el producto se activo,
+  // asi que ya no se puede demostrar el candado con el.
+  //
+  // El candado hay que seguir vigilandolo, y con el segundo producto importa
+  // igual. Se comprueba sobre un sintetico al que le falta cada cosa por
+  // separado, que ademas dice MEJOR que antes cual es el hueco.
+  const base = {
+    id: "sintetico-para-el-candado",
+    categoria: "bienestar",
     activo: true,
+    nombre: "Sintetico",
+    descripcionAutorizada: "Descripcion de prueba.",
+    motorDePrecio: "tabla",
+    precios: { 1: 1000 },
+    pago: { metodo: "contraentrega" },
+    logistica: { politicaEnvio: { tipo: "incluido", provisional: false } },
     pendientes: [],
-    nombre: "(nombre de prueba)",
-    descripcionAutorizada: "(descripcion de prueba)",
   };
-  const r = validarProducto(listo, "simulacion");
-  assert.deepEqual(r.errores, [], "queda algun bloqueante que no esta en la lista de pendientes");
+
+  // Con todo puesto, valida. Es la referencia: si esto falla, lo de abajo no
+  // demuestra nada.
+  assert.deepEqual(validarProducto(base, "sintetico").errores, []);
+
+  const huecos = {
+    "un pendiente sin resolver": { pendientes: ["falta algo"] },
+    "sin descripcion autorizada": { descripcionAutorizada: "" },
+    "sin precio de 1 unidad": { precios: {} },
+    "sin politica de envio": { logistica: { politicaEnvio: {} } },
+    "sin metodo de cobro": { pago: null },
+  };
+
+  for (const [hueco, parche] of Object.entries(huecos)) {
+    const r = validarProducto({ ...base, ...parche }, "sintetico");
+    assert.ok(r.errores.length > 0, `se pudo activar un producto ${hueco}`);
+  }
+});
+
+test("la ficha real del cinturon no tiene ningun hueco", () => {
+  // La version anterior simulaba la activacion para demostrar que la lista
+  // de bloqueantes era exacta. Ya no hace falta simular: el producto esta
+  // activo de verdad, y lo que hay que vigilar es que siga sin huecos.
+  const r = validarProducto(elCinturon(), "archivo");
+  assert.deepEqual(r.errores, []);
+  assert.deepEqual(r.avisos, [], `avisos: ${JSON.stringify(r.avisos)}`);
 });
 
 test("un producto activo sin metodo de pago declarado se rechaza", () => {

@@ -51,8 +51,59 @@ const fs = require("node:fs");
 const os = require("node:os");
 
 const EL_MENSAJE = "Muéstrame fotos del cinturón y dime cuánto cuesta y cómo es el envío";
-const CINTURON = "cinturon-termico-colicos";
+const CINTURON = "cinturon-de-prueba-en-borrador";
 const CLIENTE = "573058742138";
+
+// --------------------------------------------------------------------------
+// POR QUE EL SUJETO DE ESTE ARCHIVO YA NO ES EL CINTURON REAL
+//
+// Este archivo se escribio el 2026-10-07 para el defecto que reporto Marco:
+// con el unico producto en borrador, el bot volvia a preguntar que producto
+// queria en cada turno. Todas las pruebas mirabaN el cinturon del
+// repositorio, que entonces estaba en borrador.
+//
+// Ese mismo dia, mas tarde, Marco cerro la ficha y el cinturon paso a
+// ACTIVO. Si las pruebas siguieran mirandolo, habria que elegir entre dos
+// cosas malas: borrarlas -y perder la cobertura del comportamiento en
+// borrador, que el codigo sigue teniendo y que el SEGUNDO producto va a
+// usar- o dejar el cinturon inactivo para que pasen, que es dejar de vender
+// para no romper una prueba.
+//
+// Asi que el sujeto pasa a ser un borrador sintetico con los mismos alias y
+// las cinco fotos de verdad. La garantia que cubren no cambia: un producto
+// sin ficha se reconoce, se puede mostrar y NO se puede cobrar.
+// --------------------------------------------------------------------------
+
+/** Carpeta de catalogo con un borrador que imita al cinturon de entonces. */
+function carpetaDeBorrador() {
+  const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), "novika-borrador-"));
+  const real = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "catalogo", "productos", "cinturon-termico-colicos.json"), "utf8")
+  );
+  fs.writeFileSync(
+    path.join(carpeta, `${CINTURON}.json`),
+    JSON.stringify({
+      id: CINTURON,
+      nombre: "",
+      nombreCorto: "",
+      categoria: "bienestar",
+      activo: false,
+      // Los alias y las fotos son los REALES: lo que se prueba es el
+      // comportamiento ante un borrador, no un catalogo de juguete.
+      aliases: real.aliases,
+      imagenes: real.imagenes,
+      claimsProhibidos: real.claimsProhibidos,
+      descripcionAutorizada: "",
+      motorDePrecio: "tabla",
+      precios: {},
+      pendientes: ["nombre comercial", "descripcion autorizada", "precio"],
+    })
+  );
+  return carpeta;
+}
+
+const CARPETA_BORRADOR = carpetaDeBorrador();
+const catalogoDeBorrador = () => cargarCatalogo({ carpeta: CARPETA_BORRADOR, refrescar: true });
 
 const nada = { info() {}, warn() {}, error() {} };
 const sinContar = { incrementar() {} };
@@ -61,7 +112,7 @@ const sinContar = { incrementar() {} };
 async function montar() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "novika-ident-"));
   const repos = await crearReposDeArchivos({ dir: path.join(d, "t") });
-  const catalogo = cargarCatalogo({ refrescar: true });
+  const catalogo = catalogoDeBorrador();
 
   const salidas = [];
   const fetchImpl = async (_u, o) => {
@@ -99,7 +150,7 @@ async function montar() {
 // ==========================================================================
 
 describe("1 · identificar el producto", () => {
-  const catalogo = cargarCatalogo({ refrescar: true });
+  const catalogo = catalogoDeBorrador();
 
   test("ESCENARIO: el mensaje reportado identifica el cinturon", () => {
     const r = senales.resolver({ texto: EL_MENSAJE, catalogo });
@@ -300,32 +351,33 @@ describe("3 · el envio de fotos esta conectado", () => {
 // ==========================================================================
 
 describe("4 · nada de esto abrio una puerta", () => {
-  test("el producto sigue en borrador y con sus pendientes", () => {
-    const p = require("../catalogo/productos/cinturon-termico-colicos.json");
-    assert.equal(p.activo, false);
-    assert.equal(p.nombre, "");
-    assert.ok(p.pendientes.length > 0);
+  test("el borrador sigue en borrador y no se le puede cobrar", () => {
+    // ESTA PRUEBA MIRABA EL ARCHIVO REAL y exigia `activo: false`. Dos veces
+    // tuvo que cambiar en el mismo dia -primero por el precio, despues por
+    // la activacion- y las dos veces por el mismo motivo: estaba vigilando
+    // el ESTADO COMERCIAL de un producto de la tienda en lugar de vigilar el
+    // comportamiento del codigo. Un dato que el dueño decide no es una
+    // regresion cuando cambia.
+    //
+    // El cinturon real lo cubren ficha-cinturon.test.js (que sus datos sean
+    // los que Marco dio) y producto-activo.test.js (que activo funcione).
+    // Aqui se vigila lo que le toca a este archivo: que un borrador se
+    // identifique, se pueda mostrar, y NO se pueda cobrar.
+    const catalogo = catalogoDeBorrador();
+    const borrador = catalogo.porId.get(CINTURON);
 
-    // ANTES ESTA PRUEBA EXIGIA `precios` VACIO, y ya no corresponde.
-    //
-    // Lo exigia porque cuando se escribio no habia ni un dato comercial, asi
-    // que "sin precios" equivalia a "sin ficha". Marco confirmo el precio de
-    // 1 unidad el 2026-10-07, y mantener la asercion obligaria a borrar un
-    // dato real para que la prueba pasara.
-    //
-    // Lo que de verdad protege este bloque no es que falten precios: es que
-    // tener precio NO active el producto por si solo. Un producto con precio
-    // y sin ficha sigue siendo un producto que no se puede vender, y eso es
-    // lo que se comprueba ahora.
-    assert.equal(p.precios["1"], 49900, "el precio confirmado por Marco desaparecio del catalogo");
-    assert.equal(
-      require("../src/catalogo").cargarCatalogo({
-        carpeta: require("node:path").join(__dirname, "..", "catalogo", "productos"),
-        refrescar: true,
-      }).activos.length,
-      0,
-      "tener precio no puede meter el producto en la lista de los vendibles"
-    );
+    assert.equal(borrador.activo, false);
+    assert.equal(catalogo.activos.length, 0);
+    assert.equal(catalogo.productoPorDefecto, null);
+
+    // Se identifica...
+    assert.equal(senales.resolver({ texto: EL_MENSAJE, catalogo }).productoId, CINTURON);
+    // ...y tiene fotos que mostrar...
+    assert.equal(borrador.imagenes.length, 5);
+    // ...pero no hay forma de cobrarlo.
+    const r = cotizar({ producto: borrador, cantidad: 1 });
+    assert.equal(r.ok, false);
+    assert.match(r.motivo, /no esta activo/);
   });
 
   test("con RESPUESTA_AUTOMATICA apagada no sale nada, ni texto ni fotos", async () => {

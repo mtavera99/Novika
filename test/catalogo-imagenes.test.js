@@ -128,11 +128,31 @@ describe("3 · el catalogo las conoce", () => {
     assert.deepEqual(c.problemas, []);
   });
 
-  test("el producto SIGUE inactivo: vincular fotos no lo activa", () => {
-    // Una foto no es una ficha. Sin precio ni caracteristicas aprobadas,
-    // este producto no se puede vender.
-    assert.equal(PRODUCTO.activo, false);
-    assert.ok(PRODUCTO.pendientes.length > 0, "quedan datos por definir");
+  test("vincular fotos NO activa un producto: una foto no es una ficha", () => {
+    // ESTA PRUEBA MIRABA EL CINTURON Y EXIGIA `activo: false`. Servia
+    // mientras el cinturon era el borrador; Marco cerro su ficha el
+    // 2026-10-07 y ya esta activo, asi que mirarlo a el ya no demuestra
+    // nada sobre las fotos.
+    //
+    // La garantia que importa no era "el cinturon esta inactivo", era "las
+    // fotos no bastan para vender". Eso hay que seguir vigilandolo, porque
+    // con el segundo producto se repite: entran antes las fotos que los
+    // precios. Asi que se comprueba sobre un producto sintetico con las
+    // cinco fotos de verdad y la ficha a medias.
+    const conFotosYSinFicha = {
+      id: "producto-con-fotos-sin-ficha",
+      categoria: "bienestar",
+      activo: true,
+      imagenes: PRODUCTO.imagenes,
+      motorDePrecio: "tabla",
+      precios: {},
+      pendientes: ["precio", "descripcion"],
+    };
+
+    const r = esquema.validarProducto(conFotosYSinFicha, "sintetico");
+    assert.ok(r.errores.length > 0, "cinco fotos validas dejaron activar un producto sin ficha");
+    assert.ok(r.errores.some((e) => /pendiente/.test(e)));
+    assert.ok(r.errores.some((e) => /precios/.test(e)));
   });
 
   test("la validacion rechaza una ruta que no existe", () => {

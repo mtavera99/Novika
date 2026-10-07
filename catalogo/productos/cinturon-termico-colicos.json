@@ -1,11 +1,11 @@
 {
-  "_LEEME": "BORRADOR TODAVIA, pero ya con las tres primeras condiciones comerciales REALES confirmadas por Marco el 2026-10-07: precio de 1 unidad 49.900 COP, envio incluido y pago contraentrega. Estan en los campos que lee el cotizador -precios, logistica.politicaEnvio, pago- y no en ningun texto libre. Lo que sigue VACIO sigue vacio a proposito, no con ejemplos: no hay nombre comercial, descripcion, caracteristicas, garantia ni claims permitidos. activo=false porque un producto activo necesita nombre y descripcion autorizada, y esos dos no han llegado. Mientras 'pendientes' tenga elementos, la validacion impide activarlo.",
+  "_LEEME": "ACTIVO desde el 2026-10-07. Ficha confirmada por Marco: nombre comercial, color unico rosado, talla unica con correa ajustable, descripcion aprobada palabra por palabra, precio de 1 unidad 49.900 COP, envio incluido y pago contraentrega. Todo vive en los campos que lee el cotizador, no en texto libre. LO QUE SIGUE SIN CONFIRMAR esta en sinDatoConfirmado, y el bot responde a esas preguntas diciendo que lo confirma una persona: garantia, tiempo de entrega, precio por 2 o mas unidades, medidas del ajuste. OJO con las medidas: Marco fue explicito en que NO se prometa que sirve para cualquier contorno, y eso esta en claimsProhibidos como frases concretas, no como una advertencia al modelo.",
   "id": "cinturon-termico-colicos",
   "slug": "cinturon-termico-colicos",
-  "nombre": "",
-  "nombreCorto": "",
+  "nombre": "Cinturón térmico NOVIKA",
+  "nombreCorto": "el cinturón térmico",
   "categoria": "bienestar",
-  "activo": false,
+  "activo": true,
   "aliases": [
     {
       "patron": "\\bcinturon(es)?\\s+termic",
@@ -34,8 +34,13 @@
     }
   ],
   "_nota_aliases": "OJO con 'termico' a secas: es un adjetivo y NOVIKA vendera mas productos termicos. Por eso ningun alias exige solo 'termico'; todos los de dos palabras piden una segunda. Si se anade un alias de una sola palabra generica, dos productos se confundiran entre si. Ver src/catalogo/senales.js. \n\n'cinturon' a secas SI esta, con confianza media, y es una decision distinta: es un SUSTANTIVO y hoy hay exactamente un cinturon en el catalogo. El cliente escribe 'fotos del cinturon', no 'del cinturon termico', y sin este alias el bot le volvia a preguntar que producto queria. El dia que haya un segundo cinturon, los dos coincidiran y el sistema preguntara cual -que es lo correcto- porque dos senales en el mismo mensaje se resuelven como ambiguo en vez de elegir. Y los alias de dos palabras siguen ganando por tener confianza alta.",
-  "descripcionAutorizada": "",
-  "caracteristicasAutorizadas": [],
+  "descripcionAutorizada": "Cinturón térmico con correa ajustable y panel de control. Se entrega con su empaque.",
+  "caracteristicasAutorizadas": [
+    "viene unicamente en color rosado",
+    "es talla unica, con correa ajustable",
+    "se entrega con su empaque",
+    "tiene panel de control"
+  ],
   "imagenes": [
     {
       "archivo": "catalogo/imagenes/cinturon-termico/01-frente.jpg",
@@ -65,6 +70,10 @@
   ],
   "_nota_imagenes": "Las cinco fotos convertidas desde los HEIC originales, que se conservan en originales/. Convertidas a sRGB a proposito: venian en Display P3 y, sin convertir el espacio de color, el cliente veria un rosa distinto al del producto. Redimensionadas a 1600 px de lado largo y sin metadatos. Meta solo acepta jpeg o png, 8 bits, hasta 5 MB; el esquema lo comprueba por los BYTES del archivo al cargar el catalogo, no por la extension.",
   "datosConfirmados": {
+    "nombreComercial": "Cinturón térmico NOVIKA - Marco, 2026-10-07",
+    "color": "unicamente rosado - Marco, 2026-10-07",
+    "talla": "talla unica con correa ajustable - Marco, 2026-10-07",
+    "descripcion": "aprobada palabra por palabra - Marco, 2026-10-07",
     "precio1Unidad": "49.900 COP - Marco, 2026-10-07",
     "envio": "incluido en el precio - Marco, 2026-10-07",
     "pago": "contraentrega - Marco, 2026-10-07"
@@ -74,14 +83,15 @@
     "el tiempo de entrega",
     "el precio por dos o mas unidades",
     "si hay descuento por cantidad",
-    "las tallas, colores o presentaciones",
-    "el material y las medidas",
+    "hasta que contorno ajusta la correa",
+    "las medidas exactas del cinturon",
+    "el material",
     "que trae exactamente el paquete",
     "si se puede pagar por transferencia o Nequi",
     "los niveles de temperatura o de intensidad",
     "si funciona con bateria o enchufado, y cuanto dura"
   ],
-  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra en el prompt como 'si el cliente pregunta por esto, di que lo confirmas', y es la unica defensa contra la pregunta inocente que provoca un dato inventado: '¿tiene garantia?', '¿en cuanto llega?', '¿que talla es?'. Son las preguntas que mas se repiten en este producto y ninguna tiene respuesta aprobada todavia.\n\nPor que no estan en 'pendientes': 'pendientes' es un candado binario -con un solo elemento el producto no puede activarse-, asi que meter ahi todo lo que falta obligaria a vaciarlo a la fuerza para poder vender, y vaciarlo a la fuerza es exactamente como se activa un producto con la ficha a medias. Aqui, en cambio, cada linea produce comportamiento: el bot admite que no lo sabe y lo pasa a una persona. Se van borrando de aqui a medida que Marco los confirme, y lo que se confirme pasa a caracteristicasAutorizadas o a su campo propio.",
+  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como frases que el texto no puede contener: si el modelo redacta algo que las menciona, se descarta su borrador y sale el texto determinista. Son las preguntas que mas se repiten en este producto y ninguna tiene respuesta aprobada todavia.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.",
   "claimsPermitidos": [],
   "claimsProhibidos": [
     "cura los colicos",
@@ -92,9 +102,21 @@
     "sirve para quistes",
     "apto durante el embarazo",
     "aprobado por el Invima",
-    "recomendado por medicos"
+    "recomendado por medicos",
+    "sirve para cualquier contorno",
+    "se ajusta a cualquier contorno",
+    "se ajusta a cualquier cintura",
+    "se adapta a cualquier cuerpo",
+    "sirve para cualquier talla",
+    "apto para cualquier talla",
+    "le queda a cualquiera",
+    "le sirve a cualquiera",
+    "le queda a todas",
+    "sirve para todas las tallas",
+    "talla unica universal",
+    "ajuste universal"
   ],
-  "_nota_claims": "Esta lista SI se puede llenar antes de tener la ficha, porque no afirma nada: solo prohibe. Es un producto de bienestar que se compra por dolor menstrual, asi que el riesgo no es exagerar el precio: es hacer una promesa medica. Una afirmacion de salud sin respaldo es una devolucion, y puede ser un problema regulatorio. Ampliar esta lista no necesita aprobacion; reducirla si.",
+  "_nota_claims": "Esta lista solo prohibe, nunca afirma, asi que ampliarla no necesita aprobacion; reducirla si. Es un producto de bienestar que se compra por dolor menstrual: el riesgo no es exagerar el precio, es hacer una promesa medica.\n\nLAS DOCE ULTIMAS LINEAS SON DEL 2026-10-07, y las pidio Marco al confirmar la ficha: 'no tenemos medidas del ajuste, no prometas que sirve para cualquier contorno'. El riesgo es concreto y nace de un dato verdadero: 'talla unica con correa ajustable' invita a seguir la frase con 'asi que le sirve a cualquiera', que es exactamente lo que no se sabe. Son frases literales porque revisarClaims las busca en el texto; una instruccion del tipo 'no prometas ajuste universal' no es un candado. Y el dato que falta esta declarado en sinDatoConfirmado como 'hasta que contorno ajusta la correa', para que la pregunta directa se derive a una persona en vez de contestarse por aproximacion.",
   "motorDePrecio": "tabla",
   "precios": {
     "1": 49900
@@ -130,10 +152,6 @@
   "faq": [],
   "garantia": "",
   "restricciones": [],
-  "pendientes": [
-    "nombre comercial definitivo",
-    "descripcion autorizada",
-    "variantes: confirmar que es talla unica y color unico, o declararlas"
-  ],
-  "_nota_pendientes": "SOLO QUEDAN LOS QUE BLOQUEAN DE VERDAD. La lista paso de 14 a 3, y no por recortarla: nueve se movieron a sinDatoConfirmado -donde el bot los admite en voz alta en vez de inventarlos- y dos se resolvieron con los datos de Marco del 2026-10-07.\n\nPor que estos tres bloquean y los otros no:\n\n1. NOMBRE COMERCIAL. El resumen que el cliente confirma dice '<nombre> · 1 unidad(es)', y el pedido guarda producto.nombre como copia. Sin nombre, el cliente confirma una linea que empieza por ' · 1 unidad(es)' y el pedido queda con el nombre vacio para quien despacha. No me lo invento: un nombre provisional puesto por mi acabaria impreso en una guia de transportadora.\n\n2. DESCRIPCION AUTORIZADA. El esquema la exige como ERROR para activar, y el motivo esta en el propio mensaje de validacion: sin ella el bot improvisa. Es el texto que entra al prompt como unica verdad del producto; vacia, el modelo rellena con lo que suena bien, y en un producto que se compra por dolor menstrual eso es una promesa medica.\n\n3. VARIANTES. Es el unico de los tres que no bloquea por codigo, y lo pongo igual porque el daño es peor que un mensaje raro: si el cinturon tiene tallas o colores y el catalogo no los declara, se cierra una venta sin saber cual se despacha. Eso no es cobrar mal, es guardar un pedido incorrecto. Las fotos sugieren correa ajustable -talla unica-, pero sugerir no es confirmar. Se cierra con una palabra de Marco: si es talla unica, se borra esta linea; si no, se declara el campo variantes y el cotizador empieza a exigir la eleccion antes de cotizar.\n\nLo que NO bloquea, y por que: costo y margen son internos y el bot no los usa; promociones vacias significan ninguna, que es un dato valido; peso y dimensiones no los necesita el cotizador porque el envio va incluido; garantia, contenido del paquete y claims permitidos vacios dejan al bot sin nada que afirmar, que es el estado seguro; los datos a capturar ya estan cubiertos por los de base -nombre, telefono, ciudad, direccion-, que es lo que necesita una entrega contraentrega."
+  "pendientes": [],
+  "_nota_pendientes": "VACIA desde el 2026-10-07: los tres bloqueantes se resolvieron -nombre comercial, descripcion autorizada y variantes (talla y color unicos, asi que no hay nada que elegir)- y el producto quedo activo. La lista llego a tener 14 elementos; nueve se movieron a sinDatoConfirmado, donde el bot los admite en voz alta en vez de inventarlos, y cinco se confirmaron. Si manana vuelve a aparecer un hueco que impida vender, se añade aqui y el producto se desactiva solo: la validacion no deja activo un producto con pendientes."
 }
