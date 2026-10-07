@@ -34,6 +34,8 @@ const BLOQUEOS = {
   IMPORTE_NO_AUTORIZADO: "importe_no_autorizado",
   CLAIM_PROHIBIDO: "claim_prohibido",
   SIN_BORRADOR: "sin_borrador",
+  /** El producto se reconoce pero no tiene ficha: el modelo no redacta. */
+  PRODUCTO_SIN_FICHA: "producto_sin_ficha",
 };
 
 /**
@@ -74,10 +76,43 @@ function pesos(n) {
  * cotizacion o del catalogo. Si manana cambia un precio, aqui no se toca
  * nada.
  */
-function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones = [], pedido = null }) {
+function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones = [], pedido = null, producto = null }) {
   switch (situacion) {
     case "producto_desconocido":
       return "Para ayudarte bien, ¿me confirmas cuál producto te interesa?";
+
+    // ----------------------------------------------------------------------
+    // PRODUCTO EN BORRADOR: se sabe cual es, pero no tiene ficha.
+    //
+    // Este texto es DETERMINISTA y no pasa por el modelo a proposito. El
+    // cliente acaba de preguntar un precio; es justo el momento en el que un
+    // modelo rellena el hueco con una cifra plausible. Aqui no hay hueco que
+    // rellenar: no se nombra ningun importe, ningun plazo y ninguna
+    // caracteristica, porque ninguno esta aprobado.
+    //
+    // Y NO vuelve a preguntar que producto es. Preguntar lo que el cliente ya
+    // respondio es la forma mas rapida de que deje de escribir.
+    //
+    // Dice que una persona confirma, porque es verdad: mientras el producto
+    // este en borrador, cerrar la venta lo hace alguien a mano desde el
+    // panel.
+    // ----------------------------------------------------------------------
+    case "producto_en_borrador": {
+      const comoSeLlama = (producto && (producto.nombre || producto.nombreCorto)) || null;
+      const lo = comoSeLlama ? `el ${comoSeLlama}` : "ese producto";
+      // Solo se prometen las fotos si existen. Un bot que dice "te muestro
+      // las fotos" y no manda ninguna queda peor que uno que no las
+      // menciona: el cliente se queda esperando algo que no va a llegar.
+      const hayFotos = Boolean(producto && (producto.imagenes || []).length);
+      return [
+        `Sí, ${lo} lo tenemos.`,
+        hayFotos ? "Te muestro las fotos." : "",
+        "El precio y el envío te los confirma una persona del equipo en un momento:",
+        "todavía no los tengo publicados y no quiero darte un dato equivocado.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+    }
 
     case "producto_ambiguo":
       return opciones.length
@@ -152,8 +187,24 @@ function textoDeterminista({ situacion, cotizacion = null, faltan = [], opciones
  * @returns {{texto: string, origen: "determinista"|"ia", bloqueos: object[]}}
  */
 function preparar({ situacion, cotizacion = null, faltan = [], opciones = [], pedido = null, producto = null, borradorIA = null }) {
-  const determinista = textoDeterminista({ situacion, cotizacion, faltan, opciones, pedido });
+  const determinista = textoDeterminista({ situacion, cotizacion, faltan, opciones, pedido, producto });
   const bloqueos = [];
+
+  // --------------------------------------------------------------------------
+  // CON EL PRODUCTO EN BORRADOR, EL MODELO NO REDACTA.
+  //
+  // El cliente acaba de preguntar un precio que no existe. Es el momento
+  // exacto en el que un modelo rellena el hueco con una cifra plausible, y
+  // una cifra plausible es un cobro equivocado.
+  //
+  // El filtro de importes ya lo frenaria -sin cotizacion no hay importes
+  // autorizados, asi que cualquier cifra se bloquea-, pero depender de eso
+  // seria confiar en que el modelo se equivoque de una forma concreta.
+  // Aqui no se le pide nada: el texto es el nuestro.
+  // --------------------------------------------------------------------------
+  if (situacion === "producto_en_borrador") {
+    return { texto: determinista, origen: "determinista", bloqueos: [{ tipo: BLOQUEOS.PRODUCTO_SIN_FICHA }] };
+  }
 
   if (!borradorIA || !String(borradorIA).trim()) {
     return { texto: determinista, origen: "determinista", bloqueos: [{ tipo: BLOQUEOS.SIN_BORRADOR }] };

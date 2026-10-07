@@ -87,15 +87,56 @@ function senalesEnTexto(texto, catalogo) {
   const orden = { alta: 0, media: 1, baja: 2 };
   const encontradas = [];
 
-  for (const producto of catalogo.activos || []) {
+  // ------------------------------------------------------------------------
+  // SE BUSCA EN TODO EL CATALOGO, NO SOLO EN LOS ACTIVOS
+  //
+  // Antes solo recorria `activos`, y eso tenia una consecuencia que no era
+  // evidente: con el unico producto en borrador, NINGUN mensaje podia
+  // identificar nada. El cliente escribia "fotos del cinturon termico" y el
+  // bot volvia a preguntar que producto queria, en bucle.
+  //
+  // IDENTIFICAR no es VENDER, y conflictuarlos era el error. Reconocer de
+  // que habla el cliente sirve para contestarle con sentido -mandarle las
+  // fotos, explicarle que el precio todavia no esta- aunque no se le pueda
+  // cotizar.
+  //
+  // Lo que impide venderlo sigue donde estaba, y es duro: `cotizar()` se
+  // niega con "el producto no esta activo", y sin cotizacion no hay pedido.
+  // Asi que identificar un borrador no abre ninguna puerta; solo deja de
+  // cerrar la boca al bot.
+  // ------------------------------------------------------------------------
+  const todos = catalogo.productos || catalogo.todos || catalogo.activos || [];
+
+  // ------------------------------------------------------------------------
+  // Y SE BUSCA SIN TILDES
+  //
+  // Los patrones del catalogo estan escritos sin tildes ("cinturon",
+  // "termic", "colicos") y se comparaban contra el texto CRUDO. Resultado:
+  //
+  //   "cinturon termico"  -> coincide
+  //   "cinturón térmico"  -> NO coincide
+  //
+  // Una clienta escribiendo desde el movil pone la tilde, porque el teclado
+  // la pone sola. Es decir: el alias funcionaba justo con la forma que casi
+  // nadie escribe, y eso es una venta perdida sin ningun error en los logs.
+  //
+  // Se compara contra la forma aplanada -minusculas, sin tildes, sin
+  // signos- que ya existia en dominio/texto.js y que este modulo no usaba.
+  // ------------------------------------------------------------------------
+  const plano = aplanar(texto);
+
+  for (const producto of todos) {
     for (const alias of producto._aliases || []) {
-      const m = String(texto ?? "").match(alias.re);
+      const m = plano.match(alias.re);
       if (m) {
         encontradas.push({
           productoId: producto.id,
           confianza: alias.confianza || "media",
           senal: alias.senal || m[0],
           posicion: m.index,
+          // Para que quien recibe la senal pueda distinguir "se que
+          // producto es" de "se lo puedo vender".
+          activo: producto.activo === true,
         });
       }
     }

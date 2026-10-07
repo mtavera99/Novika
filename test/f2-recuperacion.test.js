@@ -420,18 +420,67 @@ test("el cinturon del repositorio esta INACTIVO y no entra en los activos", () =
   assert.equal(catalogo.productoPorDefecto, null);
 });
 
-test("las señales NUNCA proponen un producto inactivo", () => {
-  // senalesEnTexto recorre catalogo.activos, no catalogo.productos. Aunque
-  // el borrador tenga alias que encajen perfectamente, no se propone.
+test("las señales SI identifican un borrador, pero lo marcan como no vendible", () => {
+  // ESTA PRUEBA ANTES AFIRMABA LO CONTRARIO, Y ESTABA MAL.
+  //
+  // Decia: "las señales NUNCA proponen un producto inactivo", y comprobaba
+  // que senalesEnTexto("cinturon termico") devolvia cero señales. La
+  // intencion era buena -que no se venda un borrador- pero la asercion
+  // confundia IDENTIFICAR con OFRECER, y por eso bloqueaba lo que no debia.
+  //
+  // Lo que provocaba en produccion: con el unico producto del catalogo en
+  // borrador, NINGUN mensaje podia identificar nada. La clienta escribia
+  // "muestrame fotos del cinturon" y el bot volvia a preguntar que producto
+  // queria, en cada turno, para siempre. No perdia una venta por prudencia:
+  // la perdia por no saber de que le estaban hablando.
+  //
+  // Lo que se comprueba ahora es la propiedad que de verdad protege al
+  // cliente, y es mas fuerte que la anterior: el borrador se RECONOCE, y a
+  // la vez viene marcado como no vendible para que nadie lo cotice.
   const { cargarCatalogo } = require("../src/catalogo");
   const senales = require("../src/catalogo/senales");
   const catalogo = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
 
-  for (const frase of ["quiero el cinturon termico", "algo para los colicos menstruales", "la faja termica"]) {
+  // Con tilde y sin tilde: la clienta escribe desde el movil, y el teclado
+  // pone la tilde sola.
+  for (const frase of [
+    "quiero el cinturon termico",
+    "muéstrame fotos del cinturón",
+    "algo para los colicos menstruales",
+  ]) {
+    const encontradas = senales.senalesEnTexto(frase, catalogo);
+    assert.equal(encontradas.length, 1, `"${frase}" no identifico el producto del que habla la clienta`);
+    assert.equal(encontradas[0].productoId, "cinturon-termico-colicos");
+
+    // La marca que sostiene todo lo demas: quien recibe la señal sabe que
+    // no se puede vender sin tener que volver a consultar el catalogo.
+    assert.equal(encontradas[0].activo, false, `"${frase}" presento un borrador como vendible`);
+
     const r = senales.resolver({ texto: frase, catalogo });
-    assert.equal(r.productoId, null, `"${frase}" propuso un producto inactivo`);
+    assert.equal(r.productoId, "cinturon-termico-colicos");
+    assert.equal(catalogo.porId.get(r.productoId).activo, false);
   }
-  assert.equal(senales.senalesEnTexto("cinturon termico", catalogo).length, 0);
+
+  // Y el limite sigue en pie: identificarlo no lo mete en los activos, que
+  // es la lista de la que se vende.
+  assert.equal(catalogo.activos.length, 0);
+  assert.equal(catalogo.productoPorDefecto, null);
+});
+
+test("identificar un borrador no abre ninguna puerta: no se cotiza ni se pide", () => {
+  // La contraparte de la prueba anterior. Si la señal ahora llega hasta un
+  // borrador, hay que demostrar que el camino se corta DESPUES, en el
+  // candado real, y no por la señal.
+  const { cargarCatalogo } = require("../src/catalogo");
+  const { cotizar } = require("../src/dominio/cotizador");
+  const catalogo = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  const cinturon = catalogo.porId.get("cinturon-termico-colicos");
+
+  for (const cantidad of [1, 2, 3]) {
+    const r = cotizar({ producto: cinturon, cantidad });
+    assert.equal(r.ok, false, `se cotizo un borrador para cantidad ${cantidad}`);
+    assert.equal(r.total, undefined);
+  }
 });
 
 test("el cotizador se niega a cotizar un producto inactivo", () => {
@@ -444,10 +493,24 @@ test("el cotizador se niega a cotizar un producto inactivo", () => {
   assert.match(r.motivo, /no esta activo/);
 });
 
-test("una conversacion guardada con un producto inactivo vuelve a DESCONOCIDO", async () => {
+test("una conversacion con un producto inactivo no se cotiza, pero tampoco se olvida", async () => {
   // El caso real: se guarda la conversacion con un producto, el producto se
   // desactiva, y la conversacion se recarga del disco. El cerebro no puede
   // seguir vendiendolo.
+  //
+  // ESTA PRUEBA ANTES EXIGIA LO PEOR DE DOS MUNDOS.
+  //
+  // Se llamaba "...vuelve a DESCONOCIDO" y comprobaba dos cosas:
+  // situacion === "producto_desconocido" y conv.productoId === null. La
+  // segunda era el defecto, no la proteccion: borrar el productoId hacia
+  // que el turno siguiente tampoco supiera de que se hablaba, asi que el
+  // bot preguntaba "¿que producto te interesa?" indefinidamente -incluso
+  // despues de que la clienta lo hubiera dicho con todas sus letras.
+  //
+  // Olvidar el producto no impedia venderlo: eso lo impide `cotizar()`.
+  // Solo impedia CONVERSAR. Ahora el producto se conserva, la situacion
+  // dice la verdad ("esta en borrador"), y se comprueba aqui que de ahi no
+  // sale ni una cotizacion, ni un pedido, ni una cifra.
   const { config } = require("../src/config");
   const { crearCerebro } = require("../src/cerebro/orquestar");
   const { crearReposDeArchivos } = require("../src/almacen/repos/archivos");
@@ -495,11 +558,28 @@ test("una conversacion guardada con un producto inactivo vuelve a DESCONOCIDO", 
     texto: "cuanto vale?",
   });
 
-  assert.ok(traza.avisos.some((a) => /no esta activo/.test(a)), `avisos: ${JSON.stringify(traza.avisos)}`);
-  assert.equal(traza.respuesta.situacion, "producto_desconocido");
+  assert.ok(
+    traza.avisos.some((a) => /en borrador/.test(a) && /no se puede cotizar/.test(a)),
+    `la traza tiene que decir por que no se cotiza. avisos: ${JSON.stringify(traza.avisos)}`
+  );
+  assert.equal(traza.respuesta.situacion, "producto_en_borrador");
 
+  // Lo que NO pasa, que es el punto de la prueba:
+  assert.equal(traza.cotizacion, null, "se cotizo un producto en borrador");
+  assert.equal(traza.pedido, null, "se creo un pedido de un producto en borrador");
+  assert.equal(traza.enviada, false, "en modo sombra no sale nada");
+
+  // Ni una cifra en el texto. El mensaje de la clienta era "cuanto vale?",
+  // que es justo el hueco donde un modelo rellena con un precio plausible.
+  // Por eso este caso lo redacta el texto determinista y no la IA.
+  const texto = traza.respuesta.texto || "";
+  assert.ok(texto.length > 0, "contestar con un texto vacio es dejar a la clienta sin respuesta");
+  assert.equal(/\$|\d{3,}/.test(texto), false, `el texto insinua un importe: ${texto}`);
+
+  // Y lo que SI se conserva: de que se estaba hablando.
   const conv = await repos.conversaciones.obtener("573001234567");
-  assert.equal(conv.productoId, null, "el producto inactivo se quedo pegado a la conversacion");
+  assert.equal(conv.productoId, "borrador-x", "se olvido el producto y el bot va a volver a preguntar");
+  assert.notEqual(conv.estado, "confirmado");
 });
 
 // --------------------------------------------------------------------------
