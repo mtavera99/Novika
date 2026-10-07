@@ -1,0 +1,21 @@
+# Secretos: NUNCA se suben. Las credenciales viven en el entorno (Render / Meta).
+.env
+.env.*
+!.env.example
+
+# Dependencias
+node_modules/
+
+# Datos en disco (conversaciones, diario de eventos, pedidos)
+data/
+*.jsonl
+*.roto-*
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+coverage/
+.nyc_output/
+tmp/
