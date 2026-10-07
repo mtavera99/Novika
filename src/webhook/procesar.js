@@ -24,6 +24,7 @@ const log = require("../log");
 const diario = require("../almacen/diario");
 const trabajo = require("../almacen/trabajo");
 const congelacion = require("../almacen/congelar");
+const atencionDeChat = require("../almacen/atencion");
 const aislamiento = require("../aislamiento");
 const metricas = require("../metricas");
 const { obtenerCerebro } = require("../cerebro");
@@ -116,6 +117,77 @@ async function manejarMensaje(evento) {
   if (!config.modoSombra && !config.respuestaAutomatica) {
     diario.anotar("sin_responder", { wamid: evento.wamid, motivo: "modo_sombra_apagado" });
     return { accion: "registrado", respondido: false };
+  }
+
+  // --------------------------------------------------------------------
+  // LISTA BLANCA DE PRUEBA
+  //
+  // Si hay numeros en NUMEROS_DE_PRUEBA, solo ellos reciben respuesta del
+  // bot. Existe porque probar en produccion y abrir al publico eran la
+  // misma palanca: encender RESPUESTA_AUTOMATICA le contestaba a
+  // cualquiera que escribiera.
+  //
+  // Al cliente que no esta en la lista NO se le ignora: su mensaje queda
+  // en el diario y en la conversacion, asi que aparece en el panel como
+  // pendiente y una persona puede contestarle. Descartarlo seria perder
+  // una venta en silencio durante la prueba.
+  //
+  // Va DESPUES de anotar el mensaje en el diario -la evidencia se guarda
+  // siempre- y ANTES de llamar al cerebro, que es lo que redacta.
+  // --------------------------------------------------------------------
+  if (config.numerosDePrueba.length) {
+    const quien = String(evento.telefono || evento.idCliente || "").replace(/\D/g, "");
+    // Se compara por el final: WhatsApp entrega 573001112233 y en Render es
+    // facil escribir 3001112233. Comparar por igualdad exacta haria que la
+    // lista no funcionara por un prefijo, y eso se diagnostica muy mal.
+    const estaEnLaLista = config.numerosDePrueba.some(
+      (n) => quien === n || quien.endsWith(n) || n.endsWith(quien)
+    );
+
+    if (!estaEnLaLista) {
+      metricas.incrementar("fuera_de_la_lista_de_prueba");
+      diario.anotar("fuera_de_la_lista_de_prueba", {
+        wamid: evento.wamid,
+        idCliente: evento.idCliente,
+        telefono: evento.telefono,
+        texto: evento.texto,
+        detalle: "NUMEROS_DE_PRUEBA esta puesta y este numero no esta. El bot no contesta.",
+      });
+      // A nivel de error a proposito: durante una prueba, un cliente de
+      // verdad escribiendo es algo que una persona TIENE que ver.
+      log.error("cliente_fuera_de_la_lista_de_prueba", {
+        wamid: evento.wamid,
+        detalle:
+          "Un cliente escribio mientras NUMEROS_DE_PRUEBA esta puesta. El bot no le contesto. " +
+          "Esta en el panel, en Pendientes: contestale a mano o quita la lista para abrir al publico.",
+      });
+
+      // Se deja en la conversacion para que el panel lo vea.
+      try {
+        const { repos } = (await obtenerCerebro())._piezas();
+        const id = evento.idCliente;
+        const conv = (await repos.conversaciones.obtener(id)) || {
+          contactoId: id,
+          estado: "nuevo",
+          ficha: {},
+        };
+        if (!(await repos.contactos.obtener(id))) {
+          await repos.contactos.guardar({ id, telefono: evento.telefono || id });
+        }
+        atencionDeChat.anotarMensaje(conv, {
+          de: atencionDeChat.QUIEN.CLIENTE,
+          texto: evento.texto || "",
+          wamid: evento.wamid,
+        });
+        await repos.conversaciones.guardar(conv);
+      } catch (e) {
+        // Si no se puede guardar, el mensaje sigue en el diario. Se dice,
+        // pero no se convierte en un fallo del turno.
+        log.error("no_se_pudo_guardar_fuera_de_lista", { detalle: e.message });
+      }
+
+      return { accion: "fuera_de_la_lista_de_prueba", respondido: false };
+    }
   }
 
   try {

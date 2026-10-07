@@ -97,6 +97,12 @@ function crearApp() {
       // para siempre. Eso es correcto -no salio- y no cambia al encenderlo.
       // --------------------------------------------------------------------
       panel_envio_manual: config.panelEnvioManual, // false -> el PANEL no envia
+      // CUANTOS numeros hay en la lista de prueba, no cuales: un telefono
+      // es un dato de una persona y esto es publico. 0 = sin restriccion,
+      // el bot atenderia a cualquiera (si respuesta_automatica esta en
+      // true). Se publica porque es la diferencia entre "estamos probando"
+      // y "estamos abiertos al publico", y eso tiene que verse.
+      numeros_de_prueba: config.numerosDePrueba.length,
       filtro_de_numero: config.idNumero ? "activo" : "inactivo",
 
       // Comprobado, no deducido de la variable de entorno. Si dice "efimera",
