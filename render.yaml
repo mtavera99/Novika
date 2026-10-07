@@ -1,0 +1,71 @@
+# ==========================================================================
+# Despliegue de NOVIKA en Render
+#
+# Servicio, disco y variables propios de NOVIKA. Nada compartido con ningun
+# otro proyecto: ni el servicio, ni el disco, ni las variables.
+#
+# Las variables marcadas con sync:false NO se escriben aqui: Render las pide
+# en el panel la primera vez. Este archivo es publico; los secretos no.
+#
+# Para usarlo: Render -> New -> Blueprint -> apuntar a este repositorio.
+# ==========================================================================
+
+services:
+  - type: web
+    name: novika-bot
+    runtime: node
+    plan: starter # El plan gratuito duerme, y despertar tarda ~50 s: el
+                  # primer mensaje del cliente se pierde. Son los 7 USD mas
+                  # rentables del proyecto.
+    region: oregon
+    branch: main
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+
+    disk:
+      # Sin disco, cada despliegue borra el diario de eventos y la memoria de
+      # ids ya vistos. Disco propio de NOVIKA, no compartido.
+      name: novika-datos
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+
+      - key: DATA_DIR
+        value: /var/data
+
+      - key: GRAPH_VERSION
+        value: v21.0
+
+      - key: ZONA_HORARIA
+        value: America/Bogota
+
+      - key: LOG_NIVEL
+        value: info
+
+      - key: LOG_PII
+        value: "0"
+
+      # Interruptor maestro. En 0, NOVIKA recibe y registra pero no le
+      # escribe a nadie. Se enciende cuando haya guion comercial aprobado.
+      - key: RESPUESTA_AUTOMATICA
+        value: "0"
+
+      # --- Secretos: se introducen en el panel de Render, no aqui ---
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_WABA_ID
+        sync: false
+      - key: PANEL_TOKEN
+        sync: false
+      - key: OWNER_WHATSAPP
+        sync: false

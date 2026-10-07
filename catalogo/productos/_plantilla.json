@@ -1,0 +1,74 @@
+{
+  "_LEEME": "Plantilla. Los archivos que empiezan por _ no entran al catalogo. Copia este archivo con el nombre del producto (ej: organizador-de-cocina.json), rellena los campos y deja activo en false hasta que no quede ningun pendiente. NO hay datos comerciales de ejemplo a proposito: un precio inventado que se cuela es un cobro incorrecto.",
+
+  "id": "pendiente-de-definir",
+  "nombre": "",
+  "nombreCorto": "",
+  "categoria": "",
+  "activo": false,
+
+  "aliases": [
+    {
+      "patron": "",
+      "confianza": "alta",
+      "senal": "como lo llama el cliente",
+      "_nota": "Usa raices, no palabras completas, para absorber erratas: 'organizad' cubre organizador/organizadores/organisador. Cierra las clases de caracteres para no capturar palabras ajenas. Si una palabra puede referirse a dos productos del catalogo, NO es un alias de ninguno."
+    }
+  ],
+
+  "descripcionAutorizada": "",
+  "caracteristicasAutorizadas": [],
+
+  "datosConfirmados": {
+    "_ejemplo_de_forma": {
+      "preguntas": ["como pregunta el cliente por este dato"],
+      "respuesta": "la respuesta literal aprobada, palabra por palabra"
+    }
+  },
+  "sinDatoConfirmado": [],
+  "_nota_datos": "datosConfirmados = lo que el bot PUEDE afirmar. sinDatoConfirmado = terminos que obligan a 'te lo confirmo'. Si una frase toca los dos, gana la duda.",
+
+  "motorDePrecio": "tabla",
+  "precios": {},
+  "_nota_precios": "cantidad -> precio TOTAL en pesos, entero, sin puntos ni decimales. Una cantidad que no este en la tabla no se interpola: se escala a una persona. Interpolar es inventar una politica de mayoreo que nadie aprobo.",
+
+  "ofertaPrincipal": "",
+  "promociones": [],
+
+  "variantes": [
+    {
+      "clave": "",
+      "etiqueta": "",
+      "obligatoria": false,
+      "opciones": [],
+      "_nota": "Generico a proposito: talla, color, voltaje, aroma, capacidad. Si es obligatoria, el pedido no se puede cerrar sin ella."
+    }
+  ],
+
+  "logistica": {
+    "pesoGr": null,
+    "dimensionesCm": { "largo": null, "ancho": null, "alto": null },
+    "politicaEnvio": {
+      "tipo": "",
+      "hastaUnidades": null,
+      "provisional": true,
+      "porQue": "",
+      "noHeredar": [],
+      "revisarCuando": "",
+      "_nota": "noHeredar lista las politicas de OTROS productos que este nunca debe usar. Es el candado contra que un articulo voluminoso herede la tarifa de un accesorio pequeno. provisional + revisarCuando obligan a poner fecha a una decision tomada con informacion incompleta."
+    }
+  },
+
+  "faq": [],
+  "garantia": "",
+  "restricciones": [],
+
+  "pendientes": [
+    "definir precios",
+    "definir politica de envio",
+    "definir descripcion y caracteristicas autorizadas",
+    "definir garantia",
+    "definir variantes"
+  ],
+  "_nota_pendientes": "Mientras haya pendientes, el producto NO puede ponerse activo: la validacion lo rechaza. Es el candado que impide vender algo cuyos datos todavia no estan definidos."
+}
