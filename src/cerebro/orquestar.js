@@ -50,6 +50,7 @@ const responder = require("./responder");
 const { enSerie } = require("../almacen/mutex");
 const { PERMISOS } = require("../whatsapp/enviar");
 const atencionDeChat = require("../almacen/atencion");
+const fotos = require("../whatsapp/fotos");
 
 /** Datos del destinatario que se piden siempre. */
 const REQUERIDOS_BASE = ["nombre", "telefono", "ciudad", "direccion"];
@@ -367,12 +368,39 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // habria dado el producto por bueno en la conversacion. Mejor no llegar
     // ahi: si no esta activo, es como si no existiera.
     const candidato = conversacion.productoId ? catalogo.porId.get(conversacion.productoId) || null : null;
+    // `producto` es el que se puede VENDER: solo si esta activo. Es el que
+    // llega al cotizador y al pedido.
     const producto = candidato && candidato.activo === true ? candidato : null;
 
+    // ------------------------------------------------------------------
+    // UN BORRADOR SE RECONOCE, PERO NO SE VENDE
+    //
+    // Antes esto hacia `conversacion.productoId = null` y volvia a
+    // preguntar que producto queria. Con el unico producto en borrador, el
+    // cliente escribia "fotos del cinturon" y el bot le preguntaba cual
+    // producto. En cada mensaje. En bucle.
+    //
+    // Era un error de concepto: olvidar lo que el cliente dijo porque
+    // todavia no se le puede cotizar. Son dos cosas distintas, y ahora se
+    // guardan aparte:
+    //
+    //   `producto`  -> se puede vender (activo). Va al cotizador.
+    //   `candidato` -> se sabe de que habla. Sirve para contestarle con
+    //                  sentido y para mandarle las fotos.
+    //
+    // La identificacion se CONSERVA, asi que la conversacion avanza: el
+    // bot dice que todavia no puede dar el precio, en vez de preguntar lo
+    // que el cliente ya respondio.
+    //
+    // Lo que impide venderlo sigue siendo duro y no depende de esto:
+    // `cotizar()` se niega con "el producto no esta activo", y sin
+    // cotizacion no hay pedido.
+    // ------------------------------------------------------------------
     if (candidato && !producto) {
-      conversacion.productoId = null; // vuelve a DESCONOCIDO: se preguntara
-      traza.avisos.push(`el producto "${candidato.id}" no esta activo: no se puede ofrecer`);
-      contar("producto_desconocido");
+      traza.avisos.push(
+        `el producto "${candidato.id}" esta en borrador: se reconoce y se puede mostrar, pero no se puede cotizar`
+      );
+      contar("producto_en_borrador");
     }
 
     // ------------------------------------------------------------------
@@ -449,7 +477,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       }
     } else {
       // Flujo normal: identificar, cotizar, pedir lo que falte.
-      const r = avanzarVenta({ conversacion, producto, resolucion });
+      const r = avanzarVenta({ conversacion, producto, resolucion, candidato });
       situacion = r.situacion;
       estadoDestino = r.estadoDestino;
       traza.cotizacion = r.cotizacion;
@@ -480,7 +508,16 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         return (p && (p.nombreCorto || p.nombre)) || id;
       }),
       pedido: traza.pedido,
-      producto,
+      // El CANDIDATO, no solo el activo. Dos razones:
+      //
+      //   - con el producto en borrador, `producto` es null y el texto
+      //     saldria sin nombre y sin mencionar las fotos que SI se mandan.
+      //     El bot mandaria cinco imagenes sin anunciarlas.
+      //   - `revisarClaims` compara el texto contra `claimsProhibidos` del
+      //     producto, y esa lista SI esta llena en el borrador. Con null no
+      //     se revisaba ninguno, y es un producto que se compra por dolor:
+      //     el riesgo no es exagerar el precio, es prometer algo medico.
+      producto: producto || candidato,
       borradorIA: analisis ? analisis.borradorRespuesta : null,
     });
 
@@ -503,6 +540,54 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       });
       traza.enviada = envio.enviado === true;
       traza.bloqueoDeEnvio = envio.bloqueado ? envio.motivo : null;
+    }
+
+    // ------------------------------------------------------------------
+    // LAS FOTOS DEL PRODUCTO
+    //
+    // Van DESPUES del texto, y a proposito: el texto dice "te muestro las
+    // fotos", asi que primero llega la frase y luego las imagenes. Al
+    // reves, el cliente ve cinco fotos sin contexto.
+    //
+    // Se mandan cuando se SABE de que producto habla, aunque ese producto
+    // este en borrador: una foto no afirma un precio ni una
+    // caracteristica, asi que es lo unico de la conversacion que no
+    // depende de la ficha.
+    //
+    // Todos los candados estan en enviarFotosDeProducto y en el emisor:
+    // interruptor, pausa del chat, formato de la imagen, y la guarda para
+    // no repetirlas. Aqui solo se decide CUANDO tiene sentido ofrecerlas.
+    // ------------------------------------------------------------------
+    const productoParaFotos = producto || candidato;
+    if (
+      emisor &&
+      config.respuestaAutomatica &&
+      productoParaFotos &&
+      (productoParaFotos.imagenes || []).length &&
+      // Solo si el texto las menciona o el cliente las pidio. Mandar fotos
+      // en medio de una captura de datos interrumpe el hilo.
+      (situacion === "producto_en_borrador" || situacion === "cotizacion")
+    ) {
+      const informeFotos = await fotos.enviarFotosDeProducto({
+        emisor,
+        repos,
+        producto: productoParaFotos,
+        conversacion,
+        para: evento.telefono || evento.idCliente,
+        permiso: PERMISOS.CONVERSACION,
+        pie: "",
+      });
+      traza.fotos = {
+        enviadas: informeFotos.enviadas,
+        de: informeFotos.cuantas,
+        repetido: informeFotos.repetido,
+        problemas: informeFotos.problemas,
+      };
+      // Si el texto prometia fotos y no salio ninguna, hay que verlo: el
+      // cliente se quedo esperando.
+      if (informeFotos.enviadas === 0 && !informeFotos.repetido) {
+        traza.avisos.push(`se anunciaron fotos y no salio ninguna: ${informeFotos.problemas.join("; ")}`);
+      }
     }
 
     // ------------------------------------------------------------------
@@ -573,10 +658,22 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
   // Sub-acciones
   // ----------------------------------------------------------------------
 
-  function avanzarVenta({ conversacion, producto, resolucion }) {
+  function avanzarVenta({ conversacion, producto, resolucion, candidato = null }) {
     if (resolucion.ambiguo) {
       return { situacion: "producto_ambiguo", estadoDestino: estados.ESTADOS.EXPLORANDO, cotizacion: null, faltan: [] };
     }
+
+    // Se sabe que producto es, pero esta en borrador: no se puede cotizar y
+    // NO se vuelve a preguntar. Se explica.
+    if (!producto && candidato) {
+      return {
+        situacion: "producto_en_borrador",
+        estadoDestino: estados.ESTADOS.PRODUCTO_IDENTIFICADO,
+        cotizacion: null,
+        faltan: [],
+      };
+    }
+
     if (!producto) {
       return { situacion: "producto_desconocido", estadoDestino: estados.ESTADOS.EXPLORANDO, cotizacion: null, faltan: [] };
     }
