@@ -422,3 +422,103 @@ describe("6 · las formas naturales de preguntar, reconocidas", () => {
     assert.equal(r.compra, true);
   });
 });
+
+// --------------------------------------------------------------------------
+// 7 · COMO ESCRIBE LA GENTE DE VERDAD
+//
+// Marco preguntó «¿qué le preguntamos?». En vez de darle una lista a ciegas
+// se pasó una batería de 88 frases reales —los temas que BIKERPRO midió
+// sobre 6.317 conversaciones, más las variantes colombianas, las erratas de
+// dedo y el dictado de voz—. Fallaban 29.
+//
+// Y el patrón es SIEMPRE el mismo: el detector conocía UNA forma de la
+// palabra y el cliente usa otra. «costó» frente a «cuesta». «llegaría»
+// frente a «llega». «bale» frente a «vale». «carito» frente a «caro».
+//
+// Por eso esta batería existe: no para probar una frase, sino para que la
+// FORMA de la frase deje de ser el motivo de perder una venta.
+// --------------------------------------------------------------------------
+
+describe("7 · las erratas, el imperativo y los diminutivos", () => {
+  test("«cuanto bale» es preguntar el precio (la b por la v)", () => {
+    // De las erratas más comunes en Colombia, y cae sobre LA pregunta que
+    // más se hace. Perderla por una letra es perder la venta entera.
+    for (const frase of ["cuanto bale", "cuanto balen 2", "kuanto cuesta", "kuanto kuestan 2"]) {
+      const r = preguntas.leer(frase);
+      assert.ok(r.temas.includes(TEMAS.PRECIO), `no reconoció el precio: ${frase}`);
+    }
+  });
+
+  test("y si pregunta por DOS con errata, se cotiza por dos", () => {
+    // Si el precio se reconoce pero la cantidad no, se contesta el precio
+    // de UNA a una pregunta por DOS: el defecto del PR #2, por la puerta de
+    // atrás.
+    for (const frase of ["cuanto balen 2", "kuanto kuestan 2", "y el par?"]) {
+      assert.equal(preguntas.leer(frase).cantidadPreguntada, 2, `perdió la cantidad: ${frase}`);
+    }
+  });
+
+  test("el IMPERATIVO es comprar: «deme 2», «mándeme uno»", () => {
+    // Es como se compra hablando. La lista solo tenía "quiero/llevo/compro".
+    for (const frase of ["deme 2", "mandeme uno", "regaleme uno", "necesito uno", "si quiero"]) {
+      assert.equal(preguntas.leer(frase).compra, true, `no vio la compra: ${frase}`);
+    }
+  });
+
+  test("«está carito» es una objeción: el diminutivo suaviza, no cambia el tema", () => {
+    // Quien dice "carito" no quiere pelear el precio: quiere una razón.
+    for (const frase of ["esta carito", "muy carito", "no tengo plata ahora"]) {
+      const r = preguntas.leer(frase);
+      assert.ok(
+        r.temas.includes(TEMAS.OBJECION_PRECIO),
+        `no reconoció la objeción: ${frase}`
+      );
+    }
+  });
+
+  test("«tas ahi?» y «q tal» son saludos: no se dejan sin respuesta", () => {
+    for (const frase of ["tas ahi?", "q tal", "hay alguien?"]) {
+      const r = preguntas.leer(frase);
+      assert.equal(r.saludo, true, `no lo leyó como saludo: ${frase}`);
+    }
+  });
+
+  test("«mas info» es pedir información, y no se le piden datos", () => {
+    const r = preguntas.leer("mas info");
+    assert.equal(r.pideInformacion, true);
+
+    const t = responde("mas info");
+    assert.match(t, /49\.900/, `no presentó el producto: ${t}`);
+    assert.equal(/me pasas/i.test(t), false, `le pidió datos a quien pidió información: ${t}`);
+  });
+
+  test("«dsps le escribo» se lo está pensando: no se insiste", () => {
+    const r = preguntas.leer("dsps le escribo");
+    assert.equal(r.seLoPiensa, true);
+
+    const t = responde("dsps le escribo");
+    assert.equal(/me pasas|nombre completo/i.test(t), false, `insistió con los datos: ${t}`);
+    assert.match(t, /aquí estoy|sin afán/i, t);
+  });
+
+  test("y ninguna de las formas nuevas promete nada que no sea verdad", () => {
+    const producto = elCinturon();
+    for (const frase of [
+      "cuanto bale",
+      "deme 2",
+      "esta carito",
+      "mas info",
+      "dsps le escribo",
+      "tas ahi?",
+      "no sera estafa?",
+      "se paga al recibir?",
+      "llega el lunes?",
+      "como hago el pedido",
+    ]) {
+      const t = responde(frase);
+      const claims = responder.revisarClaims(t, producto);
+      assert.equal(claims.ok, true, `${frase}: ${JSON.stringify(claims.encontrados)} -> ${t}`);
+      assert.ok(t.trim().length > 10, `respuesta vacía a "${frase}"`);
+    }
+  });
+});

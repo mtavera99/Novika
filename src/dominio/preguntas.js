@@ -111,6 +111,12 @@ const PATRONES = [
   [TEMAS.OBJECION_PRECIO, /\bcar[ií]sim[oa]s?\b/],
   [TEMAS.OBJECION_PRECIO, /\bcostos[oa]s?\b/],
   [TEMAS.OBJECION_PRECIO, /\bno\s+me\s+alcanza\b/],
+  // EL DIMINUTIVO. "Esta carito" es la forma SUAVE de decir que es caro, y
+  // es la que mas se usa: quien dice "carito" no quiere pelear el precio,
+  // quiere que le den una razon. Caia en el camino generico.
+  [TEMAS.OBJECION_PRECIO, /\bcar(ito|ita|itos|itas)\b/],
+  [TEMAS.OBJECION_PRECIO, /\bno\s+tengo\s+(plata|dinero|efectivo)\b/],
+  [TEMAS.OBJECION_PRECIO, /\bestoy\s+(corta|corto)\s+de\s+plata\b/],
   [TEMAS.OBJECION_PRECIO, /\bno\s+tengo\s+(tanto|esa\s+plata)\b/],
   [TEMAS.OBJECION_PRECIO, /\bes\s+mucha\s+plata\b/],
   [TEMAS.OBJECION_PRECIO, /\bes\s+mucho\b(?!\s+(tiempo|rato))/],
@@ -349,6 +355,12 @@ const SENALES_DE_COMPRA = [
   /\bcomo\s+(hago|hacer|se\s+hace|realizo)\s+(el\s+|un\s+)?(pedido|la\s+compra)\b/,
   /\bcomo\s+(compro|comprar|lo\s+compro|lo\s+pido|pido)\b/,
   /\bcomo\s+hago\s+para\s+(comprar|pedir|que\s+me\s+llegue)\b/,
+  // EL IMPERATIVO. "Deme 2", "mándeme uno", "regáleme uno" es como se
+  // compra hablando en Colombia, y no se reconocia: la lista solo tenia
+  // "quiero/llevo/compro". Quien escribe "deme 2" ya decidio.
+  /\b(deme|dame|demel[oa]|damel[oa]|mandeme|mandame|mandemel[oa]|envieme|enviame|regaleme|regalame|separeme|separame|apunteme|anoteme)\b/,
+  /\bnecesito\s+(\d{1,2}|un|uno|una|dos|tres|cuatro)\b/,
+  /^\s*si\s*[,.]?\s*(lo\s+|la\s+|los\s+|las\s+)?quiero\b/,
   /\b(quiero|llevo|dame|mandame|enviame)\s+(los|las)\s+dos\b/,
   // El DIGITO tambien: "quiero 2 unidades" no se leia como compra porque
   // esto solo cubria los numeros escritos con letras.
@@ -409,7 +421,13 @@ const SENALES_DEBILES = [
 // --------------------------------------------------------------------------
 const UNIDADES_CONSULTADAS = [
   // "que valen dos", "cuanto cuestan 2", "cuanto sale el par", "precio de 3"
-  /\b(?:vale|valen|cuesta|cuestan|sale|salen|saldria|saldrian|seria|serian|precio\s+de|por|como)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\b/,
+  // Con las erratas de dedo, igual que la lista de `texto.js`: si ahi se
+  // reconoce "cuanto balen 2" como pregunta de precio pero aqui no se saca
+  // el 2, se contesta el precio de UNA a una pregunta por DOS — que es
+  // justo el defecto que el PR #2 arreglo.
+  /\b(?:vale|valen|bale|balen|cuesta|cuestan|kuesta|kuestan|sale|salen|saldria|saldrian|seria|serian|precio\s+de|por|como)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\b/,
+  // "¿y el par?" a secas.
+  /^\s*y\s+(?:el\s+(par)|(?:los|las)\s+(dos))\s*\??\s*$/,
   // "y las dos", "los dos", "el par"
   /\b(?:las|los)\s+(dos|tres|cuatro)\b/,
   /\bel\s+(par)\b/,
@@ -608,6 +626,9 @@ const PIDE_INFORMACION = [
   /\b(quiero|quisiera|necesito|me\s+gustaria|podrias?\s+darme|me\s+das|mandame|me\s+puedes?\s+dar)\s+(mas\s+)?(informacion|info|detalles|datos)\b/,
   /\b(mas\s+)?(informacion|info)\s+(sobre|del|de\s+la|acerca)\b/,
   /^\s*(informacion|info)\b/,
+  // "mas info" a secas. El patron de arriba exigia "sobre/del/acerca"
+  // detras, y el otro que empiece el mensaje.
+  /\b(mas|otra)\s+(info|informacion)\b/,
   /\bcuentame\s+(mas|sobre|del|de)\b/,
   /\bque\s+me\s+(puedes?|podrias?)\s+(decir|contar)\b/,
   /\bme\s+explicas?\b/,
@@ -673,7 +694,7 @@ const SOLO_AGRADECE = [
  */
 const SE_LO_PIENSA = [
   /\bahi\s+(le|te)\s+aviso\b/,
-  /\b(luego|despues|mas\s+tarde)\s+(le|te)\s+(aviso|escribo|digo|confirmo)\b/,
+  /\b(luego|despues|dsps|desp|mas\s+tarde|ahorita)\s+(le|te)\s+(aviso|escribo|digo|confirmo|hablo)\b/,
   /\blo\s+(voy\s+a\s+pensar|pienso|consulto)\b/,
   /\bdejame\s+pensarlo\b/,
   /\bcuando\s+(pueda|cobre|me\s+paguen|tenga)\b/,
@@ -683,6 +704,11 @@ const SE_LO_PIENSA = [
 /** Saludos puros: no preguntan nada. */
 const SALUDOS = [
   /^(hola|buenas|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|que\s+tal|saludos|buen\s+dia)\b/,
+  // Abreviados y el "¿hay alguien?". Un "tas ahi?" sin respuesta es la
+  // forma mas rapida de perder a alguien que ya estaba escribiendo.
+  /^(q\s*tal|qtal|ola|alo|aloo)\b/,
+  /^(tas|stas|estas|esta|hay)\s+(ahi|alguien|por\s+ahi)\b/,
+  /^(buen[ao]s?)\s*[?!.]*$/,
 ];
 
 /**

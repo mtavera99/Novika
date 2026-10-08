@@ -187,7 +187,14 @@ function pideFotos(texto) {
 // ==========================================================================
 const PREGUNTA_PRECIO = [
   // "cuanto vale", "cuanto valen", "cuantos cuestan", "cuanto me salen dos".
-  /\b(cuanto|cuantos|cuantas)\s+(me\s+|te\s+|le\s+)?(vale|valen|cuesta|cuestan|sale|salen|saldria|saldrian|seria|serian|es|son)\b/,
+  // Con las ERRATAS DE DEDO que de verdad llegan por WhatsApp: la b por la
+  // v -"cuanto bale" es de las mas comunes en Colombia- y la k por la c.
+  // No es un capricho ortografico: es LA pregunta que mas se hace, y
+  // perderla por una letra es perder la venta entera.
+  /\b(cuanto|cuantos|cuantas|kuanto|kuantos)\s+(me\s+|te\s+|le\s+)?(vale|valen|bale|balen|cuesta|cuestan|kuesta|kuestan|sale|salen|saldria|saldrian|seria|serian|es|son)\b/,
+  // "¿y el par?", "¿y los dos?": preguntar el precio del combo sin nombrar
+  // el verbo. Va anclado para no confundirlo con "me llevo los dos".
+  /^\s*y\s+(el\s+par|los\s+dos|las\s+dos|por\s+dos)\s*\??\s*$/,
   // "¿en cuánto me lo deja?" es precio. "¿EN CUÁNTO ME LLEGARÍA?" es el
   // plazo de entrega, y sin el lookahead caia aqui: el bot le contestaba el
   // PRECIO a quien preguntaba cuándo le llega.
