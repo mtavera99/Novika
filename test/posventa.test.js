@@ -51,6 +51,21 @@ const atencion = require("../src/almacen/atencion");
 const RAIZ = path.join(__dirname, "..");
 const CLIENTE = "573001234567";
 
+// --------------------------------------------------------------------------
+// UN WAMID QUE NO PUEDE COLISIONAR
+//
+// Estaba construido con `Date.now()` y un contador por conversacion, y eso
+// produjo un fallo INTERMITENTE: dos pruebas distintas que arrancan en el
+// mismo milisegundo generan el mismo wamid, y el deduplicador -que hace
+// bien su trabajo- descarta el segundo mensaje. La prueba fallaba una vez
+// cada tantas corridas sin que nada estuviera mal en el codigo.
+//
+// Una prueba intermitente es peor que ninguna: enseña a volver a correrla
+// en vez de a leer el fallo. El contador es de modulo y es unico.
+// --------------------------------------------------------------------------
+let SECUENCIA = 0;
+const wamidUnico = (prefijo) => `wamid.${prefijo}${++SECUENCIA}_${process.pid}`;
+
 /** Conversacion contra el catalogo real, con emisor espia. */
 async function conversacion() {
   mutex._reiniciar();
@@ -87,7 +102,7 @@ async function conversacion() {
     salidas.length = 0;
     const traza = await cerebro.procesar({
       clase: "mensaje",
-      wamid: `wamid.PV${Date.now()}_${n}`,
+      wamid: wamidUnico("PV"),
       idCliente: CLIENTE,
       telefono: CLIENTE,
       nombre: "Marco",
@@ -123,7 +138,9 @@ describe("1 · el caso exacto de la captura", () => {
     const r = await c.dice("Ese tiene garantia?");
     assert.equal(r.traza.respuesta.situacion, "ya_confirmado", "el estado sigue blindado, como debe");
     assert.match(r.texto, /garantía/i, `no respondió la duda: ${r.texto}`);
-    assert.match(r.texto, /confirmo/i, "tiene que admitir que no la tiene confirmada");
+    // Desde el 2026-10-07 la garantia esta confirmada: 1 mes. Antes esta
+    // asercion pedia que el bot admitiera no tenerla, y eso ya no aplica.
+    assert.match(r.texto, /1 mes/, `no dijo el plazo confirmado: ${r.texto}`);
   });
 
   test("y NO contesta solo con el número de pedido", async () => {
