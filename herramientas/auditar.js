@@ -359,7 +359,28 @@ function auditar(conv, susPedidos, acuses) {
     porContacto.set(p.contactoId, l);
   }
 
-  const desdeTs = DESDE ? new Date(`${DESDE}T00:00:00.000Z`).getTime() : null;
+  // ------------------------------------------------------------------
+  // UNA FECHA MAL ESCRITA NO PUEDE PASAR EN SILENCIO
+  //
+  // `new Date("basura")` da NaN, y NaN es falsy: el filtro lo trataba como
+  // "sin fecha" y auditaba TODO. Se comportaba bien por casualidad y sin
+  // decir nada, asi que quien pidio un rango creia tenerlo y estaba viendo
+  // el historico completo. En una auditoria eso es una conclusion
+  // equivocada con numeros detras.
+  // ------------------------------------------------------------------
+  let desdeTs = null;
+  if (DESDE) {
+    const limpio = /^\d{4}-\d{2}-\d{2}$/.test(DESDE) ? `${DESDE}T00:00:00.000Z` : DESDE;
+    const t = new Date(limpio).getTime();
+    if (Number.isFinite(t)) {
+      desdeTs = t;
+    } else {
+      console.log(
+        `  OJO: no entiendo la fecha "${DESDE}". Se ignora el filtro y se auditan TODAS\n` +
+          "  las conversaciones. El formato es AAAA-MM-DD, por ejemplo --desde=2026-10-01\n"
+      );
+    }
+  }
 
   const todos = todas.map((c) => auditar(c, porContacto.get(c.contactoId) || [], acuses));
 
@@ -383,7 +404,7 @@ function auditar(conv, susPedidos, acuses) {
   console.log("  RESUMEN");
   console.log(linea);
   console.log(`  conversaciones en el almacén        ${todas.length}`);
-  if (DESDE) console.log(`  empezadas desde ${DESDE}            ${enRango.length}`);
+  if (desdeTs) console.log(`  empezadas desde ${DESDE}            ${enRango.length}`);
   console.log(`  mis pruebas (excluidas del análisis) ${mias.length}` + (MIOS.size ? "" : "   ← no hay números de prueba configurados"));
   console.log(`  CLIENTES REALES                      ${reales.length}`);
 
