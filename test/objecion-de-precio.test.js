@@ -48,6 +48,19 @@ const elCinturon = () =>
 const cotizacionDe = (cantidad = 1) =>
   cotizador.cotizar({ producto: elCinturon(), cantidad }).cotizacion;
 
+/**
+ * Los importes que el bot PUEDE decir en un turno de objecion.
+ *
+ * Son los de la cantidad cotizada MAS los de la oferta de dos, porque la
+ * escalera ofrece la pareja con su precio. Las dos listas salen del
+ * cotizador, asi que el candado sigue cazando cualquier cifra que no haya
+ * calculado el: lo que se amplia es lo autorizado, no la guarda.
+ */
+const autorizadosConLaOferta = (producto, cantidad = 1) => [
+  ...cotizador.cotizar({ producto, cantidad }).cotizacion.importesAutorizados,
+  ...((contestar.ofertaDeDos(producto) || {}).importesAutorizados || []),
+];
+
 /** Las formas en que de verdad llega la objecion por WhatsApp. */
 const OBJECIONES = [
   "esta muy caro",
@@ -182,15 +195,44 @@ describe("2 · la respuesta recorre la escalera y nunca ofrece un descuento", ()
     assert.match(t, /si llevas dos/i, `no ofrecio la pareja: ${t}`);
   });
 
-  test("la respuesta a la objecion no nombra ninguna cifra", () => {
-    // El importe autorizado del turno es el de la cantidad cotizada. Colar
-    // aqui el de otra cantidad es justo lo que `revisarImportes` caza, asi
-    // que se ofrece pasar el precio de dos SIN escribirlo.
+  test("dice el precio de las dos, y sale del COTIZADOR", () => {
+    // Antes ofrecia "te paso el precio de las dos si quieres", sin cifra,
+    // porque el importe autorizado del turno era el de la cantidad
+    // cotizada. Marco lo autorizo expresamente -"ofrecerle las 2 unidades
+    // para que lleven dos y le salga mas barato... sale por 85.000"-, y una
+    // oferta con el precio puesto cierra; una que promete pasarlo obliga a
+    // un turno mas.
+    //
+    // Lo que esta prueba protege es que la cifra NO este escrita en el
+    // codigo: tiene que ser la que calcula el cotizador para dos unidades.
+    const producto = elCinturon();
+    const dos = cotizador.cotizar({ producto, cantidad: 2 }).cotizacion;
+
     const t = contestar.deTema(TEMAS.OBJECION_PRECIO, {
-      producto: elCinturon(),
+      producto,
       cotizacion: cotizacionDe(1),
     });
-    assert.equal(/\$|\d{3,}/.test(t), false, `metio una cifra en la respuesta a la objecion: ${t}`);
+
+    assert.match(t, /si llevas dos/i, t);
+    assert.ok(
+      t.includes(contestar.pesos(dos.total)),
+      `no dio el precio de dos que calcula el cotizador (${contestar.pesos(dos.total)}): ${t}`
+    );
+
+    // Y NINGUNA otra cifra: las unicas autorizadas son las del cotizador.
+    const importes = cotizador.revisarImportes(t, autorizadosConLaOferta(producto));
+    assert.equal(importes.ok, true, JSON.stringify(importes.sospechosos));
+  });
+
+  test("y la oferta de dos la decide la tabla, no el texto", () => {
+    // `ofertaDeDos` devuelve la cotizacion solo si la pareja CONVIENE.
+    const producto = elCinturon();
+    const dos = contestar.ofertaDeDos(producto);
+    assert.ok(dos, "con la tabla real la pareja conviene y debería haber oferta");
+    assert.equal(dos.cantidad, 2);
+
+    const una = cotizador.cotizar({ producto, cantidad: 1 }).cotizacion;
+    assert.ok(dos.total < una.total * 2, "la tabla real ya no premia llevar dos: revisar el guion");
   });
 
   test("NUNCA ofrece un descuento, ni rebaja, ni pago anticipado", () => {
@@ -243,7 +285,7 @@ describe("2 · la respuesta recorre la escalera y nunca ofrece un descuento", ()
         `claim prohibido ante "${mensajeCliente}": ${JSON.stringify(claims.encontrados)} -> ${texto}`
       );
 
-      const importes = cotizador.revisarImportes(texto, cot.importesAutorizados);
+      const importes = cotizador.revisarImportes(texto, autorizadosConLaOferta(producto));
       assert.equal(
         importes.ok,
         true,
@@ -445,12 +487,16 @@ describe("5 · ante una objecion, el modelo no redacta", () => {
       assert.equal(r.origen, "determinista", `dejo redactar al modelo: ${borradorIA}`);
       assert.notEqual(r.texto, borradorIA);
       // Y lo que de verdad importa: la cifra inventada no sale.
+      //
+      // El lookbehind NO es un adorno: sin el, `5\.000` casaba DENTRO de
+      // "$85.000" -el precio legitimo de las dos- y la prueba acusaba al
+      // bot de inventarse una cifra que habia calculado el cotizador.
       assert.equal(
-        /55\.900|45\.000|3\.000|5\.000/.test(r.texto),
+        /(?<![\d.])(55\.900|45\.000|3\.000|5\.000)\b/.test(r.texto),
         false,
         `se colo una cifra inventada: ${r.texto}`
       );
-      const importes = cotizador.revisarImportes(r.texto, cot.importesAutorizados);
+      const importes = cotizador.revisarImportes(r.texto, autorizadosConLaOferta(producto));
       assert.equal(importes.ok, true, `importe no autorizado: ${JSON.stringify(importes.sospechosos)}`);
     }
   });

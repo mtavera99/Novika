@@ -100,7 +100,18 @@ const CAMPOS_PEDIDO_CONOCIDOS = new Set([
   "id", "version", "estado", "claveDeEvento", "claveDeOferta", "contactoId", "conversacionId",
   "ofertaId", "wamidConfirmacion", "producto", "cantidad", "destinatario", "cotizacion",
   "firmaDeCondiciones", "origen", "revisiones", "historial", "creadoEn", "actualizadoEn",
-  "canceladoEn", "motivoCancelacion", "despacho", "novedades", "entrega",
+  "canceladoEn", "motivoCancelacion", "despacho", "novedades",
+  // ⚠️ `entrega` NO VA AQUI, Y ES A PROPOSITO.
+  //
+  // Al no estar, cae en `extra` y el pedido entregado se guarda y se lee
+  // igual EN CUALQUIER VERSION DEL ESQUEMA. Darle columna propia obliga a
+  // migrar antes de desplegar, y eso tumbo el servicio el 2026-10-08: la
+  // columna se exigio en `COLUMNAS_REQUERIDAS` sin que la 004 estuviera
+  // aplicada, `revisarEsquema` lanzo, y el panel se quedo sin un solo chat.
+  //
+  // Si algun dia hace falta sumar la caja EN SQL -y entonces si conviene la
+  // columna y su indice-, el orden es: migrar, comprobar, y despues añadirla
+  // aqui y a `COLUMNAS_REQUERIDAS`. Nunca en el mismo despliegue.
 ]);
 
 /**
@@ -178,7 +189,6 @@ function pedidoAFila(p) {
     cancelado_en: p.estado === "cancelado" ? p.canceladoEn || new Date().toISOString() : null,
     motivo_cancelacion: p.estado === "cancelado" ? p.motivoCancelacion || "sin motivo registrado" : null,
     despacho: p.despacho || null,
-    entrega: p.entrega || null,
     novedades: p.novedades || [],
     extra: sobrantes(p, CAMPOS_PEDIDO_CONOCIDOS),
   };
@@ -214,7 +224,6 @@ function filaAPedido(f, historial = []) {
     canceladoEn: aIso(f.cancelado_en),
     motivoCancelacion: f.motivo_cancelacion,
     despacho: f.despacho || null,
-    entrega: f.entrega || null,
     novedades: f.novedades || [],
   };
 }
@@ -268,12 +277,12 @@ const COLUMNAS_PEDIDO = [
   "origen", "revisiones", "creado_en", "actualizado_en", "cancelado_en", "motivo_cancelacion",
   // `guia` NO va aqui: es una columna GENERADA a partir de despacho->>'guia'
   // y PostgreSQL rechaza que se escriba. Existe solo para poder indexarla.
-  "despacho", "novedades", "entrega",
+  "despacho", "novedades",
   "extra",
 ];
 
 const JSONB_PEDIDO = new Set([
-  "variante", "destinatario", "cotizacion", "origen", "revisiones", "despacho", "novedades", "entrega", "extra",
+  "variante", "destinatario", "cotizacion", "origen", "revisiones", "despacho", "novedades", "extra",
 ]);
 
 function valoresDePedido(fila) {
@@ -765,5 +774,6 @@ module.exports = {
   pedidoAFila,
   filaAPedido,
   filaAConversacion,
+  COLUMNAS_PEDIDO,
   ESTADOS_MUERTOS,
 };

@@ -494,6 +494,21 @@ const INVITAR = "¿Quieres que te ayude a pedirlo? 🙌";
 const INVITAR_PLURAL = "¿Quieres que te ayude a pedirlos? 🙌";
 
 /**
+ * Los importes de la oferta de dos, para el filtro de importes.
+ *
+ * La respuesta a una objecion de precio ofrece la pareja CON SU PRECIO, y
+ * esa cifra sale del cotizador. Si no se autoriza, `revisarImportes`
+ * bloquearia el borrador del modelo por repetir un precio que el propio bot
+ * acaba de decir — y el bloqueo se registraria como "importe no
+ * autorizado", que es exactamente la alarma que NO debe sonar por algo
+ * correcto.
+ */
+function importesDeLaOfertaDeDos(producto) {
+  const dos = contestar.ofertaDeDos(producto);
+  return (dos && dos.importesAutorizados) || [];
+}
+
+/**
  * Que esta haciendo el cliente en este turno.
  *
  * Vive aqui y se exporta para que el cerebro y el texto usen LA MISMA
@@ -1413,9 +1428,16 @@ function preparar({
 
   // Los importes de la informativa tambien cuentan: si no, un borrador que
   // repite el precio correcto se bloquearia por decir la verdad.
+  //
+  // Y los de LA OFERTA DE DOS, por lo mismo. Ante una objecion de precio el
+  // texto determinista ofrece la pareja CON SU PRECIO -Marco lo autorizo-, y
+  // esa cifra sale del cotizador: sin autorizarla aqui, el candado
+  // bloquearia al modelo por repetir un precio que el propio bot acaba de
+  // decir.
   const autorizados = [
     ...((cotizacion && cotizacion.importesAutorizados) || []),
     ...((cotizacionInformativa && cotizacionInformativa.importesAutorizados) || []),
+    ...importesDeLaOfertaDeDos(producto),
   ];
   const importes = revisarImportes(borradorIA, autorizados);
   if (!importes.ok) {

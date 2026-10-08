@@ -59,23 +59,31 @@ function caracteristica(producto, re) {
 }
 
 /**
- * ¿Llevar DOS sale mejor que llevar una dos veces?
+ * La oferta de DOS, si de verdad conviene. Si no, `null`.
  *
  * Se le pregunta AL COTIZADOR, que es la unica fuente de importes de esta
- * casa. Aqui no se lee `producto.precios` ni se escribe ninguna cifra: solo
- * se compara, y lo que sale de la funcion es un si o un no.
+ * casa: aqui no se lee `producto.precios` ni se escribe ninguna cifra.
  *
- * Asi la frase de la segunda unidad se sostiene sola: si la tabla cambia y
- * la pareja deja de convenir -o si el producto no tiene precio para dos-,
- * esto devuelve `false` y el bot deja de ofrecerla sin que nadie se acuerde
- * de venir a borrar el texto.
+ * Y se COMPRUEBA que la pareja sale mejor que dos sueltas, en vez de darlo
+ * por hecho. Asi la frase se sostiene sola: si la tabla cambia y dos dejan
+ * de convenir -o si el producto no tiene precio para dos-, esto devuelve
+ * `null` y el bot deja de ofrecerla sin que nadie se acuerde de venir a
+ * borrar el texto.
+ *
+ * Devuelve LA COTIZACION ENTERA, no un si/no, porque Marco autorizo decir
+ * el precio: "lo que si podemos hacer es ofrecerle las 2 unidades para que
+ * lleven dos y le salga mas barato... sale por 85.000 pesos".
+ *
+ * ⚠️ Quien use esto tiene que llevar sus `importesAutorizados` al filtro de
+ * importes. Si no, el propio candado bloquea la cifra por decir la verdad.
  */
-function laParejaConviene(producto) {
-  if (!producto) return false;
+function ofertaDeDos(producto) {
+  if (!producto) return null;
   const una = cotizador.cotizar({ producto, cantidad: 1 });
   const dos = cotizador.cotizar({ producto, cantidad: 2 });
-  if (!una.cotizacion || !dos.cotizacion) return false;
-  return dos.cotizacion.total < una.cotizacion.total * 2;
+  if (!una.cotizacion || !dos.cotizacion) return null;
+  if (dos.cotizacion.total >= una.cotizacion.total * 2) return null;
+  return dos.cotizacion;
 }
 
 /** ¿El producto declara explicitamente que este tema NO esta confirmado? */
@@ -470,10 +478,22 @@ function deTema(tema, { producto = null, cotizacion = null, yaDijoLasCondiciones
         }
       }
 
-      if (laParejaConviene(producto)) {
+      // EL PASO MAS FUERTE, Y AHORA CON LA CIFRA.
+      //
+      // Decia "te paso el precio de las dos si quieres", sin el numero,
+      // porque el importe autorizado del turno era el de la cantidad
+      // cotizada. Marco lo autorizo expresamente -"ofrecerle las 2 unidades
+      // para que lleven dos y le salga mas barato... sale por 85.000"- y una
+      // oferta con el precio puesto cierra; una que promete pasarlo obliga a
+      // un turno mas y a que la clienta vuelva a preguntar.
+      //
+      // La cifra sale del COTIZADOR y sus importes se autorizan en
+      // `preparar`, igual que los de la cotizacion informativa.
+      const dos = ofertaDeDos(producto);
+      if (dos) {
         partes.push(
-          "si llevas dos, la pareja sale mejor que dos por separado: " +
-            "te paso el precio de las dos si quieres."
+          `si llevas dos, te quedan en ${pesos(dos.total)} las dos juntas, ` +
+            `que sale mejor que dos por separado.`
         );
       }
 
@@ -543,4 +563,4 @@ function aTemas(temas, contexto, { maximo = 2 } = {}) {
   return { texto: frases.join(" "), temas: respondidos };
 }
 
-module.exports = { deTema, aTemas, pesos, comoSeLlama, loConfirmo };
+module.exports = { deTema, aTemas, pesos, comoSeLlama, loConfirmo, ofertaDeDos };

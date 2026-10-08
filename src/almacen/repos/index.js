@@ -44,10 +44,32 @@ const TABLAS_REQUERIDAS = ["contactos", "conversaciones", "pedidos", "pedidos_hi
  * Solo se listan las que llegaron DESPUES de la 001. Las de la 001 no hace
  * falta: si falta una de ellas, es que la tabla no se creo, y eso ya se
  * detecta arriba.
+ *
+ * --------------------------------------------------------------------------
+ * ⚠️ AQUI SOLO VAN COLUMNAS QUE EL ADAPTADOR ESCRIBE. NADA MAS.
+ * --------------------------------------------------------------------------
+ *
+ * Esto tumbo el servicio entero el 2026-10-08. Se añadio `pedidos.entrega`
+ * a esta lista junto con la migracion 004, y la 004 NO estaba aplicada en
+ * produccion -las migraciones se aplican a mano, a proposito-. Entonces:
+ *
+ *   revisarEsquema lanza -> crearRepos lanza -> no hay cerebro ->
+ *   el panel se queda SIN UN SOLO CHAT y el webhook no procesa nada.
+ *
+ * Y desde fuera no se ve un error de esquema: se ve un panel vacio, que es
+ * indistinguible de haber perdido los datos. Marco lo reporto asi: "ni
+ * siquiera salen los chats de ayer".
+ *
+ * La leccion no es "no comprobar el esquema" -esta comprobacion es buena y
+ * se queda-: es que el codigo no debe EXIGIR una columna que no necesita
+ * para funcionar. `entrega` viaja en `extra`, asi que el adaptador no la
+ * escribe y no puede faltarle. Una columna solo entra en esta lista cuando
+ * el adaptador la escribe de verdad, y entonces desplegar antes de migrar
+ * SI es un error que conviene que sea ruidoso.
  */
 const COLUMNAS_REQUERIDAS = {
   conversaciones: ["atencion", "mensajes"], // 002
-  pedidos: ["despacho", "novedades", "entrega"], // 003 · 004
+  pedidos: ["despacho", "novedades"], // 003
 };
 
 /**
