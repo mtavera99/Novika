@@ -150,12 +150,34 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     // contorno exacto no lo tenemos.
     // ----------------------------------------------------------------------
     case TEMAS.MEDIDAS: {
-      const talla = caracteristica(producto, /talla/);
       const partes = [];
-      if (talla) partes.push(`${talla.charAt(0).toUpperCase()}${talla.slice(1)}.`);
-      partes.push(
-        "No tengo las medidas exactas del ajuste, así que no te quiero decir que sí sin estar segura: te lo confirmo con el equipo y te escribo."
-      );
+
+      // Lo que SI se sabe y es verificable: la correa es graduable. Marco lo
+      // confirmo y se ve en la foto 04. Esto ya desatasca la pregunta: antes
+      // la respuesta era "no tengo las medidas y te confirmo", que frena la
+      // venta en la duda mas frecuente del producto.
+      const ajuste = producto && producto.ajuste;
+      if (ajuste && ajuste.graduable) {
+        partes.push("La correa es graduable, así que se ajusta a distintas medidas.");
+      } else {
+        const talla = caracteristica(producto, /talla/);
+        if (talla) partes.push(`${talla.charAt(0).toUpperCase()}${talla.slice(1)}.`);
+      }
+
+      // Y LO QUE NO SE SABE SIGUE SIN DECIRSE. "Le queda a cualquiera" es
+      // una promesa que necesita un numero detras, y ese numero no existe
+      // todavia: nadie midio hasta que contorno llega la correa.
+      //
+      // Importa mas de lo que parece por como quedo la garantia: cubre
+      // defecto de fabrica, NO "no me quedo". Si se le promete a una
+      // clienta que le va a quedar y no le queda, no tiene garantia — y la
+      // queja seria justa, porque se lo dijimos nosotros.
+      if (!ajuste || !ajuste.contornoMaximoCm) {
+        partes.push("Si quieres, te confirmo el contorno máximo antes de que lo pidas.");
+      } else {
+        partes.push(`Ajusta hasta ${ajuste.contornoMaximoCm} cm de contorno.`);
+      }
+
       return partes.join(" ");
     }
 
@@ -170,7 +192,11 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     case TEMAS.GARANTIA: {
       const plazo = producto && producto.garantia;
       if (!plazo) return loConfirmo("La garantía", "la");
-      return `Tiene garantía de ${plazo}.`;
+      const cubre = producto.garantiaCubre;
+      // El plazo y QUE cubre. Las exclusiones no van aqui: ver la nota del
+      // catalogo. Abrir con "no cubre si lo mojas" enfria una venta que iba
+      // bien; cuando preguntan por el alcance, se dicen completas.
+      return cubre ? `Tiene garantía de ${plazo} por ${cubre}.` : `Tiene garantía de ${plazo}.`;
     }
 
     // ----------------------------------------------------------------------
@@ -181,11 +207,35 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     // "te lo cambiamos" es la promesa que nadie aprobo y la que acaba en
     // una discusion cuando el cliente la invoca.
     // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // EL TRAMITE Y EL ALCANCE: AQUI SI VAN LAS EXCLUSIONES
+    //
+    // Quien pregunta "¿qué cubre?" o "¿cómo la hago efectiva?" esta pidiendo
+    // justamente el limite. Contestarle solo lo bueno y dejar que descubra
+    // la exclusion el dia del reclamo es la forma de convertir una garantia
+    // en una discusion.
+    // ----------------------------------------------------------------------
     case TEMAS.GARANTIA_TRAMITE: {
       const plazo = producto && producto.garantia;
+      if (!plazo) return loConfirmo("La garantía", "la");
+
       const partes = [];
-      if (plazo) partes.push(`Tiene garantía de ${plazo}.`);
-      partes.push("Cómo se tramita te lo explica una persona del equipo, para no darte un dato equivocado.");
+      const cubre = producto.garantiaCubre;
+      partes.push(cubre ? `Tiene garantía de ${plazo} por ${cubre}.` : `Tiene garantía de ${plazo}.`);
+
+      const tramite = producto.garantiaComoSeTramita;
+      if (tramite) partes.push(`Si te llega con algún daño, ${tramite}.`);
+      else partes.push("Cómo se tramita te lo explica una persona del equipo.");
+
+      const noCubre = producto.garantiaNoCubre || [];
+      if (noCubre.length) {
+        const lista =
+          noCubre.length === 1
+            ? noCubre[0]
+            : `${noCubre.slice(0, -1).join(", ")} ni ${noCubre[noCubre.length - 1]}`;
+        partes.push(`No cubre ${lista}.`);
+      }
+
       return partes.join(" ");
     }
 
