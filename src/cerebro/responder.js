@@ -473,6 +473,8 @@ function textoDeterminista({
   datosAportados = [],
   ciudadConfirmada = null,
   datosDeEntrega = null,
+  cantidadSinTarifa = null,
+  fotosYaEnviadas = false,
 }) {
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
 
@@ -576,6 +578,26 @@ function textoDeterminista({
       const asumida = !cotizacion && Boolean(cotizacionInformativa);
 
       // ---- 2. RESPONDER LO QUE PREGUNTO ----
+      //
+      // PREGUNTA POR UNA CANTIDAD QUE NO TIENE TARIFA.
+      //
+      // La tabla cubre 1 y 2. A "¿cuánto cuestan tres?" esto contestaba
+      // "una unidad te queda en $49.900" — el precio de UNA a una pregunta
+      // por TRES. Es justo el error que no se puede cometer: la clienta
+      // puede leerlo como que tres le salen a 49.900.
+      //
+      // No se interpola -extrapolar el tercer escalon seria inventar un
+      // descuento que nadie aprobo- y tampoco se contesta por otra
+      // cantidad. Se dice que ese precio lo confirma una persona, y queda
+      // la tarea. Es la unica respuesta honesta que no pierde la venta.
+      if (cantidadSinTarifa) {
+        partes.push(
+          `el precio por ${voz.unidades(cantidadSinTarifa)} te lo confirmo con el equipo en un momento, ` +
+            `no quiero darte una cifra equivocada.`
+        );
+        return componer(partes, { emoji: null });
+      }
+
       if (preguntoComercial) {
         partes.push(cot ? lineaComercial(cot, producto, { asumida }) : contestar.loConfirmo("El precio", "lo"));
       }
@@ -588,6 +610,33 @@ function textoDeterminista({
       );
       const resto = contestar.aTemas(otros, { producto, cotizacion: cot }, { maximo: 2 });
       if (resto.texto) partes.push(resto.texto);
+
+      // ---- PIDIO FOTOS ----
+      //
+      // El tema FOTOS esta excluido de `aTemas` -las fotos se MANDAN, no se
+      // describen- y se quedaba sin frase ninguna. A "¿me mandas fotos?" el
+      // mensaje entero era su apertura:
+      //
+      //   clienta: "me mandas fotos?"
+      //   bot:     "¡Claro!"
+      //
+      // Y encima sin fotos, porque ya se habian mandado al saludar y la
+      // deduplicacion -con razon- no reenvia cinco imagenes. El resultado
+      // es un "¡Claro!" suelto que parece que el bot se colgo.
+      //
+      // La deduplicacion no se toca; lo que faltaba era decirlo.
+      //
+      // SOLO SI EL PRODUCTO TIENE IMAGENES. Prometer fotos que no existen
+      // deja al cliente esperando algo que no va a llegar, y es un candado
+      // que ya estaba probado: la prueba lo cazo en cuanto añadi la frase.
+      const tieneImagenes = Boolean(producto && (producto.imagenes || []).length);
+      if (lectura.temas.includes(preguntas.TEMAS.FOTOS) && tieneImagenes) {
+        partes.push(
+          fotosYaEnviadas
+            ? "te las mandé aquí arriba; si no te cargaron, dime y te las paso otra vez."
+            : "te paso las fotos para que lo veas bien."
+        );
+      }
 
       // Si no pregunto nada y todavia no sabe el precio, se le dice. Es la
       // primera cosa que querria saber.
@@ -818,6 +867,16 @@ function textoDeterminista({
       // Con un pedido de 1 confirmado, "¿que valen dos?" se contestaba con
       // el precio de una — o no se contestaba. `cotizacionInformativa` trae
       // la cotizacion de lo que pregunto, cuando el catalogo la tiene.
+      // Y si pregunta por una cantidad sin tarifa, se dice — nunca se
+      // contesta con el precio del pedido que ya tiene.
+      if (cantidadSinTarifa) {
+        partes.push(
+          `el precio por ${voz.unidades(cantidadSinTarifa)} te lo confirmo con el equipo en un momento, ` +
+            `no quiero darte una cifra equivocada.`
+        );
+        return componer(partes, { emoji: null });
+      }
+
       const respuesta = contestar.aTemas(
         lectura.temas,
         { producto, cotizacion: cotizacionInformativa || cotizacion },
@@ -1004,6 +1063,8 @@ function preparar({
   datosAportados = [],
   ciudadConfirmada = null,
   datosDeEntrega = null,
+  cantidadSinTarifa = null,
+  fotosYaEnviadas = false,
 }) {
   const determinista = textoDeterminista({
     situacion,
@@ -1019,6 +1080,8 @@ function preparar({
     datosAportados,
     ciudadConfirmada,
     datosDeEntrega,
+    cantidadSinTarifa,
+    fotosYaEnviadas,
   });
   const bloqueos = [];
 
@@ -1115,6 +1178,26 @@ function preparar({
     // Preguntas con respuesta en el catalogo.
     loQuePregunto.temas.length > 0 ||
     esComercial ||
+    // ------------------------------------------------------------------
+    // Y LA INTENCION DE COMPRA, que faltaba y es el peor sitio donde
+    // faltaba.
+    //
+    // "listo, lo quiero" no tiene ningun tema reconocido -no pregunta
+    // nada- asi que no estaba cubierto, y lo redactaba el modelo. Es el
+    // momento mas importante de la conversacion: el paso siguiente es
+    // pedir los datos que faltan, calculados contra la ficha.
+    //
+    // Se vio con el modelo activo, en los tres escenarios de venta:
+    //
+    //   clienta: "listo, lo quiero"
+    //   bot:     "Perfecto, actualizo tu dirección de entrega."
+    //
+    // No tiene sentido -no habia dirección que actualizar- y ademas no
+    // pide nada, asi que la venta se queda parada ahi. Que falten datos
+    // es un hecho del estado, no una opinion: lo sabe el codigo.
+    // ------------------------------------------------------------------
+    loQuePregunto.compra ||
+    loQuePregunto.quiereOtro ||
     // Momentos de la venta con texto propio y probado: el arranque, el
     // cuadro de confirmacion, el cierre. Son los que NO conviene improvisar.
     loQuePregunto.soloSaludo ||

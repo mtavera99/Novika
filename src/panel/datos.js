@@ -295,15 +295,57 @@ function cumple(fila, filtro) {
  * @param {string} [opciones.q]       busqueda por nombre, telefono o ciudad
  * @param {number} [opciones.pagina]  1 en adelante
  */
+// ==========================================================================
+// CUANTAS CONVERSACIONES SE LEEN PARA LA BANDEJA
+//
+// 20.000 por defecto, configurable con PANEL_TECHO_CHATS.
+//
+// ESTABA EN 2.000 Y ESO NO ERA UN TECHO: ERA UNA PERDIDA. Marco lo dijo
+// claro: necesita poder CONSULTAR todos los chats con paginacion, no
+// enterarse de que algunos quedaron fuera.
+//
+// POR QUE NO SE PAGINA EN EL ALMACEN, que seria lo elegante:
+//
+// Los filtros y la busqueda se aplican sobre el conjunto COMPLETO, y tienen
+// que hacerlo. Si se paginara antes de filtrar, la pagina 1 de "sin pedido"
+// traeria solo los que haya entre los primeros 25 de todos — paginas
+// incompletas y contadores falsos. Eso es peor que el limite, porque un
+// numero equivocado no se nota y un aviso si.
+//
+// Para paginar en el almacen habria que bajar los seis filtros y la
+// busqueda a SQL y al backend de archivos, en los dos, manteniendolos
+// iguales. Es un cambio grande que hoy no compra nada: en produccion el
+// almacen es PostgreSQL, donde listar 20.000 filas es una consulta
+// indexada, no 20.000 lecturas de disco. Cuando el volumen lo pida, el
+// sitio por donde entrar es este comentario.
+//
+// El aviso se queda igual: es la red que avisa de que llego ese dia.
+// ==========================================================================
+const TECHO_DE_CHATS = Math.max(100, Number(process.env.PANEL_TECHO_CHATS) || 20000);
+
 async function bandeja(
   repos,
-  { filtro = FILTROS.TODOS, q = "", pagina = 1, porPagina = 25, ahora = Date.now(), techo = 2000 } = {}
+  {
+    filtro = FILTROS.TODOS,
+    q = "",
+    pagina = 1,
+    porPagina = 25,
+    ahora = Date.now(),
+    techo = TECHO_DE_CHATS,
+  } = {}
 ) {
   const todas = await repos.conversaciones.listar({ limite: techo });
 
   // Una sola consulta de pedidos para saber quien compro. Con PostgreSQL
   // esto es un indice; con archivos, una lectura de carpeta.
-  const pedidos = await repos.pedidos.listar({ limite: 5000 });
+  // El techo de PEDIDOS va atado al de conversaciones, y por un motivo mas
+  // serio que el de la lista: si un pedido se queda fuera de esta lectura,
+  // su cliente aparece como "sin pedido". No es una fila que falta, es una
+  // fila MAL CLASIFICADA — y "sin pedido" es justo la pestaña donde Marco
+  // busca las fugas. Un cliente que compro listado como fuga es una
+  // conclusion equivocada, no un dato incompleto.
+  const techoPedidos = techo * 2;
+  const pedidos = await repos.pedidos.listar({ limite: techoPedidos });
   const porContacto = new Map();
   for (const p of pedidos) {
     const lista = porContacto.get(p.contactoId) || [];
@@ -401,6 +443,10 @@ async function bandeja(
     // ------------------------------------------------------------------
     recortada: todas.length >= techo,
     techo,
+    // Si se corto la lista de pedidos, hay filas mal clasificadas. Se
+    // distingue del recorte de la lista porque el aviso tiene que ser otro:
+    // ahi no falta informacion, hay informacion equivocada.
+    pedidosRecortados: pedidos.length >= techoPedidos,
   };
 }
 

@@ -727,6 +727,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     const loQuePregunta = preguntas.leer(evento.texto || "");
     let cotizacionConsultada = traza.cotizacionInformativa || null;
+    let cantidadSinTarifa = null;
 
     if (loQuePregunta.cantidadPreguntada && (producto || candidato)) {
       const prod = producto || candidato;
@@ -747,6 +748,12 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
           cotizacionConsultada = otra.cotizacion;
           traza.cantidadPreguntada = loQuePregunta.cantidadPreguntada;
         } else {
+          // La tabla no cubre esa cantidad. Se marca para que el texto lo
+          // DIGA, en vez de contestar con el precio de otra cantidad: a
+          // "¿cuanto cuestan tres?" se respondia "una unidad te queda en
+          // $49.900", y la clienta puede leerlo como que tres salen a eso.
+          cantidadSinTarifa = loQuePregunta.cantidadPreguntada;
+          traza.cantidadSinTarifa = cantidadSinTarifa;
           traza.avisos.push(
             `pregunta por ${loQuePregunta.cantidadPreguntada} unidades y el catalogo no tiene ese precio: ${otra.motivo || "sin precio"}`
           );
@@ -794,6 +801,14 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // donde va el paquete. Sin esto la clienta aprobaba un envio sin ver
       // el destino, y corregir la direccion no cambiaba el mensaje.
       datosDeEntrega: campos.soloConfirmado(conversacion.ficha),
+      // Pregunto por una cantidad que la tabla no cubre: el texto lo dice
+      // en vez de contestar con el precio de otra cantidad.
+      cantidadSinTarifa,
+      // Para no prometer fotos que la deduplicacion no va a reenviar.
+      // El campo lo anota el envio por producto: `fotosEnviadas[productoId]`.
+      fotosYaEnviadas: Boolean(
+        (conversacion.fotosEnviadas || {})[(producto || candidato || {}).id || conversacion.productoId]
+      ),
       memoria: {
         saludado: conversacion.saludado === true,
         datosPedidos: conversacion.datosPedidos === true,
@@ -894,6 +909,16 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     const preguntoAlgoNoCatalogado =
       !loQuePregunta.compra && !loQuePregunta.temas.length && loQuePregunta.pareceUnaPregunta && !loQuePregunta.soloSaludo;
+
+    // Preguntar por una cantidad sin tarifa es una venta MAYOR que la que
+    // tenemos aprobada: quien pide tres se lleva mas que quien pide uno.
+    // No se puede cotizar, pero perderla por no anotarla seria tonto.
+    if (cantidadSinTarifa) {
+      atencionDeChat.anotarPendiente(conversacion, {
+        motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
+        pregunta: `pregunta el precio por ${cantidadSinTarifa} unidades: "${evento.texto || ""}"`,
+      });
+    }
 
     if (situacion === "escalado" || preguntoAlgoNoCatalogado) {
       atencionDeChat.anotarPendiente(conversacion, {

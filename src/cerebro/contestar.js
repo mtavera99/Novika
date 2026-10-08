@@ -74,7 +74,14 @@ function loConfirmo(que, pronombre = "lo") {
   // El pronombre va explicito porque el castellano concuerda: "la garantía te
   // LA confirmo", no "te lo confirmo". Sin esto salia "La garantía te lo
   // confirmo", que es exactamente el tipo de error que hace sonar a maquina.
-  return `${que} te ${pronombre} confirmo con el equipo en un momento, no quiero darte un dato equivocado.`;
+  // Y en MINUSCULA, porque estas frases van detras de una apertura. Las
+  // aperturas de varios temas acaban en dos puntos -"Te cuento:"- y salia
+  // "Te cuento: El material te lo confirmo", con una mayuscula en medio de
+  // la oracion que delata a la maquina. Si la frase abre el mensaje, el
+  // compositor ya le pone la mayuscula: `componer` llama a `mayuscula()`.
+  const sujeto = String(que || "");
+  const enMinuscula = sujeto ? sujeto.charAt(0).toLowerCase() + sujeto.slice(1) : sujeto;
+  return `${enMinuscula} te ${pronombre} confirmo con el equipo en un momento, no quiero darte un dato equivocado.`;
 }
 
 /**
