@@ -179,6 +179,10 @@ function revisarClaims(texto, producto) {
     if (mencionaClave(completo, claim)) encontrados.push(claim);
   }
 
+  // LAS PROMESAS DE TIEMPO, POR PATRON Y NO POR FRASE EXACTA.
+  const prometeTiempo = PROMESAS_DE_TIEMPO.find((re) => re.test(completo));
+  if (prometeTiempo) encontrados.push("promesa de tiempo de respuesta");
+
   // Los temas sin dato, frase por frase.
   const frases = String(texto ?? "")
     .split(/[.!?\n]+/)
@@ -198,6 +202,58 @@ function revisarClaims(texto, producto) {
 
   return { ok: encontrados.length === 0, encontrados: [...new Set(encontrados)] };
 }
+
+// --------------------------------------------------------------------------
+// NO SE PROMETE CUANDO SE CONTESTA. Y SE COMPRUEBA POR PATRON.
+//
+// --------------------------------------------------------------------------
+// POR QUE NO BASTA LA LISTA DE FRASES DEL CATALOGO
+// --------------------------------------------------------------------------
+//
+// `claimsProhibidos` compara TEXTO EXACTO. Se le añadieron "te confirmo en
+// un momento", "te respondo enseguida" y compañia... y esto fue lo que le
+// llego a Marco DESPUES, desde su propio numero:
+//
+//   Marco  · "Buenas"
+//   NOVIKA · "Déjame confirmarlo bien con el equipo y te escribo en un
+//             momentico."
+//
+// "momentico" no estaba en la lista, y "te escribo" tampoco casaba con "te
+// escribe". La lista tapaba las cuatro frases vistas, no el ERROR.
+//
+// El propio documento de traspaso lo avisaba: "estas dos ultimas se
+// escaparon una vez por buscar la palabra exacta". Se arreglo el sintoma.
+//
+// En castellano colombiano hay infinitas formas: momentico, momentito,
+// ratico, ratito, minuticos, ahorita, ya mismo. Cada conjugacion es otra
+// variante. Una lista de frases nunca gana esa carrera.
+//
+// POR QUE IMPORTA: no hay nadie de guardia. Si una clienta escribe un
+// domingo a las 11 de la noche, "en un momentico" es mentira, y la
+// siguiente cosa que hace es esperar. Lo que SI es verdad -y tranquiliza
+// igual- es que la pregunta queda anotada y responde una persona por aqui.
+//
+// ⚠️ Los PLAZOS DE ENTREGA no entran aqui: "1 a 3 dias habiles" sale del
+// catalogo, es un dato aprobado y no promete una RESPUESTA inmediata.
+// --------------------------------------------------------------------------
+const INMEDIATEZ =
+  "(?:enseguida|en\\s+seguida|ya\\s+mismo|ahora\\s+mismo|ahorita|de\\s+inmediato|inmediatamente|" +
+  "en\\s+un\\s+(?:momento|momentico|momentito|rato|ratico|ratito|instante|segundo|segundito|minuto|minutico)|" +
+  "en\\s+unos?\\s+(?:momentos?|minutos?|minuticos?|ratos?)|en\\s+breve|en\\s+nada)";
+
+const RESPONDER_ALGO =
+  "(?:te\\s+(?:escribo|escribimos|escribe|escriben|aviso|avisamos|avisa|avisan|contesto|contestamos|" +
+  "contesta|contestan|respondo|respondemos|responde|responden|confirmo|confirmamos|confirma|confirman|" +
+  "cuento|contamos|digo|decimos)|te\\s+l[oa]s?\\s+(?:confirmo|confirmamos|cuento|contamos|aviso|avisamos|digo|decimos))";
+
+const PROMESAS_DE_TIEMPO = [
+  // "te escribo en un momentico", "te confirmo enseguida"
+  new RegExp(`\\b${RESPONDER_ALGO}\\b[^.!?]{0,40}\\b${INMEDIATEZ}\\b`),
+  // "en un momentico te escribo", "ya mismo te confirmo"
+  new RegExp(`\\b${INMEDIATEZ}\\b[^.!?]{0,40}\\b${RESPONDER_ALGO}\\b`),
+  // "dame un momento y te confirmo": la misma promesa pedida al reves.
+  new RegExp(`\\bdame\\s+un\\s+(?:momento|momentico|minuto|segundo|ratico)\\b`),
+];
 
 /** Formato de moneda colombiana. Solo para cifras ya calculadas. */
 function pesos(n) {
@@ -659,7 +715,12 @@ function textoDeterminista({
         : "¿Me confirmas cuál producto te interesa?";
 
     case "cotizacion": {
-      if (!cotizacion) return "Dame un momento y te confirmo.";
+      // SIN PROMETER PLAZO. Decia "Dame un momento y te confirmo", que es
+      // la misma promesa que el filtro bloquea en el borrador del modelo:
+      // el candado vigilaba a la IA mientras el codigo decia lo mismo. No
+      // hay nadie de guardia, asi que "un momento" puede ser la noche
+      // entera. Lo cazo la prueba de esta bateria.
+      if (!cotizacion) return "Déjame revisarlo bien y te confirmo por aquí 🙌";
       // Pasa por `componer` como todos: `lineaComercial` devuelve la frase
       // en minuscula para poder llevar una apertura delante, y este caso la
       // usaba directa. La prueba que recorre todas las situaciones lo cazo.
@@ -1051,7 +1112,12 @@ function textoDeterminista({
     }
 
     case "resumen": {
-      if (!cotizacion) return "Dame un momento y te confirmo.";
+      // SIN PROMETER PLAZO. Decia "Dame un momento y te confirmo", que es
+      // la misma promesa que el filtro bloquea en el borrador del modelo:
+      // el candado vigilaba a la IA mientras el codigo decia lo mismo. No
+      // hay nadie de guardia, asi que "un momento" puede ser la noche
+      // entera. Lo cazo la prueba de esta bateria.
+      if (!cotizacion) return "Déjame revisarlo bien y te confirmo por aquí 🙌";
       // ------------------------------------------------------------------
       // EL RESUMEN LLEVA EL NOMBRE COMERCIAL COMPLETO
       //
