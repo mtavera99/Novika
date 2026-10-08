@@ -323,6 +323,24 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     // Marco apruebe que decir: esta pedido en docs/DATOS-PENDIENTES.md.
     // ----------------------------------------------------------------------
     case TEMAS.USO: {
+      // PARA QUE SIRVE, cuando Marco lo autorizo. Era la peor respuesta
+      // del bot: a "¿para qué sirve?" contestaba una lista de piezas
+      // -"cinturón térmico con correa ajustable y panel de control"- o se
+      // negaba a decirlo. De un producto que se llama "cinturón térmico
+      // para cólicos", negarse a explicar para qué sirve es absurdo.
+      //
+      // Lo que se dice es el USO PREVISTO, no una promesa clinica: "el
+      // calor alivia el cólico" describe el producto; "cura los cólicos"
+      // sigue prohibido, igual que embarazo, DIU o medicacion.
+      const paraQue = producto && producto.paraQueSirve && producto.paraQueSirve.texto;
+      if (paraQue) {
+        // Y se ofrecen las fotos: a quien pregunta para que sirve, verlo
+        // puesto le dice mas que cualquier frase. La prueba que lo exige
+        // cazo la primera version de esta respuesta.
+        const conFotos = (producto.imagenes || []).length;
+        return conFotos ? `${paraQue} Te paso las fotos para que lo veas bien.` : paraQue;
+      }
+
       const descripcion = producto && producto.descripcionAutorizada;
       if (!descripcion) return loConfirmo("Para qué sirve", "lo");
 

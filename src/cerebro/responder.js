@@ -581,7 +581,7 @@ function textoDeterminista({
         saludo,
         `¡Claro que sí! ${mayuscula(lo)} lo tenemos.`,
         hayFotos ? "Te paso las fotos para que lo veas." : "",
-        "El precio y el envío te los confirma una persona del equipo en un momentico: todavía no los tengo publicados y no quiero darte un dato equivocado.",
+        "El precio y el envío te los confirma una persona del equipo: todavía no los tengo publicados y no quiero darte un dato equivocado.",
       ]);
     }
 
@@ -1174,18 +1174,57 @@ function textoDeterminista({
     // dejaba al cliente sin nada. Si la duda se puede contestar con el
     // catalogo, se contesta, y ademas se avisa de que sigue una persona.
     // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // ESCALADO: SE AVISA UNA VEZ Y SE CALLA
+    //
+    // Lo que pasaba en el chat de Marco, leido del panel de produccion:
+    //
+    //   Marco  · "Buenas"
+    //   NOVIKA · "Déjame confirmarlo bien con el equipo y te escribo en un
+    //             momentico."
+    //   Marco  · "Confirmar que?"
+    //   NOVIKA · "Perdón, no quiero repetirme. Dime concretamente qué
+    //             necesitas y lo reviso con el equipo."
+    //   Marco  · "Empecemos de nuevo"
+    //   NOVIKA · "Déjame confirmarlo bien con el equipo…"
+    //   Marco  · "Hola"
+    //   NOVIKA · "Perdón, no quiero repetirme…"
+    //
+    // DOS PROTECCIONES PELEANDO ENTRE ELLAS. Esta rama solo tenia una
+    // frase, asi que la repetia siempre; la guarda anti-eco la veia
+    // repetida y la cambiaba por "no quiero repetirme"; al turno siguiente
+    // volvia la primera. Y asi para siempre.
+    //
+    // ASI LO HACE BIKERPRO, y es la referencia que Marco lleva pidiendo:
+    // cuando el bot no puede resolver, avisa UNA vez y marca `##HANDOFF##`.
+    // A partir de ahi deja de responder y contesta una persona. Un bot que
+    // insiste sin aportar nada es peor que un bot callado: el silencio se
+    // entiende como "me estan mirando el caso", y el bucle como "esto esta
+    // roto".
+    //
+    // Aqui el silencio lo produce la PAUSA que pone el cerebro: el emisor
+    // la comprueba antes de escribir, asi que no hay forma de que se cuele
+    // otro mensaje. El cliente queda en la bandeja marcado para atender.
+    //
+    // Y SE RESPONDE LO QUE SE SEPA ANTES DE CALLARSE. Si pregunto algo que
+    // el catalogo cubre, se le contesta: callarse teniendo el dato es tirar
+    // la venta, no protegerla.
+    // ----------------------------------------------------------------------
     case "escalado": {
       const resto = contestar.aTemas(lectura.temas, { producto, cotizacion }, { maximo: 2 });
       return componer([
         saludo || voz.apertura(lectura.temas),
         resto.texto,
-        "Déjame confirmarlo bien con el equipo y te escribo en un momentico.",
+        // Sin plazo: no hay nadie de guardia y prometer "un momentico" a
+        // las dos de la mañana es mentir. Lo que si es verdad es que queda
+        // en la bandeja de una persona.
+        "Esto lo reviso con una persona del equipo y te responde por aquí.",
       ]);
     }
 
     case "sin_respuesta_automatica":
     default:
-      return "Dame un momento, te confirmo en seguida.";
+      return "Lo reviso con el equipo y te responden por aquí.";
   }
 }
 
