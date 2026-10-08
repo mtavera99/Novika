@@ -412,6 +412,44 @@ function fotosRecientes(cuando, { ahora = Date.now(), minutos = MINUTOS_DE_CONTE
   return ahora - t <= minutos * 60000;
 }
 
+// --------------------------------------------------------------------------
+// "QUIERO INFORMACION" NO ES "QUIERO UNO"
+//
+// EL CASO REAL, de un cliente que llego por la publicidad:
+//
+//   cliente: "Hola, quiero información sobre el cinturón térmico de $49.900."
+//   bot:     "¡Hola! Una unidad te queda en $49.900... ¿Cuántos quieres? Y
+//             para preparar tu pedido me pasas tu nombre completo, la ciudad
+//             y la dirección."
+//
+// Le pidio nombre, ciudad y direccion a alguien que pidio INFORMACION. Y la
+// palabra que lo disparo no fue ninguna señal de compra: el mensaje no se
+// reconocia como NADA -sin temas, sin pregunta, sin saludo- y el camino de
+// "no pregunto nada" acaba pidiendo los datos.
+//
+// Es el peor sitio donde fallar: es el PRIMER mensaje de alguien por el que
+// estamos pagando publicidad.
+//
+// Pedir informacion es una intencion propia, distinta de las otras tres:
+//
+//   "¿tiene garantia?"   -> pregunta un TEMA concreto
+//   "lo quiero"          -> compra
+//   "hola"               -> saludo
+//   "quiero informacion" -> quiere que le CUENTEN, sin preguntar nada aun
+//
+// Y se responde como se merece: presentando el producto con sus condiciones
+// y dejando la puerta abierta a preguntar. Sin pedir un solo dato.
+// --------------------------------------------------------------------------
+const PIDE_INFORMACION = [
+  /\b(quiero|quisiera|necesito|me\s+gustaria|podrias?\s+darme|me\s+das|mandame|me\s+puedes?\s+dar)\s+(mas\s+)?(informacion|info|detalles|datos)\b/,
+  /\b(mas\s+)?(informacion|info)\s+(sobre|del|de\s+la|acerca)\b/,
+  /^\s*(informacion|info)\b/,
+  /\bcuentame\s+(mas|sobre|del|de)\b/,
+  /\bque\s+me\s+(puedes?|podrias?)\s+(decir|contar)\b/,
+  /\bme\s+explicas?\b/,
+  /\bde\s+que\s+se\s+trata\b/,
+];
+
 /** Saludos puros: no preguntan nada. */
 const SALUDOS = [
   /^(hola|buenas|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|que\s+tal|saludos|buen\s+dia)\b/,
@@ -453,10 +491,29 @@ function leer(texto) {
 
   const saludo = SALUDOS.some((re) => re.test(plano));
   const interrogacion = /\?/.test(crudo);
-  const compra =
-    SENALES_DE_COMPRA.some((re) => re.test(plano)) ||
-    // Las debiles solo valen si el cliente NO esta preguntando.
-    (!interrogacion && SENALES_DEBILES.some((re) => re.test(plano)));
+  // PEDIR INFORMACION GANA A LAS SEÑALES DE COMPRA.
+  //
+  // "quiero informacion" contiene "quiero", y "me interesa" es una señal
+  // debil. Quien pide que le cuenten NO esta comprando todavia, y tratarlo
+  // como comprador es lo que hizo que el primer mensaje de un cliente de
+  // publicidad recibiera una peticion de nombre y direccion.
+  //
+  // Las señales FUERTES y explicitas siguen ganando: "quiero información y
+  // me llevo dos" es las dos cosas, y ahi manda la compra.
+  const pideInfo = PIDE_INFORMACION.some((re) => re.test(plano));
+  const COMPRA_INEQUIVOCA = [
+    /\b(lo|la|los|las)\s+(quiero|llevo|compro)\b/,
+    /\bme\s+(lo|la|los|las)\s+(llevo|quedo)\b/,
+    /\bme\s+llevo\s+(\d{1,2}|uno|una|dos|tres|el|la)\b/,
+    /\bquiero\s+(\d{1,2}|uno|una|dos|tres)\b/,
+    /\b(dale|de\s+una|hagale)\b/,
+  ];
+
+  const compra = pideInfo
+    ? COMPRA_INEQUIVOCA.some((re) => re.test(plano))
+    : SENALES_DE_COMPRA.some((re) => re.test(plano)) ||
+      // Las debiles solo valen si el cliente NO esta preguntando.
+      (!interrogacion && SENALES_DEBILES.some((re) => re.test(plano)));
 
   // Un signo de interrogacion es una señal fuerte, pero no la unica: mucha
   // gente pregunta sin escribirlo ("cuanto vale").
@@ -500,6 +557,8 @@ function leer(texto) {
     // ¿Pregunta por SU pedido? Es lo unico que autoriza a mencionar su
     // numero de pedido y su estado.
     porSuPedido: PREGUNTA_POR_SU_PEDIDO.some((re) => re.test(plano)),
+    // ¿Pide que le cuenten? Se presenta el producto y NO se pide un dato.
+    pideInformacion: PIDE_INFORMACION.some((re) => re.test(plano)),
     // Un "hola" pelado: ni pregunta ni compra. Merece un arranque, no un
     // interrogatorio.
     soloSaludo: saludo && temas.length === 0 && !compra && plano.split(/\s+/).length <= 4,

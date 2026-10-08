@@ -473,10 +473,26 @@ async function ventaReal() {
 }
 
 describe("5 · dar un dato dispara el cierre", () => {
+  // ------------------------------------------------------------------------
+  // OJO A LA CONDICION: HACE FALTA SEÑAL DE COMPRA
+  //
+  // Estas pruebas pedian el cierre tras "hola" + "¿cuánto vale?" + "Palmira",
+  // sin que la clienta hubiera dicho en ningun momento que lo queria. Y un
+  // caso real demostro que eso esta mal: un cliente pidio INFORMACION,
+  // respondio "Palmira", y recibio "para preparar tu pedido me pasas tu
+  // nombre completo, la dirección y si quieres uno o dos".
+  //
+  // Marco: "dar una ciudad no equivale a aceptar una compra". Muchas veces
+  // la ciudad se da para saber si LLEGA alli, que es una pregunta.
+  //
+  // El cierre no se quito -sigue siendo lo que mas convierte- pero ahora
+  // exige que el cliente haya mostrado intencion de comprar alguna vez.
+  // ------------------------------------------------------------------------
   test("EL CASO DE PALMIRA: acusa recibo con la ciudad y pide lo que falta", async () => {
     const v = await ventaReal();
     await v.dice("hola");
     await v.dice("¿cuánto vale?");
+    await v.dice("lo quiero");
     const r = await v.dice("Palmira");
 
     // 1. Reconoce el dato, con el dato en la mano.
@@ -498,12 +514,46 @@ describe("5 · dar un dato dispara el cierre", () => {
     // pedida."
     const v = await ventaReal();
     await v.dice("hola");
+    // "me interesa" es señal de compra y NO fija la cantidad: es lo que hace
+    // falta para comprobar que la cantidad se pide DENTRO de la pedida.
+    // Con "lo quiero" la heuristica ya propone 1 y no habria nada que pedir.
+    await v.dice("me interesa");
     const r = await v.dice("Palmira");
 
     assert.match(r.texto, /me pasas/);
     assert.match(r.texto, /uno o dos/, "no pidió la cantidad junto con los datos");
     // Una sola pedida, no dos frases de petición.
     assert.equal((r.texto.match(/me pasas/g) || []).length, 1);
+  });
+
+  // ------------------------------------------------------------------------
+  // Y EL OTRO LADO, que es el caso real que lo motivo.
+  // ------------------------------------------------------------------------
+  test("pero sin señal de compra, «Palmira» NO dispara la pedida de datos", async () => {
+    const v = await ventaReal();
+    await v.dice("Hola, quiero información sobre el cinturón térmico de $49.900.");
+    const r = await v.dice("Palmira");
+
+    // Se le da lo util: el plazo a su ciudad.
+    assert.match(r.texto, /Palmira/, `no usó su ciudad: ${r.texto}`);
+    assert.match(r.texto, /1 a 3 días hábiles/, `no le dijo el plazo: ${r.texto}`);
+    // Y NO se le pide ni un dato.
+    assert.equal(/me pasas/.test(r.texto), false, `pidió datos a quien solo pidió información: ${r.texto}`);
+    assert.equal(/dirección/i.test(r.texto), false, `pidió la dirección: ${r.texto}`);
+    assert.equal(/nombre completo/i.test(r.texto), false, `pidió el nombre: ${r.texto}`);
+  });
+
+  test("y pedir información no pide datos ni asume compra", async () => {
+    // El primer mensaje real de un cliente de publicidad.
+    const v = await ventaReal();
+    const r = await v.dice("Hola, quiero información sobre el cinturón térmico de $49.900.");
+
+    // Presenta el producto y sus condiciones.
+    assert.match(r.texto, /49\.900/, `no dijo el precio: ${r.texto}`);
+    assert.match(r.texto, /envío incluido/i, `no dijo las condiciones: ${r.texto}`);
+    // Y no pide absolutamente nada.
+    assert.equal(/me pasas/.test(r.texto), false, `pidió datos: ${r.texto}`);
+    assert.equal(/Cuántos quieres/i.test(r.texto), false, `asumió compra por la palabra «quiero»: ${r.texto}`);
   });
 
   test('"uno" cierra la venta: es la respuesta a la pregunta del propio bot', async () => {
