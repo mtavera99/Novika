@@ -56,6 +56,7 @@ const APERTURAS = {
   [TEMAS.ENTREGA]: "Claro,",
   [TEMAS.MATERIAL]: "Te cuento:",
   [TEMAS.USO]: "Con gusto:",
+  [TEMAS.ENERGIA]: "Buena pregunta:",
   // Desconfiar de una tienda por WhatsApp es razonable. Se valida en vez
   // de defenderse.
   [TEMAS.CONFIANZA]: "Te entiendo perfectamente.",

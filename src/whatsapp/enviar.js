@@ -46,6 +46,25 @@ const PERMISOS = {
   ATENCION_MANUAL: "atencion_manual",
 };
 
+/**
+ * ¿Este destinatario es un telefono al que Meta acepta escribir?
+ *
+ * VIVE AQUI Y SE EXPORTA, en vez de repetirse donde haga falta. El panel
+ * necesita la MISMA respuesta para avisar al operador ANTES de que redacte
+ * un mensaje que no va a salir, y dos copias de esta regla se separan: ya
+ * paso con las dos listas de "pregunta de precio" y con el filtro de pedido
+ * activo duplicado en cada backend.
+ *
+ * Un `CO.…` es un BSUID: el identificador de los clientes que escriben con
+ * NOMBRE DE USUARIO de WhatsApp y no tienen numero. Meta los rechaza con
+ * 131026.
+ */
+function esUnTelefono(destino) {
+  const d = String(destino || "");
+  const digitos = d.replace(/\D/g, "");
+  return digitos.length >= 7 && digitos.length <= 15 && !/[a-z]/i.test(d);
+}
+
 const MOTIVOS_BLOQUEO = {
   INTERRUPTOR: "respuesta_automatica_apagada",
   SIN_CREDENCIALES: "sin_credenciales",
@@ -236,9 +255,7 @@ function crearEmisor({
     // envio y que una persona lo vea.
     // ----------------------------------------------------------------------
     const destino = String(para || "");
-    const soloDigitos = destino.replace(/\D/g, "");
-    const esTelefono = soloDigitos.length >= 7 && soloDigitos.length <= 15 && !/[a-z]/i.test(destino);
-    if (!esTelefono) {
+    if (!esUnTelefono(destino)) {
       contar("envio_sin_telefono_valido");
       registrar("warn", "destinatario_no_es_telefono", {
         // El identificador NO se recorta: con la mascara puesta parecia un
@@ -403,6 +420,7 @@ module.exports = {
   crearEmisor,
   PERMISOS,
   MOTIVOS_BLOQUEO,
+  esUnTelefono,
   MAX_PIE_DE_FOTO,
   CODIGOS_TEMPORALES,
   HTTP_TEMPORALES,
