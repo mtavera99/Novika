@@ -58,6 +58,11 @@ const DETALLE = process.argv.includes("--detalle");
 // Para separar los fallos HISTORICOS de los que siguen pasando con la
 // version de ahora: todo lo anterior a esta fecha/hora es historico.
 const DESDE_VERSION = arg("desde-version");
+// --crudo: NO enmascara. Es para mirarlo en el panel propio, donde los
+// datos ya son tuyos. El enmascarado existe para poder PEGARME la salida
+// sin exponer a nadie, no para esconderte tus clientes — y me hizo
+// afirmar de donde era un numero mirando cinco digitos recortados.
+const CRUDO = process.argv.includes("--crudo");
 
 // Los numeros de Marco y de quien pruebe. Por defecto, la lista de prueba
 // que ya esta configurada: si alguna vez se uso, son exactamente los
@@ -71,6 +76,7 @@ const MIOS = new Set(
 
 /** Telefono enmascarado: suficiente para distinguir, no para identificar. */
 const tapar = (id) => {
+  if (CRUDO) return String(id || "(vacío)");
   const d = String(id || "").replace(/\D/g, "");
   if (d.length < 6) return "***";
   return `${d.slice(0, 5)}***${d.slice(-2)}`;
@@ -295,8 +301,20 @@ function auditar(conv, susPedidos, acuses) {
       clase: n.nivel === NIVELES.FALLIDO ? "fallo_de_envio" : "no_salio",
       gravedad: "alta",
       cuando: m.ts,
+      // DE DONDE SALE CADA IDENTIFICADOR, dicho en la propia linea.
+      //
+      // Se imprimia uno solo, sin decir si venia del `recipient_id` del
+      // acuse de Meta o del contacto de la conversacion. Si los dos no
+      // coinciden, hay un cruce — y mirando un numero recortado no se
+      // puede saber cual es cual. Ahora se ven los dos y su origen.
       detalle:
-        `canal whatsapp · destinatario ${tapar(n.para || conv.contactoId)} · ` +
+        `canal whatsapp · contacto ${tapar(conv.contactoId)}` +
+        (n.para && String(n.para) !== String(conv.contactoId)
+          ? ` · recipient_id del acuse ${tapar(n.para)}  <-- NO COINCIDE`
+          : n.para
+            ? " · recipient_id del acuse coincide"
+            : " · el acuse no trajo recipient_id") +
+        ` · ` +
         `nivel ${n.nivel}${n.motivo ? ` (${n.motivo})` : ""}` +
         (err ? ` · error del proveedor: ${err}` : " · el proveedor no reportó error"),
       texto: m.texto || "",
