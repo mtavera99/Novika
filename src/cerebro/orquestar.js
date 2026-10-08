@@ -1013,6 +1013,28 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       preguntaReconocida: temasAhora.length > 0 || datosAportados.length > 0,
     });
 
+    // ------------------------------------------------------------------
+    // UN STICKER REPETIDO NO ES UN BOT ATASCADO
+    //
+    // Medido el 09-oct, y hay dos chats reales del 08 con exactamente esto
+    // (573046120022 y 573214151067): clientes que solo mandan stickers y
+    // emojis. El texto llega VACIO, el bot contesta lo mismo las dos veces
+    // -porque no hay nada nuevo que contestar- y la guarda anti-eco lo leia
+    // como un bucle propio: "Perdón, no quiero repetirme", y a la siguiente
+    // la pausa de 12 h.
+    //
+    // La guarda existe para cazar al bot repitiendose ante preguntas
+    // DISTINTAS. Si el cliente no ha dicho nada, no hay dos preguntas
+    // distintas: hay un cliente mirando. Repetir una invitacion amable es
+    // lo correcto; cortarle la conversacion y llamar a una persona porque
+    // mando dos caritas, no.
+    // ------------------------------------------------------------------
+    const clienteNoDijoNada = !String(evento.texto || "").replace(/[^\p{L}\p{N}]/gu, "").trim();
+    if (clienteNoDijoNada) {
+      noRepetir.repetido = false;
+      noRepetir.escalar = false;
+    }
+
     if (noRepetir.repetido) {
       preparada.texto = noRepetir.texto;
       contar("respuesta_repetida_evitada");

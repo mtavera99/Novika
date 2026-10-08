@@ -263,19 +263,49 @@ describe("2 · novedades de entrega", () => {
 // 3 · EMBUDO
 // ==========================================================================
 
+// --------------------------------------------------------------------------
+// ⚠️ ESTA PRUEBA ERA CÓMPLICE DEL DEFECTO QUE AHORA VIGILA (2026-10-09)
+//
+// Usaba estados inventados -"producto", "datos"- que NO EXISTEN en
+// `dominio/estados.js`, los mismos cuatro literales mal escritos que tenia
+// `ESTADOS_POR_ETAPA`. Como el codigo y la prueba compartian el error, la
+// prueba pasaba y el embudo de produccion contaba a TODO EL MUNDO en la
+// primera etapa:
+//
+//     Escribió              33   100%   se quedaron aquí 33
+//     Identificó producto    0     0%   se cayeron       33
+//
+// con 25 de esos chats en `producto_identificado`. El indicador que existe
+// para decir DONDE se escapan los clientes apuntaba al sitio equivocado.
+//
+// Ahora los estados salen de `ESTADOS`, importado del dominio. Si alguien
+// renombra un estado, esto falla — que es lo que tenia que haber pasado.
+// --------------------------------------------------------------------------
 describe("3 · embudo", () => {
+  const { ESTADOS } = require("../src/dominio/estados");
   const conv = (id, estado) => ({ contactoId: id, estado });
+
+  test("los estados del embudo son los del dominio, no literales", () => {
+    // La prueba que habria cazado el defecto original. Cada estado que el
+    // embudo acredita tiene que existir de verdad.
+    const reales = new Set(Object.values(ESTADOS));
+    for (const etapa of ["producto", "cotizado", "datos", "confirmado"]) {
+      for (const estado of analitica.ESTADOS_POR_ETAPA[etapa]) {
+        assert.ok(reales.has(estado), `la etapa "${etapa}" acredita un estado que no existe: "${estado}"`);
+      }
+    }
+  });
 
   test("ESCENARIO: las etapas son ACUMULATIVAS y ninguna conversion pasa de 100%", () => {
     // Si no fueran acumulativas, la conversion de un paso daria mas de
     // 100% en cuanto alguien salte una etapa, y el embudo no serviria
     // para decidir nada.
     const conversaciones = [
-      conv("c1", "nuevo"),
-      conv("c2", "producto"),
-      conv("c3", "cotizado"),
-      conv("c4", "datos"),
-      conv("c5", "confirmado"),
+      conv("c1", ESTADOS.NUEVO),
+      conv("c2", ESTADOS.PRODUCTO_IDENTIFICADO),
+      conv("c3", ESTADOS.COTIZADO),
+      conv("c4", ESTADOS.CAPTURANDO_DATOS),
+      conv("c5", ESTADOS.CONFIRMADO),
     ];
     const pedidos = [pedidoDe({ contactoId: "c5", ofertaId: "of-c5" })];
 
@@ -301,7 +331,12 @@ describe("3 · embudo", () => {
   });
 
   test("las cuentas salen a mano", () => {
-    const conversaciones = [conv("a", "cotizado"), conv("b", "cotizado"), conv("c", "nuevo"), conv("d", "nuevo")];
+    const conversaciones = [
+      conv("a", ESTADOS.COTIZADO),
+      conv("b", ESTADOS.COTIZADO),
+      conv("c", ESTADOS.NUEVO),
+      conv("d", ESTADOS.NUEVO),
+    ];
     const e = analitica.embudo({ conversaciones, pedidos: [] });
     const por = Object.fromEntries(e.filas.map((f) => [f.id, f]));
 

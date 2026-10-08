@@ -584,6 +584,18 @@ const TEMAS_COMERCIALES = [preguntas.TEMAS.PRECIO, preguntas.TEMAS.ENVIO, pregun
 // venta. El segundo emoji -el del tema- lo coloca `voz.conEmoji` al final de
 // la primera frase, nunca pegado a este.
 // --------------------------------------------------------------------------
+/**
+ * Para quien dijo algo que no es una pregunta ni una compra.
+ *
+ * "Me gusta", "A ve r", "Por favor", un sticker. Interes o ruido, pero no un
+ * "lo quiero" — y antes los cuatro recibian los cuatro campos del
+ * formulario.
+ *
+ * Da DOS salidas y las dos son faciles: seguir preguntando o avanzar. Quien
+ * esta mirando necesita exactamente eso, no un interrogatorio.
+ */
+const RETOMAR = "¿Te lo aparto, o quieres que te cuente algo más de cómo funciona?";
+
 const INVITAR = "¿Quieres que te ayude a pedirlo? 🙌";
 const INVITAR_PLURAL = "¿Quieres que te ayude a pedirlos? 🙌";
 
@@ -1112,6 +1124,30 @@ function textoDeterminista({
       // pregunta por seguridad y recibe un formulario se va.
       // ----------------------------------------------------------------
       if (!lectura.compra && !lectura.temas.length && lectura.pareceUnaPregunta && !lectura.soloSaludo) {
+        // ----------------------------------------------------------------
+        // UN "?" NO ES UNA PREGUNTA QUE NO SEPAMOS: ES UNA QUE NO SE OYO
+        //
+        // Medido el 09-oct. Un cliente escribio literalmente "?" y recibio
+        // *«Esa no te la quiero contestar a medias. La dejo anotada para el
+        // equipo»*. No hay ninguna "esa": no pregunto nada todavia. Y
+        // ademas abria una tarea con la pregunta "?" dentro, que es ruido
+        // puro en la bandeja.
+        //
+        // Un mensaje que NO TIENE PALABRAS -o tiene una sola, del tipo
+        // "como?", "ah?", "y?"- es alguien que no entendio o que se quedo a
+        // medias. Lo que toca es reorientar, no admitir un hueco que no
+        // existe.
+        // ----------------------------------------------------------------
+        const palabras = String(mensajeCliente || "")
+          .replace(/[^\p{L}\p{N}\s]/gu, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        if (palabras.length <= 1) {
+          partes.push("Cuéntame qué quieres saber del cinturón y te ayudo: precio, envío, garantía… lo que necesites.");
+          return componer(partes, { emoji: "saludo" });
+        }
+
         partes.push(
           "Esa no te la quiero contestar a medias. La dejo anotada para el equipo: " +
             "una persona la revisa y te responde por aquí."
@@ -1120,15 +1156,55 @@ function textoDeterminista({
       }
 
       if (lectura.compra || (!lectura.pregunta && !lectura.soloSaludo)) {
-        // Hay señal de compra, o el cliente esta ya en la captura y no
-        // pregunto nada: se piden los datos que falten.
+        // ----------------------------------------------------------------
+        // EL FORMULARIO NO PUEDE SER LA RESPUESTA POR DEFECTO
         //
-        // Y si DIJO QUE LO QUIERE, se celebra antes de pedirle nada. Antes
-        // "lo quiero" recibia "Para despacharlo me pasas la ciudad y la
-        // dirección": ni un "perfecto". Es el momento mas importante de la
-        // conversacion y se trataba como un tramite.
-        if (lectura.compra && !preguntoComercial) partes.push("¡Perfecto!");
-        partes.push(pedirLoQueFalta(faltan, { cantidadInformada: cot && cot.cantidad, yaSePidieron: Boolean(memoria.datosPedidos) }));
+        // Esta rama se come TODO lo que no es una pregunta reconocida ni un
+        // saludo, y el resultado era pedirle los cuatro datos a cualquiera.
+        // Del panel de produccion del 08-oct, todos mensajes reales:
+        //
+        //   "Me gusta"         -> "¿Cuántos quieres? Y para preparar tu
+        //                          pedido me pasas la ciudad y la dirección"
+        //   "A ve r"           -> lo mismo
+        //   "Por favor"        -> lo mismo
+        //   "Interapidisimo"   -> lo mismo
+        //   un sticker         -> lo mismo, y al segundo "no quiero
+        //                          repetirme"
+        //
+        // Cinco clientes distintos recibiendo el mismo formulario por decir
+        // cosas que no son un "lo quiero". "Me gusta" es interes, no una
+        // compra: lo que toca ahi es un micro-cierre de una sola pregunta,
+        // no cuatro campos.
+        //
+        // La condicion: solo se piden los datos a quien YA dio una señal de
+        // compra -en este turno o antes- o a quien ya esta en la captura.
+        // Al resto se le ofrece el paso siguiente y se le deja hablar.
+        // ----------------------------------------------------------------
+        // ⚠️ `memoria.datosPedidos` NO ENTRA AQUI, Y ES LA PARTE SUTIL.
+        //
+        // Significa "ya se le pidieron los datos una vez", no "el cliente
+        // quiere comprar". Usarlo como permiso creaba un bucle perfecto:
+        // basta que el bot haya pedido los datos UNA vez -y con el mensaje
+        // del anuncio eso pasa en el primer turno, porque pregunta el
+        // precio- para que a partir de ahi cualquier sticker vuelva a
+        // recibir el formulario. El permiso lo da la INTENCION del cliente.
+        const puedePedirDatos = lectura.compra || huboSenalDeCompra || datosAportados.length > 0;
+
+        if (!puedePedirDatos) {
+          partes.push(RETOMAR);
+        } else {
+          // Y si DIJO QUE LO QUIERE, se celebra antes de pedirle nada. Antes
+          // "lo quiero" recibia "Para despacharlo me pasas la ciudad y la
+          // dirección": ni un "perfecto". Es el momento mas importante de la
+          // conversacion y se trataba como un tramite.
+          if (lectura.compra && !preguntoComercial) partes.push("¡Perfecto!");
+          partes.push(
+            pedirLoQueFalta(faltan, {
+              cantidadInformada: cot && cot.cantidad,
+              yaSePidieron: Boolean(memoria.datosPedidos),
+            })
+          );
+        }
       } else if (preguntoComercial) {
         // ----------------------------------------------------------------
         // PREGUNTO EL PRECIO, PERO NO DIJO QUE LO QUIERA
