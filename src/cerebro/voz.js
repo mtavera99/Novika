@@ -130,13 +130,25 @@ function conEmoji(texto, clave) {
 //   · SOLO si esta CONFIRMADO. Un nombre que propuso el modelo y nadie
 //     valido puede ser cualquier palabra de la frase del cliente, y llamar
 //     a alguien por un nombre que no es suyo es peor que no nombrarlo.
+//   · Y NO TODO LO QUE LLEGA EN EL CAMPO NOMBRE ES UN NOMBRE. Puede venir
+//     del PERFIL de WhatsApp, donde la gente pone de todo. Salio probando:
+//     la clienta escribio "soy Luz Marina" y el bot cerro con "¡Listo,
+//     Cliente!", porque el perfil decia "Cliente". Eso suena a plantilla
+//     mal rellenada justo en el mensaje del cierre.
 // --------------------------------------------------------------------------
+const NO_SON_NOMBRES = new Set([
+  "cliente", "clienta", "usuario", "usuaria", "whatsapp", "user", "test",
+  "prueba", "hola", "buenas", "amiga", "amigo", "señora", "senora", "señor", "senor",
+  "info", "ventas", "none", "null", "undefined",
+]);
+
 function nombreDePila(nombre) {
   const n = String(nombre || "").trim();
   if (!n) return "";
   const primero = n.split(/\s+/)[0];
   // Nada de una letra ni de cosas raras: en la duda, no se usa.
   if (primero.length < 3 || !/^[\p{L}]+$/u.test(primero)) return "";
+  if (NO_SON_NOMBRES.has(primero.toLowerCase())) return "";
   return primero.charAt(0).toUpperCase() + primero.slice(1).toLowerCase();
 }
 
@@ -183,6 +195,7 @@ module.exports = {
   conEmoji,
   cuantosEmojis,
   nombreDePila,
+  NO_SON_NOMBRES,
   unidades,
   unir,
   RE_EMOJI,

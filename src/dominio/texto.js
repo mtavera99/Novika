@@ -160,19 +160,47 @@ function pideFotos(texto) {
   return PIDE_IMAGENES.some((re) => re.test(plano));
 }
 
-/**
- * ¿Pregunta por el precio?
- *
- * Sirve para decidir si repetir una cifra que ya se dijo. Un bot que repite
- * el mismo mensaje en cada turno parece roto, pero uno que se niega a
- * repetir el precio cuando se lo preguntan otra vez es peor.
- */
+// ==========================================================================
+// ¿PREGUNTA POR EL PRECIO?
+//
+// FUENTE UNICA. Esta lista la usan los dos sitios que necesitan saberlo:
+// `preguntas.js` para clasificar el tema PRECIO, y el cerebro para decidir
+// si repite una cifra que ya dijo. Antes habia DOS listas, cada una con sus
+// propios huecos, y se fueron separando con el tiempo.
+//
+// EL FALLO QUE SE VIO EN PRODUCCION, con un pedido ya confirmado:
+//
+//   cliente: "Que valen dos?"
+//   bot:     "Tu pedido NOV-... ya está confirmado"
+//   cliente: "Que valen dos unidades?"
+//   bot:     "Perdón, no quiero repetirme. Dime concretamente qué necesitas"
+//   cliente: "Quiero saber cuánto valen dos unidades"
+//   bot:     "Tu pedido NOV-... ya está confirmado"
+//
+// Tres intentos de COMPRAR MAS, los tres perdidos, y ninguno por falta de
+// dato: el precio de dos esta en el catalogo. El detector solo conocia el
+// SINGULAR -"cuanto vale"- y no "valen", "cuestan" ni "a como". Quien
+// pregunta por dos unidades escribe en plural, que era justo el hueco.
+//
+// Por eso van sin tildes: se comparan contra el texto aplanado, porque el
+// teclado del movil pone las tildes solo a veces.
+// ==========================================================================
 const PREGUNTA_PRECIO = [
-  /\bcuanto\s+(vale|cuesta|sale|es|seria|me\s+sale)\b/,
+  // "cuanto vale", "cuanto valen", "cuantos cuestan", "cuanto me salen dos".
+  /\b(cuanto|cuantos|cuantas)\s+(me\s+|te\s+|le\s+)?(vale|valen|cuesta|cuestan|sale|salen|saldria|saldrian|seria|serian|es|son)\b/,
   /\ben\s+cuanto\b/,
+  /\bcuanto\s+(por|serian\s+por)\b/,
+  // "que vale", "que valen dos", "que cuestan", "que precio tiene".
+  /\bque\s+(me\s+)?(vale|valen|cuesta|cuestan|sale|salen)\b/,
   /\bque\s+precio\b/,
   /\bprecios?\b/,
   /\bvalor\b/,
+  // El plural suelto: "valen mucho?", "cuestan 85?". Se admite sin "cuanto"
+  // delante porque "valen"/"cuestan" casi no tienen otro uso — a diferencia
+  // de "vale", que en Colombia es "de acuerdo" y por eso NO entra solo.
+  /\b(valen|cuestan)\b/,
+  // "a como el cinturon", "a como los dos": en Colombia es preguntar precio.
+  /\ba\s+como\b/,
 ];
 
 function preguntaPrecio(texto) {

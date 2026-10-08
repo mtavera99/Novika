@@ -44,6 +44,7 @@ const campos = require("../dominio/campos");
 const destino = require("../dominio/destino");
 const pedidos = require("../dominio/pedido");
 const texto = require("../dominio/texto");
+const preguntas = require("../dominio/preguntas");
 const extraer = require("../dominio/extraer");
 const senales = require("../catalogo/senales");
 const responder = require("./responder");
@@ -204,11 +205,58 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     return { ...propuestas, ...candidatos };
   }
 
+  // ------------------------------------------------------------------
+  // EL CLIENTE PUEDE CORREGIR SUS PROPIOS DATOS
+  //
+  // EL DEFECTO, Y ES EL MAS CARO DE TODOS LOS ENCONTRADOS: corregir la
+  // direccion no hacia NADA.
+  //
+  //   clienta: "soy Ana, Cali, Carrera 7 # 12-34"
+  //   bot:     (cuadro de confirmacion)
+  //   clienta: "espera, la dirección es Carrera 9 # 45-67"
+  //   bot:     "Perdón, no quiero repetirme. Dime concretamente qué necesitas"
+  //   clienta: "sí"
+  //   bot:     pedido creado... A LA CARRERA 7
+  //
+  // El paquete sale a la direccion vieja. Eso es el producto, el flete y la
+  // clienta, los tres perdidos, y nadie se enteraba hasta la devolucion.
+  //
+  // LA CAUSA: `campos.proponer` no pisa un dato confirmado, y el comentario
+  // que lo explica dice por que —"no por una propuesta silenciosa DEL
+  // MODELO"— y manda usar `reabrir()`. Pero `reabrir()` solo se llamaba
+  // desde el panel y por cambio de producto. Desde la conversacion, jamas.
+  // El candado estaba bien pensado y le faltaba la puerta.
+  //
+  // LA REGLA: el candado se mantiene para la IA y se abre para el CLIENTE.
+  // Nadie sabe mejor que ella cual es su direccion, y lo que el guardia
+  // protege es que el modelo invente, no que la dueña del dato lo corrija.
+  //
+  // Y NO queda sin red: el cuadro de confirmacion ahora muestra el destino
+  // y hace falta un "sí" explicito, asi que un cambio mal entendido se ve
+  // ANTES de despachar. Ignorarlo en silencio no se veia nunca.
+  // ------------------------------------------------------------------
   function aplicarCandidatos(ficha, propuestas, origen) {
     let actualizada = { ...ficha };
     for (const [campo, valor] of Object.entries(propuestas || {})) {
       if (!campos.CAMPOS.includes(campo)) continue;
-      const antes = actualizada[campo];
+      let antes = actualizada[campo];
+
+      const confirmado = campos.valorConfirmado(antes);
+      const esCorreccionDelCliente =
+        origen === campos.ORIGENES.CLIENTE &&
+        confirmado !== null &&
+        valor !== null &&
+        valor !== undefined &&
+        valor !== "" &&
+        String(valor).trim().toLowerCase() !== String(confirmado).trim().toLowerCase();
+
+      if (esCorreccionDelCliente) {
+        antes = campos.reabrir(antes, `el cliente lo corrigio: "${confirmado}" -> "${valor}"`);
+        actualizada[campo] = antes;
+        contar("dato_corregido_por_el_cliente");
+        registrar("info", "dato_corregido_por_el_cliente", { campo });
+      }
+
       actualizada[campo] = campos.proponer(antes, valor, origen);
       if (actualizada[campo] !== antes) contar("dato_propuesto");
     }
@@ -461,18 +509,54 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     let analisis = null;
     if (ia && ia.disponible) {
-      const r = await ia.analizar({
-        sistema: SISTEMA_BASE,
-        usuario: construirPrompt(evento, conversacion, producto),
-      });
-      analisis = r.analisis;
-      traza.intencion = analisis.intencion;
-      if (!r.ok) {
-        traza.avisos.push(`ia no utilizable: ${r.motivo}`);
-        // La IA fallo. El mensaje NO se pierde y NO se inventa nada: se
-        // sigue con el camino determinista y, si hace falta, se escala.
-      } else {
-        contar("intencion_detectada");
+      // ----------------------------------------------------------------
+      // LA IA PUEDE FALLAR DE DOS FORMAS, Y SOLO UNA ESTABA CUBIERTA
+      //
+      // `cliente.js` devuelve {ok:false} cuando el proveedor da error, da
+      // timeout o contesta algo ilegible, y eso se maneja justo abajo.
+      //
+      // Lo que NO estaba cubierto es que la llamada LANCE. Probando el
+      // escenario "falla el modelo" con un proveedor que revienta, el
+      // turno entero moria: la excepcion subia hasta el webhook, que la
+      // registra bien -el mensaje no se pierde y el trabajo queda
+      // reclamable- pero EL CLIENTE NO RECIBE NADA. Una venta en silencio.
+      //
+      // Hoy el cliente real envuelve al proveedor en try/catch, asi que
+      // esto no pasa en produccion. Se blinda igual porque el cerebro no
+      // debe depender de que una dependencia inyectada nunca lance: el dia
+      // que `construirPrompt` falle con un dato raro, o que se cambie el
+      // cliente, el modo de fallo seria perder la respuesta.
+      //
+      // Y no hace falta nada mejor que degradar: TODO este modulo esta
+      // construido para funcionar sin modelo. El camino determinista da la
+      // respuesta buena; la IA solo la mejora.
+      // ----------------------------------------------------------------
+      let r = null;
+      try {
+        r = await ia.analizar({
+          sistema: SISTEMA_BASE,
+          usuario: construirPrompt(evento, conversacion, producto),
+        });
+      } catch (e) {
+        contar("ia_excepcion");
+        registrar("warn", "ia_lanzo_excepcion", {
+          wamid: evento.wamid,
+          detalle: e && e.message ? String(e.message).slice(0, 200) : "sin detalle",
+        });
+        traza.avisos.push("la ia lanzo una excepcion: se sigue solo con el camino determinista");
+        r = null;
+      }
+
+      if (r) {
+        analisis = r.analisis;
+        traza.intencion = analisis.intencion;
+        if (!r.ok) {
+          traza.avisos.push(`ia no utilizable: ${r.motivo}`);
+          // La IA fallo. El mensaje NO se pierde y NO se inventa nada: se
+          // sigue con el camino determinista y, si hace falta, se escala.
+        } else {
+          contar("intencion_detectada");
+        }
       }
     } else {
       traza.avisos.push("sin proveedor de IA: solo camino determinista");
@@ -481,6 +565,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     // Candidatos -> validacion -> confirmacion de datos
     // ------------------------------------------------------------------
+    // Lo que YA estaba confirmado antes de este turno. Sirve para saber si
+    // el cliente acaba de APORTAR un dato, que es una señal de avance muy
+    // distinta de una pregunta: quien escribe su ciudad esta comprando.
+    const confirmadosAntes = new Set(Object.keys(campos.soloConfirmado(conversacion.ficha)));
+
     // La IA propone primero y la heuristica despues, porque en combinar()
     // gana la heuristica: ella solo propone lo que reconocio contra una
     // lista o un patron, mientras el modelo propone lo que le parece.
@@ -522,6 +611,21 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     const validacion = validarYConfirmar(conversacion.ficha);
     conversacion.ficha = validacion.ficha;
+
+    // Que datos se confirmaron EN ESTE TURNO.
+    //
+    // SOLO LOS DATOS DE DESPACHO, y esto importa: `productoId` tambien es un
+    // campo de la ficha, asi que "me interesa el cinturón" lo confirmaba y
+    // el bot abria con "¡Perfecto, gracias!" a alguien que no habia dado
+    // ningun dato. Sonaba a acuse de recibo de algo que nunca llego.
+    //
+    // El telefono tampoco cuenta: llega gratis con el mensaje de WhatsApp,
+    // no lo APORTA nadie, y agradecerlo seria agradecerse a si mismo.
+    const DATOS_DE_DESPACHO = ["nombre", "documento", "ciudad", "departamento", "direccion", "referencia", "cantidad"];
+    const datosAportados = Object.keys(campos.soloConfirmado(conversacion.ficha)).filter(
+      (c) => !confirmadosAntes.has(c) && DATOS_DE_DESPACHO.includes(c)
+    );
+    traza.datosAportados = datosAportados;
     traza.revisiones = validacion.revisiones;
     traza.ambiguedades = validacion.ambiguedades;
 
@@ -603,12 +707,60 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     traza.estadoNuevo = conversacion.estado;
 
     // ------------------------------------------------------------------
+    // PREGUNTAR POR DOS NO ES PEDIR DOS
+    //
+    // "Nunca contestes el precio de una unidad a una pregunta sobre dos",
+    // y eso pasaba de la forma mas cara posible: con un pedido de 1 unidad
+    // ya confirmado, "¿que valen dos?" o se ignoraba o se contestaba con el
+    // precio de una. Tres mensajes seguidos de la misma clienta intentando
+    // comprar MAS, y ninguno atendido.
+    //
+    // Se cotiza la cantidad PREGUNTADA solo para informarla. Lo que NO pasa
+    // aqui, y es deliberado:
+    //
+    //   · no se toca la ficha  -> preguntar no fija la cantidad
+    //   · no se toca la oferta -> no hay nada nuevo que confirmar con un "si"
+    //   · no se toca el pedido -> el confirmado sigue intacto
+    //
+    // Si quiere las dos de verdad, lo dira ("las quiero"), y entonces pasa
+    // por el camino normal con su resumen y su confirmacion.
+    // ------------------------------------------------------------------
+    const loQuePregunta = preguntas.leer(evento.texto || "");
+    let cotizacionConsultada = traza.cotizacionInformativa || null;
+
+    if (loQuePregunta.cantidadPreguntada && (producto || candidato)) {
+      const prod = producto || candidato;
+      const yaCotizada = conversacion.cotizacion && conversacion.cotizacion.cantidad;
+      if (loQuePregunta.cantidadPreguntada !== yaCotizada) {
+        const datos = campos.soloConfirmado(conversacion.ficha);
+        const otra = cotizador.cotizar({
+          producto: prod,
+          cantidad: loQuePregunta.cantidadPreguntada,
+          destino: datos.ciudad ? { ciudad: datos.ciudad, departamento: datos.departamento || null } : null,
+          variante: datos.variante || null,
+        });
+        // Si el catalogo no tiene precio para esa cantidad, `cotizar` se
+        // niega y aqui no se informa nada: el cerebro escala. Inventar el
+        // precio de tres multiplicando por tres es exactamente lo que no
+        // puede hacer.
+        if (otra.ok) {
+          cotizacionConsultada = otra.cotizacion;
+          traza.cantidadPreguntada = loQuePregunta.cantidadPreguntada;
+        } else {
+          traza.avisos.push(
+            `pregunta por ${loQuePregunta.cantidadPreguntada} unidades y el catalogo no tiene ese precio: ${otra.motivo || "sin precio"}`
+          );
+        }
+      }
+    }
+
+    // ------------------------------------------------------------------
     // REGLA 3: preparar siempre, enviar solo si procede
     // ------------------------------------------------------------------
     const preparada = responder.preparar({
       situacion,
       cotizacion: conversacion.cotizacion,
-      cotizacionInformativa: traza.cotizacionInformativa || null,
+      cotizacionInformativa: cotizacionConsultada,
       faltan: traza.faltan || [],
       opciones: (resolucion.opciones || []).map((id) => {
         const p = catalogo.porId.get(id);
@@ -634,6 +786,14 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // El nombre SOLO si esta confirmado: llamar a alguien por un nombre
       // que propuso el modelo y nadie valido es peor que no nombrarlo.
       nombreCliente: campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre),
+      // Lo que acaba de aportar, y su valor, para poder acusar recibo con
+      // el dato en la mano: "¡Perfecto! A Palmira te llega en...".
+      datosAportados,
+      ciudadConfirmada: campos.valorConfirmado(conversacion.ficha && conversacion.ficha.ciudad),
+      // Los datos CONFIRMADOS, para que el cuadro de confirmacion diga a
+      // donde va el paquete. Sin esto la clienta aprobaba un envio sin ver
+      // el destino, y corregir la direccion no cambiaba el mensaje.
+      datosDeEntrega: campos.soloConfirmado(conversacion.ficha),
       memoria: {
         saludado: conversacion.saludado === true,
         datosPedidos: conversacion.datosPedidos === true,
@@ -668,10 +828,13 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     const turnoAntes = previoDelCliente ? responder.analizarTurno(previoDelCliente.texto) : null;
 
     const mismaPregunta =
-      // Los mismos temas: la misma duda escrita de dos formas.
-      (temasAhora.length > 0 &&
-        temasAhora.length === temasAntes.length &&
-        temasAhora.every((t) => temasAntes.includes(t))) ||
+      // Los mismos temas, o PARTE de ellos: la misma duda escrita de dos
+      // formas. Antes se exigia que los conjuntos fueran identicos, y eso
+      // dejaba fuera el caso mas comun de repregunta: "cuanto vale" ->
+      // [precio] y luego "pero cuanto vale con el envio" -> [precio, envio].
+      // Conjuntos distintos, misma duda, y la clienta acababa recibiendo
+      // "dime qué necesitas" por insistir.
+      (temasAhora.length > 0 && temasAntes.length > 0 && temasAhora.some((t) => temasAntes.includes(t))) ||
       // O DOS SALUDOS SEGUIDOS. Un saludo no tiene temas, asi que la regla
       // de arriba no lo cubria: en la captura de Marco, "Hola" y "Buenas
       // noches" seguidos acababan en "perdón, no quiero repetirme".
@@ -680,6 +843,13 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     const noRepetir = responder.sinRepetir(preparada.texto, ultimoDelNegocio && ultimoDelNegocio.texto, {
       mismaPregunta,
+      // Si se sabe que esta preguntando, se le contesta. Nunca se le pide
+      // concretar a quien ya concreto.
+      //
+      // Y tampoco a quien acaba de DAR un dato: corregir la direccion es lo
+      // mas concreto que puede hacer un cliente, y recibia "dime qué
+      // necesitas" porque el cuadro de confirmacion salia igual que antes.
+      preguntaReconocida: temasAhora.length > 0 || datosAportados.length > 0,
     });
 
     if (noRepetir.repetido) {
@@ -704,7 +874,40 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
           desde: new Date().toISOString(),
         };
         contar("escalado_a_persona");
+        // Y queda la tarea, con la pregunta que el bot no supo resolver.
+        // Pausar el chat sin anotar la pregunta obligaba a leer el
+        // historial entero para saber que faltaba contestar.
+        atencionDeChat.anotarPendiente(conversacion, {
+          motivo: atencionDeChat.MOTIVOS_PENDIENTE.NO_SUPO,
+          pregunta: evento.texto || "",
+        });
       }
+    }
+
+    // ------------------------------------------------------------------
+    // LO QUE SE PROMETE, QUEDA ANOTADO
+    //
+    // Cada vez que el bot dice que una persona lo revisa, aqui queda una
+    // tarea con el motivo y la pregunta. Antes la frase salia sola y no
+    // generaba nada: el cliente esperaba una respuesta que nadie sabia que
+    // tenia que dar.
+    // ------------------------------------------------------------------
+    const preguntoAlgoNoCatalogado =
+      !loQuePregunta.compra && !loQuePregunta.temas.length && loQuePregunta.pareceUnaPregunta && !loQuePregunta.soloSaludo;
+
+    if (situacion === "escalado" || preguntoAlgoNoCatalogado) {
+      atencionDeChat.anotarPendiente(conversacion, {
+        motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
+        pregunta: evento.texto || "",
+      });
+    } else if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro)) {
+      // Quiere otro teniendo uno confirmado. El bot NO abre el pedido -eso
+      // es lo que casi despacho un paquete que nadie pidio en BIKERPRO-
+      // pero la intencion de comprar mas no se puede perder.
+      atencionDeChat.anotarPendiente(conversacion, {
+        motivo: atencionDeChat.MOTIVOS_PENDIENTE.OTRA_COMPRA,
+        pregunta: evento.texto || "",
+      });
     }
 
     contar("respuesta_preparada");

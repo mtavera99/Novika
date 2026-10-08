@@ -51,6 +51,85 @@ function leer(conversacion) {
   };
 }
 
+// ==========================================================================
+// LO QUE QUEDA ESPERANDO A UNA PERSONA
+//
+// POR QUE EXISTE: el bot decia "le digo a una persona del equipo" y "te
+// confirmo en seguida", y NO PASABA NADA. No habia lista, ni aviso, ni
+// rastro. La frase sonaba bien y era una promesa vacia: el cliente esperaba
+// una respuesta que nadie sabia que debia dar.
+//
+// Decir que una persona lo revisa sin dejar constancia es peor que decir
+// "no lo sé": el cliente deja de preguntar y se queda esperando.
+//
+// Se guarda el MOTIVO y LA PREGUNTA TAL CUAL la escribio, porque quien lo
+// atienda necesita las dos cosas: por que se escalo y que hay que
+// contestar. Un "requiere atencion" pelado obliga a leer el chat entero.
+//
+// Y SE RESUELVE SOLO, con la misma idea que "atendido": no se guarda un
+// si/no que alguien tenga que acordarse de borrar -el dia que un camino se
+// olvide, la tarea queda colgada para siempre- sino CUANDO se pidio. Esta
+// resuelta si una persona escribio o lo marco atendido despues.
+// ==========================================================================
+
+/** Motivos por los que algo queda esperando a una persona. */
+const MOTIVOS_PENDIENTE = {
+  /** Pregunto algo que no esta en el catalogo. */
+  SIN_DATO: "sin_dato_en_catalogo",
+  /** Quiere otra compra teniendo un pedido ya confirmado. */
+  OTRA_COMPRA: "quiere_otra_compra",
+  /** Quiere cambiar algo de un pedido confirmado. */
+  CAMBIO_DE_PEDIDO: "cambio_de_pedido",
+  /** El bot no supo y lo dijo. */
+  NO_SUPO: "el_bot_no_supo",
+};
+
+/**
+ * Anota que algo quedo esperando a una persona. Funcion PURA: modifica el
+ * objeto y no guarda. Quien guarda es el que tiene el repositorio.
+ *
+ * No sobreescribe una pendiente sin resolver: la PRIMERA pregunta sin
+ * contestar es la que importa, y pisarla con la ultima perderia justo la
+ * que lleva mas tiempo esperando.
+ */
+function anotarPendiente(conversacion, { motivo, pregunta = "", ahora = Date.now() } = {}) {
+  if (!conversacion || !motivo) return conversacion;
+  const actual = pendienteDe(conversacion);
+  if (actual.hay) return conversacion;
+  conversacion.pendiente = {
+    motivo,
+    pregunta: String(pregunta || "").slice(0, 500),
+    desde: new Date(ahora).toISOString(),
+  };
+  return conversacion;
+}
+
+/**
+ * ¿Hay algo esperando a una persona?
+ *
+ * @returns {{hay: boolean, motivo: string|null, pregunta: string, desde: string|null}}
+ */
+function pendienteDe(conversacion) {
+  const p = (conversacion && conversacion.pendiente) || null;
+  const vacio = { hay: false, motivo: null, pregunta: "", desde: null };
+  if (!p || !p.motivo || !p.desde) return vacio;
+
+  const desde = new Date(p.desde).getTime();
+  if (!Number.isFinite(desde)) return vacio;
+
+  // Resuelta si una persona la atendio DESPUES de que se pidiera.
+  const a = leer(conversacion);
+  if (a.atendidoEn && new Date(a.atendidoEn).getTime() >= desde) return vacio;
+
+  // O si un operador escribio en el chat despues.
+  const hablo = mensajes(conversacion).some(
+    (m) => m && m.de === QUIEN.OPERADOR && m.ts && new Date(m.ts).getTime() >= desde
+  );
+  if (hablo) return vacio;
+
+  return { hay: true, motivo: p.motivo, pregunta: p.pregunta || "", desde: p.desde };
+}
+
 /** Mensajes normalizados, en orden. */
 function mensajes(conversacion) {
   const m = (conversacion && conversacion.mensajes) || [];
@@ -234,6 +313,9 @@ async function estaPausada(repos, contactoId, { ahora = Date.now() } = {}) {
 module.exports = {
   QUIEN,
   MAX_MENSAJES,
+  MOTIVOS_PENDIENTE,
+  anotarPendiente,
+  pendienteDe,
   leer,
   mensajes,
   ultimoDelCliente,
