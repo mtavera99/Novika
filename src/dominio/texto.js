@@ -188,7 +188,10 @@ function pideFotos(texto) {
 const PREGUNTA_PRECIO = [
   // "cuanto vale", "cuanto valen", "cuantos cuestan", "cuanto me salen dos".
   /\b(cuanto|cuantos|cuantas)\s+(me\s+|te\s+|le\s+)?(vale|valen|cuesta|cuestan|sale|salen|saldria|saldrian|seria|serian|es|son)\b/,
-  /\ben\s+cuanto\b/,
+  // "¿en cuánto me lo deja?" es precio. "¿EN CUÁNTO ME LLEGARÍA?" es el
+  // plazo de entrega, y sin el lookahead caia aqui: el bot le contestaba el
+  // PRECIO a quien preguntaba cuándo le llega.
+  /\ben\s+cuanto\b(?!\s+(?:me\s+|lo\s+|la\s+|nos\s+)?(?:lleg|recib|tarda|demora|sale|saldria))/,
   /\bcuanto\s+(por|serian\s+por)\b/,
   // "que vale", "que valen dos", "que cuestan", "que precio tiene".
   /\bque\s+(me\s+)?(vale|valen|cuesta|cuestan|sale|salen)\b/,
