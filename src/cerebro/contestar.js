@@ -33,6 +33,7 @@
 // ==========================================================================
 
 const { TEMAS } = require("../dominio/preguntas");
+const cotizador = require("../dominio/cotizador");
 
 /** Formato de moneda colombiana. Solo para cifras ya calculadas. */
 function pesos(n) {
@@ -55,6 +56,26 @@ function comoSeLlama(producto) {
 function caracteristica(producto, re) {
   const lista = (producto && producto.caracteristicasAutorizadas) || [];
   return lista.find((c) => re.test(String(c).toLowerCase())) || null;
+}
+
+/**
+ * ¿Llevar DOS sale mejor que llevar una dos veces?
+ *
+ * Se le pregunta AL COTIZADOR, que es la unica fuente de importes de esta
+ * casa. Aqui no se lee `producto.precios` ni se escribe ninguna cifra: solo
+ * se compara, y lo que sale de la funcion es un si o un no.
+ *
+ * Asi la frase de la segunda unidad se sostiene sola: si la tabla cambia y
+ * la pareja deja de convenir -o si el producto no tiene precio para dos-,
+ * esto devuelve `false` y el bot deja de ofrecerla sin que nadie se acuerde
+ * de venir a borrar el texto.
+ */
+function laParejaConviene(producto) {
+  if (!producto) return false;
+  const una = cotizador.cotizar({ producto, cantidad: 1 });
+  const dos = cotizador.cotizar({ producto, cantidad: 2 });
+  if (!una.cotizacion || !dos.cotizacion) return false;
+  return dos.cotizacion.total < una.cotizacion.total * 2;
 }
 
 /** ¿El producto declara explicitamente que este tema NO esta confirmado? */
@@ -120,7 +141,7 @@ function loConfirmo(que, pronombre = "lo") {
  * @param {{producto: object|null, cotizacion: object|null}} contexto
  * @returns {string|null} la frase, o null si este tema no se responde aqui
  */
-function deTema(tema, { producto = null, cotizacion = null } = {}) {
+function deTema(tema, { producto = null, cotizacion = null, yaDijoLasCondiciones = false } = {}) {
   const nombre = comoSeLlama(producto);
 
   switch (tema) {
@@ -387,6 +408,84 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
       return "Somos NOVIKA, una tienda colombiana, y cualquier duda te la resuelve una persona del equipo.";
     }
 
+    // ----------------------------------------------------------------------
+    // LA OBJECION DE PRECIO. LA ESCALERA, Y NUNCA UN DESCUENTO.
+    //
+    // Es la objecion que mas plata mueve y hasta ahora no se reconocia:
+    // "esta muy caro" caia en el camino generico.
+    //
+    // La FORMA viene de BIKERPRO, que la tiene medida: no saltar al
+    // descuento, porque las jugadas que no cuestan nada cierran igual o
+    // mejor. Las CONDICIONES no se copian -su tope de $3.000, su envio
+    // cobrado aparte y su politica de anticipado son suyos-.
+    //
+    // 🚫 AQUI NO SE OFRECE NINGUN DESCUENTO, y no es timidez: NOVIKA no
+    // tiene politica de descuento aprobada. El catalogo declara "si hay
+    // descuento por cantidad" como dato NO confirmado. El riesgo es medido:
+    // el bot de BIKERPRO se invento "$55.900 con pago anticipado" en la
+    // primera objecion, y eso estaba tasado en ~$482.400/mes. Si la clienta
+    // insiste, el final de la escalera es una persona, no una cifra.
+    //
+    // Lo que SI se puede decir, y es verdad en NOVIKA -Marco lo autorizo
+    // con su propio ejemplo, "esta en valor promocion, el envio esta
+    // totalmente gratuito"-:
+    //
+    //   1. el envio va incluido, asi que el precio que vio es el final;
+    //   2. paga al recibir, asi que no arriesga plata;
+    //   3. la pareja sale mejor que dos sueltas.
+    //
+    // El paso 3 es el mas fuerte de la escalera y el unico donde bajarle el
+    // costo a la clienta nos deja MAS plata. Y se comprueba CONTRA EL
+    // COTIZADOR en vez de afirmarlo: si algun dia la tabla cambia y dos
+    // dejan de convenir, la frase desaparece sola.
+    //
+    // ⚠️ SIN CIFRAS. Se ofrece pasar el precio de dos, no se escribe: el
+    // importe autorizado de este turno es el de la cantidad cotizada, y
+    // colar aqui el de otra cantidad es justo lo que `revisarImportes`
+    // existe para cazar. Cuando la clienta diga que si, el cotizador lo
+    // calcula por el camino normal.
+    // ----------------------------------------------------------------------
+    case TEMAS.OBJECION_PRECIO: {
+      const c = cotizacion && cotizacion.condiciones;
+      const partes = [];
+
+      // TODAS EN MINUSCULA: las une `voz.unir`, que capitaliza despues de
+      // punto. Escribirlas con mayuscula dejaba "Te entiendo, y te explico:
+      // Si llevas dos..." cuando esta era la unica frase que quedaba, y una
+      // mayuscula tras dos puntos es de las cosas que delatan a la maquina.
+      //
+      // `yaDijoLasCondiciones` lo pone quien compone el mensaje. Si el turno
+      // ya encabezo con la linea comercial -que dice "con envio incluido y
+      // pagas al recibir"-, repetirlo aqui sacaba las condiciones DOS VECES
+      // en el mismo mensaje. Lo cazo "esta caro, el envio cuanto vale?".
+      if (!yaDijoLasCondiciones) {
+        if (c && c.envioIncluido) {
+          partes.push("el envío ya va incluido en ese precio, así que no hay nada extra que pagar al final.");
+        }
+        if (c && c.pagoMetodo === "contraentrega") {
+          partes.push("pagas cuando lo tienes en la mano, así que no arriesgas nada.");
+        }
+      }
+
+      if (laParejaConviene(producto)) {
+        partes.push(
+          "si llevas dos, la pareja sale mejor que dos por separado: " +
+            "te paso el precio de las dos si quieres."
+        );
+      }
+
+      if (partes.length) return partes.join(" ");
+
+      // Si las condiciones ya se dijeron y la pareja no conviene, no queda
+      // nada que añadir: callar es mejor que rellenar.
+      if (yaDijoLasCondiciones) return null;
+
+      // Sin condiciones y sin pareja no queda argumento honesto que dar, y
+      // un "esta muy caro" sin respuesta es una venta perdida en silencio.
+      // Se admite y se pasa a una persona, que es el final de la escalera.
+      return loConfirmo("Un precio especial", "lo");
+    }
+
     case TEMAS.FOTOS:
       // Solo se prometen si existen: el cerebro decide si las manda y pasa
       // `producto`. Un bot que anuncia fotos y no manda ninguna deja al
@@ -420,6 +519,12 @@ function aTemas(temas, contexto, { maximo = 2 } = {}) {
   if (lista.includes(TEMAS.MEDIDAS)) lista = lista.filter((t) => t !== TEMAS.TALLA);
   // El tramite ya dice el plazo: si vienen los dos, el plazo solo sobra.
   if (lista.includes(TEMAS.GARANTIA_TRAMITE)) lista = lista.filter((t) => t !== TEMAS.GARANTIA);
+  // La respuesta a la objecion YA dice que el envio va incluido y que paga
+  // al recibir: son dos de sus tres pasos. Sin esto, "esta caro, y el envio
+  // cuanto vale?" repetia el envio dos veces en el mismo mensaje.
+  if (lista.includes(TEMAS.OBJECION_PRECIO)) {
+    lista = lista.filter((t) => t !== TEMAS.ENVIO && t !== TEMAS.PAGO);
+  }
 
   for (const tema of lista) {
     if (respondidos.length >= maximo) break;

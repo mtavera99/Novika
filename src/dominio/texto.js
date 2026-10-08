@@ -201,6 +201,26 @@ const PREGUNTA_PRECIO = [
   /\b(valen|cuestan)\b/,
   // "a como el cinturon", "a como los dos": en Colombia es preguntar precio.
   /\ba\s+como\b/,
+
+  // ----------------------------------------------------------------------
+  // LA PREGUNTA CONDICIONAL POR OTRA CANTIDAD: "y si llevo dos?"
+  //
+  // Es la respuesta natural a "te paso el precio de las dos si quieres", y
+  // no era NADA: el extractor se quedaba con el "dos" como cantidad de la
+  // ficha y la clienta recibia "¡Perfecto, gracias!" sin una sola cifra,
+  // justo despues de que el bot le ofreciera pasarsela. Una promesa que el
+  // bot no cumplia.
+  //
+  // ⚠️ Anclada a formas que NO se confunden con un SI ROTUNDO. `aplanar` se
+  // come la coma, asi que "si, me llevo dos" y "si me llevo dos" llegan
+  // aqui IDENTICAS. Por eso se exige el "y" delante ("y si llevo dos"), el
+  // subjuntivo ("si llevara dos") o el gerundio ("llevando dos"), que son
+  // hipoteticos sin ambiguedad posible. Un "si llevo dos" pelado se queda
+  // fuera A PROPOSITO: vale mas perder la pregunta que cotizarle a quien
+  // estaba diciendo que si.
+  /\by\s+si\s+(?:me\s+)?(?:llevo|pido|compro)\s+(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par)\b/,
+  /\bsi\s+(?:me\s+)?(?:llevara|llevaria|pidiera|comprara)\s+(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par)\b/,
+  /\bllevando\s+(?:\d{1,2}|dos|tres|cuatro|cinco|seis)\b/,
 ];
 
 function preguntaPrecio(texto) {

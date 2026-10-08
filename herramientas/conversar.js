@@ -157,6 +157,34 @@ const ESCENARIOS = {
     },
   },
 
+  caro: {
+    titulo: "«Está muy caro» — la escalera, y que NUNCA salga un descuento",
+    correr: async () => {
+      // Las cuatro formas que mas llegan, cada una en un chat nuevo: lo que
+      // se mira aqui es que ninguna reciba una cifra inventada ni una
+      // rebaja, y que la respuesta siga vendiendo en vez de disculparse.
+      for (const frase of ["Está muy caro", "hay descuento?", "no me alcanza", "me lo dejas más barato?"]) {
+        const c = await abrirChat();
+        await c.dice(frase);
+      }
+    },
+  },
+
+  "caro-insistiendo": {
+    titulo: "Objeta el precio DOS veces seguidas: no puede aparecer una rebaja",
+    correr: async () => {
+      // El momento en que el bot de BIKERPRO se invento un precio con pago
+      // anticipado. Aqui el final de la escalera es una persona, no una
+      // cifra: si en el segundo o tercer turno sale un importe nuevo o un
+      // descuento, esto lo deja a la vista.
+      const c = await abrirChat();
+      await c.dice("¿cuánto vale?");
+      await c.dice("uy, está muy caro");
+      await c.dice("no me lo puedes dejar más barato?");
+      await c.dice("y si llevo dos?");
+    },
+  },
+
   dos: {
     titulo: "Las variantes de preguntar por DOS",
     correr: async () => {
