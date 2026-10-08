@@ -33,6 +33,12 @@ const dominioPedido = require("../dominio/pedido");
 const campos = require("../dominio/campos");
 const dominioDestino = require("../dominio/destino");
 const responder = require("../cerebro/responder");
+const planes = require("../despacho/planes");
+const guias = require("../despacho/guias");
+const pdf = require("../despacho/pdf");
+const novedadesDeEntrega = require("../despacho/novedades");
+const hojaDeCalculo = require("../despacho/hoja-de-calculo");
+const ventana = require("../whatsapp/ventana");
 
 const { PERMISOS, MOTIVOS_BLOQUEO } = require("../whatsapp/enviar");
 
@@ -122,6 +128,155 @@ function crearRutasDelPanel({ obtenerCerebro }) {
   async function piezas() {
     const cerebro = await obtenerCerebro();
     return cerebro._piezas ? cerebro._piezas() : cerebro;
+  }
+
+  // ----------------------------------------------------------------------
+  // Los planes de despacho: el paso entre "revisar" y "enviar".
+  //
+  // Uno por flujo, porque caducan distinto en la practica y porque un
+  // reintento de guias no tiene por que tocar las novedades. El detalle de
+  // por que no van a la base esta en `despacho/planes.js`.
+  // ----------------------------------------------------------------------
+  const planesDeGuias = planes.crearAlmacenDePlanes({ log, nombre: "planes_de_guias" });
+  const planesDeNovedades = planes.crearAlmacenDePlanes({ log, nombre: "planes_de_novedades" });
+
+  /** Las plantillas de novedad configuradas, por tipo. */
+  function plantillasDeNovedad() {
+    return {
+      [dominioPedido.TIPOS_DE_NOVEDAD.DIRECCION]: config.plantillaNovedadDireccion,
+      [dominioPedido.TIPOS_DE_NOVEDAD.AUSENTE]: config.plantillaNovedadAusente,
+      [dominioPedido.TIPOS_DE_NOVEDAD.OFICINA]: config.plantillaNovedadOficina,
+    };
+  }
+
+  /**
+   * ¿Ya se le aviso de esta guia? Se pregunta AL PEDIDO.
+   *
+   * No hay un registro aparte de "guias enviadas" a proposito. Un segundo
+   * sitio donde vive ese hecho es una segunda fuente de verdad, y el dia que
+   * discrepen una deja pasar un aviso duplicado -justo el patron que la
+   * convencion del proyecto prohibe con la deduplicacion-.
+   *
+   * El pedido ya tiene donde guardarlo: `despacho.avisoAlCliente`.
+   */
+  function indiceDeAvisos(pedidos) {
+    const porGuia = new Map();
+    for (const p of pedidos) {
+      const g = String((p.despacho && p.despacho.guia) || "").trim();
+      if (!g) continue;
+      const aviso = p.despacho && p.despacho.avisoAlCliente;
+      if (aviso && aviso.enviado) {
+        porGuia.set(g, {
+          nombre: (p.destinatario && p.destinatario.nombre) || null,
+          cuando: fecha.fechaYHoraBogota(aviso.cuando),
+          codigo: p.id,
+        });
+      }
+    }
+    return (guia) => porGuia.get(String(guia || "").trim()) || null;
+  }
+
+  /**
+   * Manda UNA hoja de guia a su cliente y anota el resultado real.
+   *
+   * Es una sola funcion porque hay dos caminos que llegan aqui -el envio por
+   * lote y la asignacion a mano- y en BIKERPRO eran dos copias: la de
+   * asignar a mano se quedo sin el registro de la guia enviada, asi que la
+   * misma guia se podia mandar dos veces.
+   */
+  async function mandarHojaDeGuia({ repos, emisor, fila, pedido: original, aMano = false }) {
+    const transportadora = fila.transportadora || null;
+
+    // ----------------------------------------------------------------------
+    // MANDAR LA GUIA **ES** DESPACHAR, Y SE REGISTRA ANTES DE ENVIAR
+    //
+    // Si no se registrara, el pedido seguiria en "por despachar" con su guia
+    // ya en manos del cliente: la lista de pendientes mentiria, y en el
+    // siguiente lote esa misma guia volveria a ofrecerse para enviar.
+    //
+    // VA ANTES DEL ENVIO a proposito. Si el envio falla despues, queda un
+    // pedido despachado con su guia y un aviso que dice que no salio: eso se
+    // reintenta, y mientras tanto la informacion es correcta -el paquete
+    // salio-. Al reves seria peor: el cliente con la guia en la mano y el
+    // sistema creyendo que el pedido no ha salido.
+    //
+    // Y `despachar` exige que el pedido este listo, asi que un pedido sin
+    // direccion completa no puede colarse por aqui.
+    // ----------------------------------------------------------------------
+    let pedido = original;
+    const despacho = dominioPedido.despachar({
+      pedido: original,
+      guia: fila.guia,
+      transportadora: transportadora ? transportadora.nombre : null,
+    });
+
+    if (!despacho.ok) {
+      diario.anotar("panel_guia_no_despachada", {
+        codigo: original.id,
+        guia: fila.guia,
+        motivo: despacho.motivo,
+      });
+      return { enviado: false, bloqueado: true, motivo: null, detalle: despacho.motivo };
+    }
+    if (!despacho.yaEstaba) {
+      await repos.pedidos.reemplazar(despacho.pedido);
+      pedido = despacho.pedido;
+    } else {
+      pedido = despacho.pedido;
+    }
+
+    const destino = guias.destinoDe(pedido);
+    const conv = await repos.conversaciones.obtener(pedido.contactoId).catch(() => null);
+    const v = ventana.estado(conv);
+
+    const envio = await emisor.enviarDocumento({
+      para: destino,
+      datos: fila.hoja,
+      nombreArchivo: guias.nombreArchivo(fila.guia),
+      pie: guias.textoParaCliente(pedido, fila.guia, transportadora),
+      ventanaAbierta: v.abierta,
+      // Con la ventana cerrada -el caso normal, porque la guia sale al dia
+      // siguiente- el PDF viaja en la cabecera de la plantilla.
+      plantilla: config.plantillaGuia,
+      permiso: PERMISOS.ATENCION_MANUAL,
+      conversacionId: pedido.contactoId,
+    });
+
+    // El resultado se anota SIEMPRE, salga o no. Un intento que fallo y no
+    // queda escrito es un cliente que nadie sabe que no fue avisado.
+    const r = dominioPedido.registrarAvisoDeGuia({
+      pedido,
+      resultado: { ...envio, certeza: fila.certeza, aMano },
+    });
+    if (r.ok && !r.yaEstaba) await repos.pedidos.reemplazar(r.pedido);
+
+    // La guia tambien queda en el historial del chat, para que quien abra la
+    // conversacion vea lo que el cliente recibio.
+    if (envio.enviado && conv) {
+      atencion.anotarMensaje(conv, {
+        de: atencion.QUIEN.BOT,
+        texto: envio.porPlantilla
+          ? `[guia ${fila.guia} enviada por plantilla aprobada]`
+          : guias.textoParaCliente(pedido, fila.guia, transportadora),
+        por: "operador",
+        estado: "enviado",
+      });
+      await repos.conversaciones.guardar(conv).catch(() => null);
+    }
+
+    diario.anotar("panel_guia_enviada", {
+      codigo: pedido.id,
+      guia: fila.guia,
+      enviado: envio.enviado,
+      porPlantilla: Boolean(envio.porPlantilla),
+      motivo: envio.motivo || null,
+      certeza: fila.certeza,
+      aMano,
+      yaEstabaDespachado: despacho.yaEstaba,
+    });
+    metricas.incrementar(envio.enviado ? "panel_guia_enviada" : "panel_guia_no_enviada");
+
+    return envio;
   }
 
   const html = (res, cuerpo, estado = 200) =>
@@ -979,7 +1134,14 @@ const responder = require("../cerebro/responder");
       // Se anota si cada uno esta listo: despachar un pedido sin direccion
       // completa manda un paquete que vuelve.
       d.porDespachar = d.porDespachar.map((p) => ({ ...p, _listo: dominioPedido.listoParaDespachar(p) }));
-      html(res, vistas.guias({ datos: d, transportadoras: TRANSPORTADORAS }));
+      html(
+        res,
+        vistas.guias({
+          datos: d,
+          transportadoras: TRANSPORTADORAS,
+          envioManualActivo: config.panelEnvioManual,
+        })
+      );
     } catch (e) {
       log.error("panel_guias_fallo", { detalle: e.message });
       res.status(500).send(`No se pudo armar la pantalla de guias: ${e.message}`);
@@ -1015,6 +1177,284 @@ const responder = require("../cerebro/responder");
       });
     } catch (e) {
       log.error("panel_despachar_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // EL PDF DE LA TRANSPORTADORA, EN TRES PASOS
+  //
+  // 1. /guias/revisar  sube el PDF y PROPONE el pareo. No envia nada.
+  // 2. /guias/asignar  el operador elige el pedido de una hoja que no cruzo.
+  // 3. /guias/enviar   salen solo las hojas marcadas.
+  //
+  // El paso 2 es el que da el valor: es donde se ve que una guia quedo sin
+  // parear y se arregla, en vez de descubrirlo cuando el cliente reclama.
+  // ----------------------------------------------------------------------
+
+  /**
+   * El PDF llega como CUERPO CRUDO, no como formulario.
+   *
+   * `express.raw` acotado a esta ruta: el router del panel parsea
+   * urlencoded y json, y un PDF por cualquiera de los dos llega corrupto.
+   *
+   * Y no se usa multipart a proposito. En BIKERPRO el `FormData` del
+   * navegador llegaba vacio a Express -`req.body.token` undefined, 403- y en
+   * Safari de iOS el fetch con FormData falla con "The string did not match
+   * the expected pattern". Un cuerpo crudo no tiene ninguno de los dos
+   * problemas y no necesita una dependencia de subida.
+   */
+  router.post(
+    "/guias/revisar",
+    express.raw({ type: () => true, limit: "40mb" }),
+    async (req, res) => {
+      if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+
+      try {
+        // ------------------------------------------------------------------
+        // EL ORDEN DE LAS COMPROBACIONES ES PARTE DEL MENSAJE
+        //
+        // Primero se mira SI ESTO ES UN PDF, que es una comprobacion de la
+        // cabecera y no cuesta nada. Si se comprobara antes que hay pedidos,
+        // subir un archivo equivocado contestaria "no hay pedidos guardados"
+        // -una queja sobre otra cosa- y el operador se pondria a buscar
+        // pedidos en vez de a mirar el archivo que acaba de subir.
+        //
+        // Despues los pedidos, y solo al final el parseo, que es lo caro.
+        // ------------------------------------------------------------------
+        const revision = pdf.revisarPdf(req.body);
+        if (!revision.ok) return res.status(400).json({ ok: false, error: revision.motivo });
+
+        const { repos } = await piezas();
+        const pedidos = await repos.pedidos.listar({ limite: 2000 });
+        if (!pedidos.length) {
+          return res.status(409).json({
+            ok: false,
+            error:
+              "Todavia no hay pedidos guardados contra los que comparar las etiquetas. " +
+              "El pareo necesita pedidos para saber de quien es cada guia.",
+          });
+        }
+
+        const lote = await pdf.abrirLote(revision.datos);
+        if (!lote.ok) return res.status(400).json({ ok: false, error: lote.motivo });
+
+        const filas = guias.parear({
+          paginas: lote.paginas,
+          pedidos,
+          telefonosRemitente: config.telefonosRemitente,
+          yaEnviada: indiceDeAvisos(pedidos),
+        });
+
+        // Las hojas se guardan en el plan, del lado del servidor.
+        for (let i = 0; i < filas.length; i++) filas[i].hoja = lote.hojas[i];
+
+        const id = planesDeGuias.guardar({ filas });
+
+        diario.anotar("panel_guias_revisadas", {
+          paginas: filas.length,
+          listas: filas.filter((f) => f.enviar).length,
+          // Si esto sale `false`, la lectura cayo al camino que NO devuelve
+          // la memoria: ~71 MB por lote. Queda anotado para poder explicar
+          // un reinicio por memoria en vez de buscarlo a ciegas.
+          enProcesoAparte: lote.enProcesoAparte === true,
+          retenido: planesDeGuias.estado(),
+        });
+
+        return res.json({
+          ok: true,
+          id,
+          // ------------------------------------------------------------------
+          // LAS HOJAS NO SALEN DEL SERVIDOR
+          //
+          // Cada hoja es la etiqueta de un cliente con su nombre, direccion y
+          // telefono impresos. El navegador no necesita el PDF para revisar el
+          // pareo: le basta lo que se leyo. Mandarselas seria publicar los
+          // datos de todos los clientes del lote en una pestana.
+          // ------------------------------------------------------------------
+          filas: filas.map((f) => ({
+            pagina: f.pagina,
+            guia: f.guia,
+            transportadora: f.transportadora ? f.transportadora.nombre : null,
+            etiqueta: f.etiqueta,
+            certeza: f.certeza,
+            senales: f.senales,
+            motivo: f.motivo,
+            enviar: f.enviar,
+            asignable: f.asignable,
+            mejores: f.mejores,
+            pedido: f.pedido
+              ? {
+                  codigo: f.pedido.id,
+                  nombre: (f.pedido.destinatario || {}).nombre || null,
+                  ciudad: (f.pedido.destinatario || {}).ciudad || null,
+                  total: (f.pedido.cotizacion || {}).total || 0,
+                }
+              : null,
+          })),
+          // TODOS los pedidos como candidatos para asignar a mano. En
+          // BIKERPRO esta lista venia recortada a 60 y filtrada por "sin
+          // guia", y las dos cosas escondian justo al cliente que hacia
+          // falta. Solo van los ultimos cuatro digitos del telefono: para
+          // reconocerlo alcanza, y la lista entera no tiene por que llevar
+          // los telefonos completos de todos.
+          candidatos: pedidos.map((p) => ({
+            codigo: p.id,
+            nombre: (p.destinatario || {}).nombre || null,
+            ciudad: (p.destinatario || {}).ciudad || null,
+            cel4: String((p.destinatario || {}).telefono || "").slice(-4),
+            total: (p.cotizacion || {}).total || 0,
+            estado: p.estado,
+            guia: (p.despacho && p.despacho.guia) || null,
+          })),
+          aviso: lote.aviso || null,
+          recortado: lote.recortado || null,
+        });
+      } catch (e) {
+        log.error("panel_guias_revisar_fallo", { detalle: e.message });
+        return res.status(500).json({ ok: false, error: e.message });
+      }
+    }
+  );
+
+  /** El operador elige a mano el pedido de una hoja que no cruzo sola. */
+  router.post("/guias/asignar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const id = String((req.body && req.body.id) || "");
+    const pagina = Number((req.body && req.body.pagina) || 0);
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    if (!id || !pagina || !codigo) {
+      return res.status(400).json({ ok: false, error: "Falta el plan, la pagina o el pedido." });
+    }
+
+    const plan = planesDeGuias.obtener(id);
+    if (!plan.ok) return res.status(410).json({ ok: false, error: plan.explicacion, motivo: plan.motivo });
+
+    const fila = plan.contenido.filas.find((f) => f.pagina === pagina);
+    if (!fila) return res.status(404).json({ ok: false, error: "Esa pagina no esta en el plan." });
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
+
+      // Asignar NO es reenviar. Si a esa guia ya se le aviso, se para aqui.
+      const pedidos = await repos.pedidos.listar({ limite: 2000 });
+      const previa = indiceDeAvisos(pedidos)(fila.guia);
+      if (previa) {
+        return res.status(409).json({
+          ok: false,
+          error: `A la guia ${fila.guia} ya se le aviso${previa.cuando ? " el " + previa.cuando : ""}.`,
+        });
+      }
+
+      fila.pedido = pedido;
+      // Certeza 0 y `aMano`: manana, ante un error, dice si fallo el puntaje
+      // o la persona. Sin distinguirlo no se puede corregir ninguno de los dos.
+      fila.certeza = 0;
+      fila.aMano = true;
+      fila.senales = ["asignada a mano"];
+      fila.motivo = null;
+      fila.enviar = true;
+      fila.asignable = false;
+
+      diario.anotar("panel_guia_asignada", { guia: fila.guia, codigo, pagina });
+
+      return res.json({
+        ok: true,
+        pagina,
+        guia: fila.guia,
+        pedido: {
+          codigo: pedido.id,
+          nombre: (pedido.destinatario || {}).nombre || null,
+          ciudad: (pedido.destinatario || {}).ciudad || null,
+        },
+        aviso: `Pagina ${pagina} asignada a ${(pedido.destinatario || {}).nombre || codigo}. Todavia no se envio.`,
+      });
+    } catch (e) {
+      log.error("panel_guia_asignar_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  /** Envia las hojas marcadas. */
+  router.post("/guias/enviar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const id = String((req.body && req.body.id) || "");
+    const paginas = Array.isArray(req.body && req.body.paginas) ? req.body.paginas.map(Number) : [];
+    if (!id) return res.status(400).json({ ok: false, error: "Falta el plan." });
+    if (!paginas.length) return res.status(400).json({ ok: false, error: "No marcaste ninguna guia." });
+
+    const plan = planesDeGuias.obtener(id);
+    if (!plan.ok) return res.status(410).json({ ok: false, error: plan.explicacion, motivo: plan.motivo });
+
+    try {
+      const { repos, emisor } = await piezas();
+      const resultados = [];
+
+      for (const pagina of paginas) {
+        const fila = plan.contenido.filas.find((f) => f.pagina === pagina);
+        // SE REVALIDA EN EL SERVIDOR. Que el navegador mande una pagina no
+        // significa que se pueda enviar: pudo quedar sin pedido, o alguien
+        // pudo mandarla desde otra pestana.
+        if (!fila || !fila.enviar || !fila.pedido) {
+          resultados.push({
+            pagina,
+            guia: fila ? fila.guia : null,
+            enviado: false,
+            porQue: "esta guia no esta lista para enviar",
+          });
+          continue;
+        }
+
+        const envio = await mandarHojaDeGuia({
+          repos,
+          emisor,
+          fila,
+          pedido: fila.pedido,
+          aMano: Boolean(fila.aMano),
+        });
+
+        resultados.push({
+          pagina,
+          guia: fila.guia,
+          cliente: (fila.pedido.destinatario || {}).nombre || null,
+          enviado: Boolean(envio.enviado),
+          porPlantilla: Boolean(envio.porPlantilla),
+          porQue: envio.enviado
+            ? null
+            : EXPLICACION[envio.motivo] ||
+              ventana.explicarCodigo(envio.codigoMeta) ||
+              envio.detalle ||
+              explicarFalloDeMeta({ codigo: envio.codigoMeta, estado: envio.estado }),
+        });
+
+        // Lo que ya salio no se vuelve a ofrecer, ni en un reintento.
+        if (envio.enviado) fila.enviar = false;
+      }
+
+      const enviadas = resultados.filter((r) => r.enviado).length;
+      const fallaron = resultados.length - enviadas;
+
+      // Si TODO salio, el plan se descarta: sus hojas son decenas de MB.
+      // Si algo fallo SE CONSERVA, para poder reintentar sin volver a subir
+      // el PDF. `obtener()` ya refresco su vigencia.
+      const quedanPorEnviar = plan.contenido.filas.some((f) => f.enviar && f.pedido);
+      if (!quedanPorEnviar) planesDeGuias.borrar(id);
+
+      return res.json({
+        ok: true,
+        intentadas: resultados.length,
+        enviadas,
+        fallaron,
+        resultados,
+        planVivo: quedanPorEnviar,
+        aviso: fallaron
+          ? `Salieron ${enviadas} de ${resultados.length}. Las que fallaron siguen marcadas: puedes reintentar sin volver a subir el PDF.`
+          : `Salieron las ${enviadas}.`,
+      });
+    } catch (e) {
+      log.error("panel_guias_enviar_fallo", { detalle: e.message });
       return res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -1120,6 +1560,12 @@ const responder = require("../cerebro/responder");
           datos: d,
           tipos: Object.values(dominioPedido.TIPOS_DE_NOVEDAD),
           envioManualActivo: config.panelEnvioManual,
+          // Las plantillas que faltan se dicen ARRIBA, antes de que el
+          // operador suba nada: es una tarea para una persona -crearlas en
+          // Meta- y descubrirla fila por fila al final del flujo es tarde.
+          faltanPlantillas: Object.entries(plantillasDeNovedad())
+            .filter(([, nombre]) => !nombre)
+            .map(([tipo]) => tipo),
         })
       );
     } catch (e) {
@@ -1146,16 +1592,317 @@ const responder = require("../cerebro/responder");
 
       diario.anotar("panel_novedad", { codigo, tipo, detalle, yaEstaba: r.yaEstaba });
 
-      // El aviso al cliente NO se intenta: necesita plantilla aprobada, y
-      // fuera de la ventana de 24h Meta acepta el texto libre y no lo
-      // entrega. Fingir el intento seria creer que el cliente se entero.
+      // REGISTRAR Y AVISAR SON DOS ACCIONES. Esta solo deja constancia de
+      // que la novedad existe; el aviso al cliente va por /novedades/avisar,
+      // que calcula la ventana de 24 h y elige texto libre o plantilla.
+      //
+      // Separadas a proposito: una novedad hay que poder anotarla aunque
+      // todavia no se pueda avisar -porque falte la plantilla-, y el numero
+      // de novedades es lo que dice si la gestion se esta aflojando.
+      const plantilla = plantillasDeNovedad()[tipo];
       return res.json({
         ok: true,
+        puedeAvisar: Boolean(plantilla),
         aviso: r.yaEstaba
           ? `Ya habia una novedad "${tipo}" abierta en ${codigo}. No se duplico.`
-          : `Novedad "${tipo}" registrada en ${codigo}. El aviso al cliente necesita plantilla aprobada de Meta: todavia no se envia.`,
+          : `Novedad "${tipo}" registrada en ${codigo}.` +
+            (plantilla
+              ? " Para avisarle al cliente, usa la pantalla de novedades."
+              : ` Para avisar al cliente hace falta la plantilla de "${tipo}" aprobada en Meta: todavia no esta configurada.`),
       });
     } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // AVISARLE AL CLIENTE, EN TRES PASOS
+  //
+  // 1. /novedades/archivo  convierte el CSV/XLSX de la transportadora en texto.
+  // 2. /novedades/revisar  cruza con los pedidos y PROPONE el plan.
+  // 3. /novedades/avisar   manda solo las marcadas.
+  //
+  // El paso 1 es opcional: se puede pegar el texto a mano, y es lo que hace
+  // que esto funcione hoy sin saber que formato exportara la transportadora.
+  // ----------------------------------------------------------------------
+
+  router.post(
+    "/novedades/archivo",
+    express.raw({ type: () => true, limit: "10mb" }),
+    async (req, res) => {
+      if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+      try {
+        const nombre = String(req.query.nombre || "");
+        const r = hojaDeCalculo.aTexto(req.body, nombre);
+        if (!r.ok) return res.status(400).json({ ok: false, error: r.motivo });
+
+        return res.json({
+          ok: true,
+          formato: r.formato,
+          cuantas: r.cuantas,
+          texto: r.texto,
+          columnas: r.columnas,
+          // Si no se reconocieron las columnas se dice, porque la causa
+          // suele ser que la transportadora cambio el encabezado. Sin este
+          // aviso parece que el archivo no trae novedades.
+          aviso: r.columnas
+            ? r.columnas.conOficina
+              ? null
+              : "El archivo no trae columna de oficina: las novedades de oficina van a pedir que la escribas a mano."
+            : "No se reconocieron los encabezados, asi que se lee cada linea entera buscando un numero de guia. " +
+              "Revisa bien el resultado: puede que la transportadora haya cambiado el formato.",
+        });
+      } catch (e) {
+        log.error("panel_novedades_archivo_fallo", { detalle: e.message });
+        return res.status(500).json({ ok: false, error: e.message });
+      }
+    }
+  );
+
+  router.post("/novedades/revisar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const texto = String((req.body && req.body.texto) || "");
+    const datosAMano = (req.body && req.body.datos) || {};
+    if (!texto.trim()) {
+      return res.status(400).json({ ok: false, error: "No hay nada que revisar: pega el texto o sube el archivo." });
+    }
+
+    try {
+      const { repos } = await piezas();
+      const todos = await repos.pedidos.listar({ limite: 2000 });
+      // Solo lo despachado puede tener una novedad de entrega. Cruzar contra
+      // pedidos sin despachar haria coincidir una novedad con un pedido que
+      // nunca salio, y avisar a ese cliente de algo que no le paso.
+      const pedidos = todos.filter((p) => p.despacho && p.despacho.guia);
+
+      // Las conversaciones de esos clientes, para la ventana de 24 h.
+      const conversaciones = new Map();
+      for (const p of pedidos) {
+        if (conversaciones.has(p.contactoId)) continue;
+        const c = await repos.conversaciones.obtener(p.contactoId).catch(() => null);
+        if (c) conversaciones.set(p.contactoId, c);
+      }
+
+      const avisos = indiceDeAvisos(pedidos);
+      const plan = novedadesDeEntrega.revisar({
+        texto,
+        pedidos,
+        conversaciones,
+        plantillas: plantillasDeNovedad(),
+        yaAvisada: avisos,
+        datos: datosAMano,
+      });
+
+      // El plan se guarda con el TEXTO y los DATOS, no con los pedidos: al
+      // enviar se vuelven a leer de los repositorios, por si algo cambio
+      // entre revisar y enviar.
+      const id = planesDeNovedades.guardar({ texto, datos: datosAMano });
+
+      diario.anotar("panel_novedades_revisadas", {
+        filas: plan.filas.length,
+        listas: plan.listas,
+        bloqueadas: plan.bloqueadas,
+      });
+
+      return res.json({
+        ok: true,
+        id,
+        listas: plan.listas,
+        bloqueadas: plan.bloqueadas,
+        porConfirmar: plan.porConfirmar,
+        plantillasQueFaltan: plan.plantillasQueFaltan,
+        filas: plan.filas.map((f, i) => ({
+          i,
+          guia: f.guia,
+          motivo: f.motivo,
+          tipo: f.tipo.nombre,
+          tipoClave: f.tipo.clave,
+          cliente: f.pedido ? (f.pedido.destinatario || {}).nombre || null : null,
+          codigo: f.pedido ? f.pedido.id : null,
+          comoSeEncontro: f.comoSeEncontro,
+          requiereConfirmacion: Boolean(f.requiereConfirmacion),
+          ventana: f.ventana ? { abierta: f.ventana.abierta, restante: f.ventana.restante } : null,
+          porPlantilla: f.porPlantilla,
+          plantilla: f.plantilla,
+          // El mensaje exacto que veria el cliente, para poder leerlo ANTES.
+          mensaje: f.mensaje || null,
+          variables: f.variables,
+          oficina: f.oficina,
+          plazo: f.plazo,
+          pide: f.pide || [],
+          enviar: f.enviar,
+          bloqueada: f.bloqueada,
+        })),
+      });
+    } catch (e) {
+      log.error("panel_novedades_revisar_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  router.post("/novedades/avisar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const id = String((req.body && req.body.id) || "");
+    const indices = Array.isArray(req.body && req.body.indices) ? req.body.indices.map(Number) : [];
+    const datosAMano = (req.body && req.body.datos) || {};
+    if (!id) return res.status(400).json({ ok: false, error: "Falta el plan." });
+    if (!indices.length) return res.status(400).json({ ok: false, error: "No marcaste ninguna novedad." });
+
+    const plan = planesDeNovedades.obtener(id);
+    if (!plan.ok) return res.status(410).json({ ok: false, error: plan.explicacion, motivo: plan.motivo });
+
+    try {
+      const { repos, emisor } = await piezas();
+      const todos = await repos.pedidos.listar({ limite: 2000 });
+      const pedidos = todos.filter((p) => p.despacho && p.despacho.guia);
+
+      const conversaciones = new Map();
+      for (const p of pedidos) {
+        if (conversaciones.has(p.contactoId)) continue;
+        const c = await repos.conversaciones.obtener(p.contactoId).catch(() => null);
+        if (c) conversaciones.set(p.contactoId, c);
+      }
+
+      // ------------------------------------------------------------------
+      // SE RECALCULA, NO SE CONFIA EN LO QUE MANDE EL NAVEGADOR
+      //
+      // Entre revisar y enviar pueden haber pasado minutos: una ventana de
+      // 24 h pudo cerrarse, y entonces el texto libre que se iba a mandar ya
+      // no lo entrega Meta. Recalcular lo convierte en plantilla solo.
+      //
+      // Los datos escritos a mano se UNEN con los del plan, no lo
+      // reemplazan. Es un fallo real de BIKERPRO del 30-sep: la pantalla
+      // deja de dibujar los campos de las filas ya resueltas, asi que esos
+      // datos no viajaban en el segundo envio y las filas volvian a
+      // bloquearse pidiendo lo que ya se habia escrito.
+      // ------------------------------------------------------------------
+      const datosUnidos = { ...(plan.contenido.datos || {}) };
+      for (const [guia, v] of Object.entries(datosAMano)) {
+        datosUnidos[guia] = { ...(datosUnidos[guia] || {}), ...(v || {}) };
+      }
+      plan.contenido.datos = datosUnidos;
+
+      const recalculado = novedadesDeEntrega.revisar({
+        texto: plan.contenido.texto,
+        pedidos,
+        conversaciones,
+        plantillas: plantillasDeNovedad(),
+        yaAvisada: indiceDeAvisos(pedidos),
+        datos: datosUnidos,
+      });
+
+      const resultados = [];
+
+      for (const i of indices) {
+        const fila = recalculado.filas[i];
+        if (!fila || !fila.enviar || !fila.pedido) {
+          resultados.push({
+            i,
+            guia: fila ? fila.guia : null,
+            enviado: false,
+            porQue: (fila && fila.bloqueada) || "esta novedad no esta lista para avisar",
+          });
+          continue;
+        }
+
+        // La novedad se REGISTRA en el pedido antes de avisar. Asi, si el
+        // envio falla, la novedad sigue existiendo y se puede reintentar;
+        // registrarla despues del envio la perderia justo cuando hace falta.
+        let pedido = fila.pedido;
+        const reg = dominioPedido.registrarNovedad({
+          pedido,
+          tipo: fila.tipo.clave,
+          detalle: fila.motivo,
+        });
+        if (!reg.ok) {
+          resultados.push({ i, guia: fila.guia, enviado: false, porQue: reg.motivo });
+          continue;
+        }
+        if (!reg.yaEstaba) {
+          await repos.pedidos.reemplazar(reg.pedido);
+          pedido = reg.pedido;
+        }
+        const novedad =
+          reg.novedad || dominioPedido.novedadesAbiertas(pedido).find((n) => n.tipo === fila.tipo.clave);
+
+        const destino = guias.destinoDe(pedido);
+        const envio = fila.porPlantilla
+          ? await emisor.enviarPlantilla({
+              para: destino,
+              plantilla: fila.plantilla,
+              variables: fila.variables,
+              permiso: PERMISOS.ATENCION_MANUAL,
+              conversacionId: pedido.contactoId,
+            })
+          : await emisor.enviarTexto({
+              para: destino,
+              texto: fila.mensaje,
+              permiso: PERMISOS.ATENCION_MANUAL,
+              conversacionId: pedido.contactoId,
+            });
+
+        if (novedad) {
+          const anot = dominioPedido.registrarAvisoDeNovedad({
+            pedido,
+            id: novedad.id,
+            resultado: envio,
+          });
+          if (anot.ok && !anot.yaEstaba) await repos.pedidos.reemplazar(anot.pedido);
+        }
+
+        const conv = conversaciones.get(pedido.contactoId);
+        if (envio.enviado && conv) {
+          atencion.anotarMensaje(conv, {
+            de: atencion.QUIEN.BOT,
+            texto: fila.porPlantilla
+              ? `[novedad "${fila.tipo.nombre}" avisada por plantilla aprobada]`
+              : fila.mensaje,
+            por: "operador",
+            estado: "enviado",
+          });
+          await repos.conversaciones.guardar(conv).catch(() => null);
+        }
+
+        diario.anotar("panel_novedad_avisada", {
+          codigo: pedido.id,
+          guia: fila.guia,
+          tipo: fila.tipo.clave,
+          enviado: envio.enviado,
+          porPlantilla: Boolean(envio.porPlantilla),
+          motivo: envio.motivo || null,
+        });
+        metricas.incrementar(envio.enviado ? "panel_novedad_avisada" : "panel_novedad_no_avisada");
+
+        resultados.push({
+          i,
+          guia: fila.guia,
+          cliente: (pedido.destinatario || {}).nombre || null,
+          enviado: Boolean(envio.enviado),
+          porPlantilla: Boolean(envio.porPlantilla),
+          porQue: envio.enviado
+            ? null
+            : EXPLICACION[envio.motivo] ||
+              ventana.explicarCodigo(envio.codigoMeta) ||
+              envio.detalle ||
+              explicarFalloDeMeta({ codigo: envio.codigoMeta, estado: envio.estado }),
+        });
+      }
+
+      const enviadas = resultados.filter((r) => r.enviado).length;
+      const fallaron = resultados.length - enviadas;
+
+      return res.json({
+        ok: true,
+        intentadas: resultados.length,
+        enviadas,
+        fallaron,
+        resultados,
+        aviso: fallaron
+          ? `Se avisó a ${enviadas} de ${resultados.length}. Las que fallaron se pueden reintentar: el plan sigue vivo.`
+          : `Se avisó a ${enviadas}.`,
+      });
+    } catch (e) {
+      log.error("panel_novedades_avisar_fallo", { detalle: e.message });
       return res.status(500).json({ ok: false, error: e.message });
     }
   });

@@ -92,3 +92,39 @@ services:
         sync: false
       - key: OWNER_WHATSAPP
         sync: false
+
+      # --- Despacho: guias y novedades de entrega ---
+      #
+      # Interruptor PROPIO de los envios manuales del panel. Aparte de
+      # RESPUESTA_AUTOMATICA a proposito: ese existe para que el BOT no
+      # hable, y un operador que pulsa enviar no es el bot.
+      #
+      # En 0, el panel se opera COMPLETO -se sube el PDF, se revisa el
+      # pareo, se ve el mensaje exacto de cada cliente- y al enviar cada
+      # fila dice que la freno el interruptor. Nunca un envio fingido.
+      - key: PANEL_ENVIO_MANUAL
+        value: "0"
+
+      # "es_CO", NO "es": para Meta son dos traducciones distintas, y con
+      # "es" rechaza con 132001 aunque la plantilla este aprobada.
+      - key: PLANTILLA_IDIOMA
+        value: es_CO
+
+      # Plantillas aprobadas en Meta. Vacias = ese aviso queda bloqueado y
+      # el panel lo dice, en vez de intentarlo y fallar en silencio.
+      #
+      # Van como sync:false porque son datos de la cuenta de Meta de NOVIKA
+      # y se rellenan cuando Meta las apruebe, sin tocar este archivo.
+      - key: PLANTILLA_NOVEDAD_DIRECCION
+        sync: false
+      - key: PLANTILLA_NOVEDAD_AUSENTE
+        sync: false
+      - key: PLANTILLA_NOVEDAD_OFICINA
+        sync: false
+      - key: PLANTILLA_GUIA
+        sync: false
+
+      # Los telefonos propios impresos en la etiqueta, para no confundirlos
+      # con el del cliente al parear una guia. Aparte de OWNER_WHATSAPP.
+      - key: TELEFONOS_REMITENTE
+        sync: false

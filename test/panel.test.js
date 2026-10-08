@@ -623,11 +623,27 @@ describe("7 · recorridos por HTTP", () => {
     }
   });
 
-  test("guias y novedades cargan, y separan lo que funciona de lo que falta", async () => {
-    // Ya NO son pantallas bloqueadas enteras: registrar guia a mano y
-    // registrar/resolver novedades funcionan. Lo que sigue bloqueado -el
-    // lector de PDF y el aviso por plantilla- se dice DENTRO de la
-    // pantalla, en vez de tapar todo lo demas.
+  test("guias y novedades traen su flujo completo, y lo que depende de Meta lo dice ANTES", async () => {
+    // ----------------------------------------------------------------------
+    // ESTA PRUEBA CAMBIO DE SIGNIFICADO, Y EL CAMBIO ES EL PUNTO
+    //
+    // Antes comprobaba que las dos pantallas DIJERAN que les faltaba algo: el
+    // lector del PDF de la transportadora y el aviso por plantilla. Las dos
+    // cosas ya estan construidas, asi que ese texto ya no existe y la prueba
+    // vigila lo que importa ahora:
+    //
+    //   · que el flujo de tres pasos este en la pantalla (subir, revisar,
+    //     enviar), porque revisar antes de enviar es lo que evita mandarle a
+    //     un cliente la etiqueta de otro;
+    //
+    //   · que la dependencia que SIGUE siendo externa -las plantillas tienen
+    //     que crearse en Meta y que Meta las apruebe- se diga ARRIBA, antes
+    //     de que alguien suba un archivo. Es una tarea para una persona, y
+    //     descubrirla fila por fila al final del flujo es tarde.
+    //
+    // En el entorno de prueba no hay ninguna plantilla configurada, asi que
+    // la pantalla tiene que nombrarlas todas.
+    // ----------------------------------------------------------------------
     const s = await levantar();
     try {
       const cookie = await s.entrar();
@@ -635,16 +651,30 @@ describe("7 · recorridos por HTTP", () => {
       const g = await fetch(`${s.url}/panel/guias`, { headers: { cookie } });
       assert.equal(g.status, 200);
       const htmlG = await g.text();
-      assert.match(htmlG, /por despachar/i, "la parte que funciona tiene que estar");
-      assert.match(htmlG, /partir el PDF/i, "y tiene que decir que falta el lector de PDF");
-      assert.match(htmlG, /PDF de guías de verdad/i, "y como se desbloquea");
+      assert.match(htmlG, /por despachar/i, "la parte de registrar a mano tiene que seguir ahi");
+      assert.match(htmlG, /PDF de la transportadora/i, "falta el flujo del lote de guias");
+      assert.match(htmlG, /no env[ií]a nada/i, "revisar tiene que decir explicitamente que no envia");
+      assert.match(
+        htmlG,
+        /no salen del servidor/i,
+        "tiene que decir que las etiquetas, con los datos del cliente, no se mandan al navegador"
+      );
 
       const n = await fetch(`${s.url}/panel/novedades`, { headers: { cookie } });
       assert.equal(n.status, 200);
       const htmlN = await n.text();
       assert.match(htmlN, /con novedad abierta/i);
-      assert.match(htmlN, /plantillas aprobadas|plantilla aprobada/i, "tiene que decir que el aviso no sale");
-      assert.match(htmlN, /PLANTILLA_NOVEDAD_AUSENTE/);
+      assert.match(htmlN, /Avisar a los clientes/i, "falta el flujo de aviso");
+      assert.match(
+        htmlN,
+        /Faltan plantillas aprobadas/i,
+        "sin plantillas configuradas, la pantalla tiene que avisarlo antes de que se suba nada"
+      );
+      // Los tres tipos, por su nombre, para que se sepa cuales crear.
+      for (const tipo of ["direccion", "ausente", "oficina"]) {
+        assert.match(htmlN, new RegExp(tipo), `no nombra la plantilla que falta para "${tipo}"`);
+      }
+      assert.match(htmlN, /solo entrega plantillas/i, "tiene que explicar la regla de la ventana de 24 h");
     } finally {
       await s.cerrar();
     }

@@ -20,8 +20,8 @@ Auditoría **de solo lectura** de `mtavera99/impermeables` en `a89f51c`. No se m
 | `GET /pedidos.csv` | Exportar | `GET /panel/pedidos.csv` |
 | `GET /auditoria` | Embudo y atribución del día | `GET /panel/auditoria` |
 | `GET /cierre` | Resumen del día, opcionalmente por WhatsApp | *no se porta* (ver §5) |
-| `GET /guias` + 3 POST | Partir el PDF de la transportadora | **bloqueado** (§5) |
-| `GET /novedades` + 2 POST | Novedades de entrega por plantilla | **bloqueado** (§5) |
+| `GET /guias` + 3 POST | Partir el PDF de la transportadora | `GET /panel/guias` · `POST /panel/guias/revisar` · `/asignar` · `/enviar` — **portado** (§5) |
+| `GET /novedades` + 2 POST | Novedades de entrega por plantilla | `GET /panel/novedades` · `POST /panel/novedades/archivo` · `/revisar` · `/avisar` — **portado** (§5) |
 | `GET /limpiar-duplicados`, `/recuperar-cliente`, `/limpiar-conversaciones-rotas` | Reparaciones manuales de su store | *no se porta*: son parches de un almacén que NOVIKA no tiene |
 
 ---
@@ -102,17 +102,32 @@ No se copia su `store`: sería una segunda fuente de pedidos.
 
 ---
 
-## 5 · Lo que requiere configuración externa que NO existe
+## 5 · Lo que esta auditoría dio por bloqueado, y por qué dos de las tres cosas no lo estaban
 
-No lo presento como operativo.
+Detalle completo del flujo portado en [DESPACHO.md](DESPACHO.md).
 
-**Guías / despachos — bloqueado por formato de transportadora.**
-El dueño genera las guías en **99 Envíos** y recibe **un PDF** con todas; el panel lo parte y asigna cada una a su cliente. No hay API ni credenciales: es subir un PDF a mano. Pero el lector está ajustado al formato exacto de ese PDF (`pdf-lib` + `pdfjs-dist`, y `pdfjs` en un proceso hijo porque **no devuelve la memoria**: +71 MB por lote).
+**Guías / despachos — PORTADO. La conclusión de esta auditoría era falsa, y conviene entender por qué.**
 
-Para NOVIKA falta: decidir la transportadora, y **un PDF real de ejemplo** contra el que ajustar y probar el lector. Sin eso, portar el parser es escribir código que no se puede verificar. La pantalla queda, con el estado honesto y sin prometer que funciona.
+Decía esto:
 
-**Novedades — bloqueado por plantillas de Meta.**
-Necesita tres plantillas **aprobadas** en Meta: `PLANTILLA_NOVEDAD_AUSENTE`, `PLANTILLA_NOVEDAD_DIRECCION`, `PLANTILLA_NOVEDAD_OFICINA`. NOVIKA no tiene ninguna. Hay que crearlas y que Meta las apruebe; no se puede sustituir por texto libre porque fuera de la ventana de 24h Meta solo entrega plantillas.
+> *«el lector está ajustado al formato exacto de ese PDF. Para NOVIKA falta decidir la transportadora, y un PDF real de ejemplo contra el que ajustar y probar el lector. Sin eso, portar el parser es escribir código que no se puede verificar.»*
+
+El razonamiento era correcto **sobre el diseño de BIKERPRO**, donde leer el archivo y decidir el destinatario viven en la misma función (`procesarPDF`). Allí, efectivamente, no se puede probar nada sin un PDF.
+
+Lo que no se vio es que ese acoplamiento **no hay que portarlo**:
+
+- `src/despacho/guias.js` es **puro**: recibe el texto ya extraído y decide de quién es cada etiqueta. El 95 % del riesgo —*a quién se le manda*— se prueba con líneas escritas a mano.
+- El PDF de prueba **se genera** con `pdf-lib`, la misma librería que lo parte, con los rótulos que imprimen las transportadoras colombianas.
+
+Lo que sí era cierto: si la transportadora elegida usa rótulos distintos, el lector habrá que ajustarlo. Pero eso es una línea en `extraerCampos` con 34 pruebas de red, no un módulo sin verificar.
+
+> La lección general: *«no se puede verificar»* casi nunca es una propiedad del problema. Suele ser una propiedad de **cómo está partido el código**, y entonces es negociable.
+
+**Novedades — PORTADO el flujo; sigue faltando lo de Meta, que no es código.**
+
+Clasificar, cruzar con el pedido, leer el CSV/XLSX y avisar están implementados. Lo que no depende de nosotros son las tres plantillas **aprobadas**: `PLANTILLA_NOVEDAD_AUSENTE`, `PLANTILLA_NOVEDAD_DIRECCION`, `PLANTILLA_NOVEDAD_OFICINA`. No se pueden sustituir por texto libre, porque fuera de la ventana de 24 h Meta solo entrega plantillas.
+
+La diferencia con antes: el panel **bloquea esa fila y lo dice arriba**, antes de que se suba nada, en vez de no tener la pantalla. Y a los clientes que sí tengan la ventana abierta se les escribe igual.
 
 **Atribución / embudo — falta dato, no código.**
 Su auditoría cruza `referral` de anuncios con pedidos. NOVIKA no tiene campañas activas ni pedidos reales, así que la pantalla se porta pero dirá "sin datos" hasta que existan. No se inventan números.

@@ -116,14 +116,27 @@ Con almacenamiento efímero, recibir y verificar el webhook funciona igual, pero
 
 Para verificar la Callback URL en Meta **no hace falta disco ni `META_APP_SECRET`**: basta `WHATSAPP_VERIFY_TOKEN`. Está probado en `test/fase1-sin-persistencia.test.js`.
 
+## Panel operativo
+
+Todo lo que hace falta para dirigir el día: tablero, bandeja de chats, conversación con respuesta manual, venta manual, indicadores, auditoría, y el **despacho de punta a punta** — subir el PDF de guías de la transportadora y repartir cada una a su cliente, y avisar las novedades de entrega desde su reporte.
+
+Se entra por `/panel` con `PANEL_TOKEN`, por formulario: el token **no** viaja en la URL, que se queda en el historial, en los `Referer` y en los logs de cualquier proxy.
+
+Dos cosas que conviene saber antes de usarlo:
+
+- **Los envíos manuales tienen su propio interruptor**, `PANEL_ENVIO_MANUAL`, apagado por defecto. El panel se opera completo —se sube el PDF, se revisa el pareo, se lee el mensaje exacto de cada cliente— y al enviar, cada fila dice que la frenó el interruptor. Nunca un envío fingido.
+- **Aceptado por Meta no es entregado.** El panel distingue las tres cosas: aceptado (con su `wamid`), bloqueado por un interruptor (y cuál), y fallido (con el motivo traducido). La entrega real solo se da por buena con el acuse del webhook.
+
+Detalle: [`docs/PANEL.md`](docs/PANEL.md) y [`docs/DESPACHO.md`](docs/DESPACHO.md).
+
 ## Siguiente
 
 1. **Definir los primeros productos** (decisión del dueño: precios, políticas, garantías, cobertura)
-2. Ejecutar el cutover a PostgreSQL — el adaptador ya pasa las mismas pruebas de contrato; falta la operación, desde el Shell de Render
-3. Configurar el proveedor de IA
-4. Auditar conversaciones reales en modo sombra
-5. Panel de administración
-6. Encender `RESPUESTA_AUTOMATICA` — sólo después de 4
+2. **Crear las plantillas en Meta y esperar su aprobación** — `PLANTILLA_NOVEDAD_DIRECCION`, `_AUSENTE`, `_OFICINA` y `PLANTILLA_GUIA`. Es lo único que separa el despacho de estar operativo: la guía y las novedades caen siempre fuera de la ventana de 24 h, y fuera de ella Meta solo entrega plantillas
+3. Ejecutar el cutover a PostgreSQL — el adaptador ya pasa las mismas pruebas de contrato; falta la operación, desde el Shell de Render
+4. Configurar el proveedor de IA
+5. Auditar conversaciones reales en modo sombra
+6. Encender `RESPUESTA_AUTOMATICA` — sólo después de 5
 
 ## Repositorio
 

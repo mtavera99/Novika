@@ -73,6 +73,66 @@ const config = {
   zonaHoraria: texto("ZONA_HORARIA", "America/Bogota"),
   ownerWhatsapp: texto("OWNER_WHATSAPP"),
 
+  // --- Despacho: guias y novedades de entrega ---
+
+  // --------------------------------------------------------------------------
+  // IDIOMA DE LAS PLANTILLAS: "es_CO", NO "es"
+  //
+  // Para Meta son dos TRADUCCIONES distintas de la misma plantilla. Si la
+  // plantilla se subio en Spanish (COL) y se envia con "es", Meta la rechaza
+  // con 132001 -"template name does not exist in the translation"- aunque la
+  // plantilla este aprobada y visible en el panel de Meta.
+  //
+  // Es un fallo que no se parece a lo que es: el mensaje habla del NOMBRE de
+  // la plantilla, asi que se busca el error en el nombre y no en el idioma.
+  // Queda parametrizable porque el idioma lo elige quien crea la plantilla.
+  // --------------------------------------------------------------------------
+  idiomaPlantillas: texto("PLANTILLA_IDIOMA", "es_CO"),
+
+  // --------------------------------------------------------------------------
+  // UNA PLANTILLA POR TIPO DE NOVEDAD, Y NO UNA GENERICA
+  //
+  // Una sola plantilla ("tu pedido tuvo una novedad, responde") obliga al
+  // cliente a PREGUNTAR que paso, y ahi se pierde gente justo cuando el
+  // paquete esta a dias de devolverse. Con una por caso, al cliente le llega
+  // lo que necesita saber sin preguntar nada.
+  //
+  // Sin valor por defecto A PROPOSITO. Una plantilla con nombre inventado
+  // falla en el envio, que es tarde: el operador ya creyo que aviso. Vacio
+  // significa "bloqueado, falta crearla en Meta", y el panel lo dice antes de
+  // intentar nada.
+  // --------------------------------------------------------------------------
+  plantillaNovedadDireccion: texto("PLANTILLA_NOVEDAD_DIRECCION"),
+  plantillaNovedadAusente: texto("PLANTILLA_NOVEDAD_AUSENTE"),
+  plantillaNovedadOficina: texto("PLANTILLA_NOVEDAD_OFICINA"),
+
+  // La guia se despacha al dia siguiente de la compra, asi que la ventana de
+  // 24 h del cliente casi siempre esta cerrada: esta plantilla es el camino
+  // NORMAL, no la excepcion.
+  plantillaGuia: texto("PLANTILLA_GUIA"),
+
+  // --------------------------------------------------------------------------
+  // LOS TELEFONOS PROPIOS QUE VAN IMPRESOS EN LA ETIQUETA
+  //
+  // Se usa para NO confundir el telefono del remitente con el del cliente al
+  // parear una guia. Un telefono vale 50 puntos -la senal mas fuerte-, asi
+  // que colar el numero propio como si fuera del destinatario ensucia el
+  // pareo entero.
+  //
+  // ES UNA VARIABLE APARTE DE OWNER_WHATSAPP, y la separacion viene de un
+  // incidente de BIKERPRO: el dueno movio los avisos del bot a su celular
+  // personal, y como se usaba la misma variable para las dos cosas, el
+  // telefono impreso en la etiqueta dejo de reconocerse.
+  //
+  // Son dos preguntas distintas: "a quien le aviso" y "que numero va impreso
+  // en la etiqueta". Acepta varios separados por coma: excluir un numero
+  // propio de mas no cuesta nada, olvidarse de uno si.
+  // --------------------------------------------------------------------------
+  telefonosRemitente: texto("TELEFONOS_REMITENTE")
+    .split(/[,;]/)
+    .map((n) => n.replace(/\D/g, ""))
+    .filter(Boolean),
+
   // --- Fase 2 ---
 
   // Modo sombra: procesar el mensaje completo y PREPARAR la respuesta sin
@@ -249,6 +309,48 @@ function revisar(c = config) {
   }
   if (c.respuestaAutomatica) {
     avisos.push("RESPUESTA_AUTOMATICA=1: NOVIKA va a escribirles a clientes reales.");
+  }
+
+  // --- Despacho ---
+  //
+  // Son AVISOS, nunca errores: el servicio tiene que arrancar sin esto. Pero
+  // tienen que estar a la vista, porque la consecuencia de que falten no se
+  // nota hasta el momento mas caro -el paquete ya salio, o ya tuvo una
+  // novedad- y entonces el aviso al cliente queda bloqueado.
+  const plantillasDeNovedad = {
+    PLANTILLA_NOVEDAD_DIRECCION: c.plantillaNovedadDireccion,
+    PLANTILLA_NOVEDAD_AUSENTE: c.plantillaNovedadAusente,
+    PLANTILLA_NOVEDAD_OFICINA: c.plantillaNovedadOficina,
+  };
+  const faltan = Object.entries(plantillasDeNovedad)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+
+  if (faltan.length) {
+    avisos.push(
+      `Faltan plantillas de novedad de entrega (${faltan.join(", ")}). Una novedad llega 1 a 3 dias ` +
+        "despues del pedido, cuando la ventana de 24 h de Meta ya se cerro, y fuera de ella Meta SOLO " +
+        "entrega plantillas aprobadas. Sin ellas, el panel marca esos avisos como bloqueados en vez de " +
+        "intentarlos: hay que crearlas en Meta y esperar su aprobacion."
+    );
+  }
+  if (!c.plantillaGuia) {
+    avisos.push(
+      "PLANTILLA_GUIA no esta configurada. La guia se despacha al dia siguiente de la compra, asi que " +
+        "la ventana de 24 h del cliente casi siempre esta cerrada: sin esta plantilla solo se le podra " +
+        "mandar la guia a quien haya escrito en las ultimas 24 horas."
+    );
+  }
+  // `revisar` se llama tambien con configuraciones PARCIALES -las pruebas
+  // pasan solo los campos que les interesan-, asi que ningun campo nuevo se
+  // puede dar por presente. Leerlo a pelo tumbaba la validacion entera, que
+  // es justo la que tiene que decir que falta.
+  if (!(c.telefonosRemitente || []).length) {
+    avisos.push(
+      "TELEFONOS_REMITENTE esta vacia. Es el telefono propio IMPRESO en la etiqueta, y sirve para no " +
+        "confundirlo con el del cliente al parear una guia: un telefono vale 50 puntos, la senal mas " +
+        "fuerte del puntaje. Sin esto, el numero propio entra al pareo como si fuera de un destinatario."
+    );
   }
 
   return { errores, avisos };
