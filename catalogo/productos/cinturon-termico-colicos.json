@@ -1,5 +1,5 @@
 {
-  "_LEEME": "ACTIVO desde el 2026-10-07. Ficha confirmada por Marco: nombre comercial, color unico rosado, talla unica con correa ajustable, descripcion aprobada palabra por palabra, precio de 1 unidad 49.900 COP, envio incluido y pago contraentrega. Todo vive en los campos que lee el cotizador, no en texto libre. LO QUE SIGUE SIN CONFIRMAR esta en sinDatoConfirmado, y el bot responde a esas preguntas diciendo que lo confirma una persona: precio por 2 o mas unidades, medidas del ajuste, como se tramita la garantia. CONFIRMADOS el 2026-10-07 ademas: garantia de 1 mes y entrega en 1 a 3 dias habiles segun la ciudad -este ultimo tomado de BIKERPRO con autorizacion de Marco, por ser las mismas transportadoras-. OJO con las medidas: Marco fue explicito en que NO se prometa que sirve para cualquier contorno, y eso esta en claimsProhibidos como frases concretas, no como una advertencia al modelo.",
+  "_LEEME": "ACTIVO desde el 2026-10-07. Ficha confirmada por Marco: nombre comercial, color unico rosado, talla unica con correa ajustable, descripcion aprobada palabra por palabra, precio de 1 unidad 49.900 COP, envio incluido y pago contraentrega. Todo vive en los campos que lee el cotizador, no en texto libre. LO QUE SIGUE SIN CONFIRMAR esta en sinDatoConfirmado, y el bot responde a esas preguntas diciendo que lo confirma una persona: precio por 3 o mas unidades, la medida del contorno que ajusta, el material y lo que trae el paquete. CONFIRMADOS el 2026-10-07 ademas: garantia de 1 mes y entrega en 1 a 3 dias habiles segun la ciudad. CONFIRMADOS el 2026-10-08: precio de 2 unidades (85.000), alcance y tramite de la garantia, y que la correa es graduable -este ultimo tomado de BIKERPRO con autorizacion de Marco, por ser las mismas transportadoras-. OJO con las medidas: Marco fue explicito en que NO se prometa que sirve para cualquier contorno, y eso esta en claimsProhibidos como frases concretas, no como una advertencia al modelo.",
   "id": "cinturon-termico-colicos",
   "slug": "cinturon-termico-colicos",
   "nombre": "Cinturón térmico NOVIKA",
@@ -79,9 +79,7 @@
     "pago": "contraentrega - Marco, 2026-10-07"
   },
   "sinDatoConfirmado": [
-    "como se tramita la garantia",
-    "que cubre exactamente la garantia",
-    "el precio por dos o mas unidades",
+    "el precio por tres o mas unidades",
     "si hay descuento por cantidad",
     "hasta que contorno ajusta la correa",
     "las medidas exactas del cinturon",
@@ -92,7 +90,7 @@
     "si funciona con bateria o enchufado, y cuanto dura",
     "el dia exacto en que llega"
   ],
-  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como frases que el texto no puede contener: si el modelo redacta algo que las menciona, se descarta su borrador y sale el texto determinista. Son las preguntas que mas se repiten en este producto y ninguna tiene respuesta aprobada todavia.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.",
+  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como temas sobre los que el texto no puede AFIRMAR. Son las preguntas que mas se repiten en este producto y que no tienen respuesta aprobada.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.\n\nTRES SALIERON EL 2026-10-08, Y POR EL MISMO MOTIVO: el dato ya existe en un campo estructurado, asi que declararlo dudoso era una contradiccion de la ficha contra si misma.\n\n  · 'como se tramita la garantia'       -> esta en garantiaComoSeTramita\n  · 'que cubre exactamente la garantia' -> esta en garantiaCubre + garantiaNoCubre\n  · 'el precio por dos o mas unidades'  -> precios tiene la clave '2'\n\nEl de precios NO se borro: se ESTRECHO a 'tres o mas', que es lo que de verdad falta. Marco confirmo 1 y 2; el motor 'tabla' no interpola, asi que quien pida 3 se escala. Borrarlo del todo habria dejado el hueco real sin declarar, que es el error opuesto y mas caro: el bot podria intentar contestar el precio de tres.\n\nLA LECCION DE DISEÑO, porque se repetira: cuando un dato pasa de desconocido a confirmado hay que tocar DOS sitios -el campo y esta lista- y olvidar el segundo no rompe ninguna prueba. Queda un bot que tiene el dato y dice que no lo tiene.",
   "claimsPermitidos": [],
   "claimsProhibidos": [
     "cura los colicos",

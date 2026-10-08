@@ -391,3 +391,166 @@ describe("4 · el plural cierra la venta del combo", () => {
     assert.equal(preguntas.leer("a las dos de la tarde me queda bien").compra, false);
   });
 });
+
+// --------------------------------------------------------------------------
+// 5 · CUANDO EL CLIENTE DA UN DATO, SE CIERRA
+//
+// DE DONDE SALE: Marco vio a una clienta escribir "Palmira" y recibir
+// "¿Cuántos quieres? Y para despachártelo me pasas la dirección." Sus
+// palabras: "todo tosco". Y pidio que cierre como el bot de BIKERPRO, "que
+// ya empieza a pedir los datos".
+//
+// LO QUE BIKERPRO MIDIO sobre 1.815 cotizaciones reales, y es el dato que
+// mas pesa de su operacion:
+//
+//   pidio los DATOS de despacho ... 473 veces ... 50,7% avanzaron
+//   pregunto TALLA o COLOR ....... 1.192 veces ... 24,8% avanzaron
+//
+// Pedir los datos convirtio EL DOBLE que seguir preguntando. Y lo que mas
+// se usaba era lo que peor funcionaba.
+//
+// LA DIFERENCIA CON BIKERPRO: alli la ciudad DESBLOQUEA el precio -el envio
+// va por destino-, aqui el envio va incluido y el precio ya se dijo. Lo que
+// se adapta es el MOVIMIENTO, no su tarifa: quien escribe su ciudad esta
+// comprando, y ese es el momento de pedir lo que falta de una.
+// --------------------------------------------------------------------------
+
+const fs = require("node:fs");
+const os = require("node:os");
+const { config } = require("../src/config");
+const { crearCerebro } = require("../src/cerebro/orquestar");
+const { crearReposDeArchivos } = require("../src/almacen/repos/archivos");
+const { crearCliente } = require("../src/ia/cliente");
+const { crearEmisor } = require("../src/whatsapp/enviar");
+const mutex = require("../src/almacen/mutex");
+
+let SEQ = 0;
+
+async function ventaReal() {
+  mutex._reiniciar();
+  const repos = await crearReposDeArchivos({ dir: fs.mkdtempSync(path.join(os.tmpdir(), "novika-cierre-")) });
+  const cfg = {
+    ...config,
+    respuestaAutomatica: true,
+    whatsappToken: "token-de-prueba",
+    idNumero: "000",
+    urlPublica: "https://pruebas.invalido",
+  };
+  const salidas = [];
+  const emisor = crearEmisor({
+    config: cfg,
+    repos,
+    fetchImpl: async (url, opc) => {
+      salidas.push(JSON.parse(opc.body));
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.C${salidas.length}` }] }) };
+    },
+  });
+  const cerebro = crearCerebro({
+    config: cfg,
+    repos,
+    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    ia: crearCliente({ proveedor: null }),
+    emisor,
+  });
+
+  const dice = async (texto) => {
+    salidas.length = 0;
+    const traza = await cerebro.procesar({
+      clase: "mensaje",
+      wamid: `wamid.CI${++SEQ}_${process.pid}`,
+      idCliente: "573001112233",
+      telefono: "573001112233",
+      // Sin nombre de perfil: asi se prueba el nombre que ESCRIBE la clienta.
+      nombre: null,
+      tipo: "text",
+      texto,
+      origenTexto: "escrito",
+      referral: null,
+    });
+    return { traza, texto: salidas.filter((s) => s.type === "text").map((s) => s.text.body).join("\n") };
+  };
+  return { dice, repos };
+}
+
+describe("5 · dar un dato dispara el cierre", () => {
+  test("EL CASO DE PALMIRA: acusa recibo con la ciudad y pide lo que falta", async () => {
+    const v = await ventaReal();
+    await v.dice("hola");
+    await v.dice("¿cuánto vale?");
+    const r = await v.dice("Palmira");
+
+    // 1. Reconoce el dato, con el dato en la mano.
+    assert.match(r.texto, /¡Perfecto!/, `no acusó recibo: ${r.texto}`);
+    assert.match(r.texto, /Palmira/, "no repitió su ciudad: no demuestra que la leyó");
+    // 2. El plazo, que es la pregunta que viene detrás.
+    assert.match(r.texto, /1 a 3 días hábiles/);
+    // 3. Y pide TODO lo que falta de una, como parte del proceso.
+    assert.match(r.texto, /me pasas/);
+    assert.match(r.texto, /dirección/);
+
+    // Lo que YA NO hace: soltar dos preguntas sueltas sin reconocer nada.
+    assert.equal(/^¿Cuántos quieres\?/.test(r.texto), false, "sigue arrancando con un interrogatorio");
+  });
+
+  test("pide la cantidad DENTRO de la misma pedida, no en vez de los datos", async () => {
+    // La regla de BIKERPRO: si falta un dato del producto, va en el MISMO
+    // mensaje que los datos de despacho. "Sumás una línea, no cambiás la
+    // pedida."
+    const v = await ventaReal();
+    await v.dice("hola");
+    const r = await v.dice("Palmira");
+
+    assert.match(r.texto, /me pasas/);
+    assert.match(r.texto, /uno o dos/, "no pidió la cantidad junto con los datos");
+    // Una sola pedida, no dos frases de petición.
+    assert.equal((r.texto.match(/me pasas/g) || []).length, 1);
+  });
+
+  test('"uno" cierra la venta: es la respuesta a la pregunta del propio bot', async () => {
+    // Se atascaba aqui y la venta se perdia: el bot preguntaba "si quieres
+    // uno o dos", la clienta contestaba "uno", y el bot no la entendia.
+    const v = await ventaReal();
+    await v.dice("hola");
+    await v.dice("Palmira");
+    await v.dice("Calle 20 # 15-30, soy Luz Marina");
+    const r = await v.dice("uno");
+
+    assert.equal(r.traza.respuesta.situacion, "resumen", `situación: ${r.traza.respuesta.situacion}`);
+    assert.match(r.texto, /1 unidad/);
+    assert.match(r.texto, /49\.900/);
+  });
+
+  test("y la venta se confirma, con un solo pedido", async () => {
+    const v = await ventaReal();
+    await v.dice("hola");
+    await v.dice("Palmira");
+    await v.dice("Calle 20 # 15-30, soy Luz Marina");
+    await v.dice("uno");
+    const conf = await v.dice("sí confirmo");
+
+    assert.equal(conf.traza.respuesta.situacion, "confirmado");
+    const pedidos = await v.repos.pedidos.porContacto("573001112233");
+    assert.equal(pedidos.length, 1);
+    assert.equal(pedidos[0].destinatario.ciudad, "Palmira");
+    assert.equal(pedidos[0].cotizacion.total, 49900);
+  });
+
+  test("no llama a nadie «Cliente»", async () => {
+    // El perfil de WhatsApp trae de todo. "¡Listo, Cliente!" suena a
+    // plantilla mal rellenada, y justo en el mensaje del cierre.
+    assert.equal(voz.nombreDePila("Cliente"), "");
+    assert.equal(voz.nombreDePila("usuario"), "");
+    assert.equal(voz.nombreDePila("WhatsApp"), "");
+    // Y un nombre de verdad sí se usa.
+    assert.equal(voz.nombreDePila("Luz Marina Gómez"), "Luz");
+  });
+
+  test("una pregunta NO dispara el cierre, aunque mencione una ciudad", async () => {
+    // "¿hacen envíos a Palmira?" es una duda, no un dato de entrega. Si
+    // disparara el cierre, el bot pediria la direccion a quien solo
+    // preguntaba si llegan ahi.
+    const v = await ventaReal();
+    const r = await v.dice("¿hacen envíos a Palmira?");
+    assert.equal(/me pasas/.test(r.texto), false, `pidió los datos a una pregunta: ${r.texto}`);
+  });
+});

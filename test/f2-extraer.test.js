@@ -129,6 +129,61 @@ test("un telefono no se propone como direccion", () => {
 });
 
 // --------------------------------------------------------------------------
+// Nombre
+//
+// Esto no se extraia en absoluto, y era una venta perdida silenciosa: la
+// clienta escribia "soy Luz Marina, Calle 20 # 15-30", el bot le volvia a
+// pedir el nombre, ella lo repetia, y el bot lo pedia otra vez. Donde el
+// perfil de WhatsApp no trae un nombre util, la venta no se podia cerrar.
+// --------------------------------------------------------------------------
+
+test("el nombre dicho con un marcador explicito se propone", () => {
+  assert.equal(extraer.nombreEn("soy Luz Marina").valor, "Luz Marina");
+  assert.equal(extraer.nombreEn("me llamo Ana").valor, "Ana");
+  assert.equal(extraer.nombreEn("mi nombre es Jhon Freddy Quintero").valor, "Jhon Freddy Quintero");
+});
+
+test("el nombre se corta donde empieza otra frase", () => {
+  // Asi escribe la gente: el nombre y el resto del mensaje sin una coma
+  // que los separe.
+  assert.equal(extraer.nombreEn("soy Marco y vivo en Palmira, mandame dos").valor, "Marco");
+  assert.equal(extraer.nombreEn("me llamo Ana y quiero dos").valor, "Ana");
+  assert.equal(extraer.nombreEn("soy Pedro para el envio").valor, "Pedro");
+});
+
+test('pero "de" no corta: "Luz Marina de Jesus" es un nombre de verdad', () => {
+  assert.equal(extraer.nombreEn("soy Luz Marina de Jesus").valor, "Luz Marina de Jesus");
+});
+
+test("lo que sigue al marcador y no es un nombre, no se propone", () => {
+  // Cada uno de estos acabaria en una guia con un nombre inventado.
+  for (const frase of [
+    "soy de Cali",
+    "soy la mama de Juan",
+    "soy cliente nuevo",
+    "soy interesada en el cinturon",
+    "soy una persona que necesita saber si esto sirve",
+    "soy super fan de tus productos",
+    "soy 3105558899",
+    "soy y nada mas",
+  ]) {
+    assert.equal(extraer.nombreEn(frase).valor, null, `no deberia sacar nombre de: ${frase}`);
+  }
+});
+
+test("un nombre SUELTO no se extrae: sin marcador es indistinguible de cualquier texto", () => {
+  assert.equal(extraer.nombreEn("Luz Marina").valor, null);
+  assert.equal(extraer.nombreEn("Palmira").valor, null);
+});
+
+test("deTexto propone el nombre junto con los demas campos", () => {
+  const { candidatos, porQue } = extraer.deTexto("soy Luz Marina, Calle 20 # 15-30");
+  assert.equal(candidatos.nombre, "Luz Marina");
+  assert.equal(candidatos.direccion, "Calle 20 # 15-30");
+  assert.ok(porQue.nombre);
+});
+
+// --------------------------------------------------------------------------
 // Conjunto y combinacion
 // --------------------------------------------------------------------------
 

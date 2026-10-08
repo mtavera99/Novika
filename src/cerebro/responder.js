@@ -39,7 +39,19 @@ const BLOQUEOS = {
   SIN_BORRADOR: "sin_borrador",
   /** El producto se reconoce pero no tiene ficha: el modelo no redacta. */
   PRODUCTO_SIN_FICHA: "producto_sin_ficha",
+  /**
+   * La pregunta tiene respuesta en el catalogo, con su tono y sus pruebas.
+   * No es un bloqueo por riesgo: es que ya habia una respuesta mejor.
+   */
+  CUBIERTO_POR_EL_CATALOGO: "cubierto_por_el_catalogo",
 };
+
+/**
+ * Interruptor de vuelta atras: con IA_REDACTA_SIEMPRE=1, el borrador del
+ * modelo vuelve a tener prioridad siempre que pase los filtros. Existe para
+ * poder comparar los dos comportamientos sin desplegar nada.
+ */
+const PREFERIR_LA_IA = String(process.env.IA_REDACTA_SIEMPRE || "") === "1";
 
 /**
  * ¿El texto afirma algo de la lista de prohibidos del producto?
@@ -238,6 +250,61 @@ function lineaComercial(cotizacion, producto, { asumida = false } = {}) {
   return `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}${cola}.`;
 }
 
+// --------------------------------------------------------------------------
+// EL CLIENTE ACABA DE DAR UN DATO: HAY QUE CERRAR, NO INTERROGAR
+//
+// DE DONDE SALE: Marco vio a una clienta escribir "Palmira" y recibir
+// "¿Cuántos quieres? Y para despachártelo me pasas la dirección." Sus
+// palabras: "todo tosco".
+//
+// Y tenia razon por cuatro motivos a la vez: no acusaba recibo del dato que
+// acababa de dar, no usaba "Palmira" para nada, disparaba dos preguntas
+// sueltas, y sobre todo NO CERRABA.
+//
+// LO QUE BIKERPRO MIDIO SOBRE 1.815 COTIZACIONES REALES, y es el dato que
+// mas pesa de toda su operacion:
+//
+//   como cerro el mensaje          veces   avanzaron
+//   pidio los DATOS de despacho      473     50,7%   <- el mejor
+//   pidio confirmar                  154     40,9%
+//   pregunto algo abierto             87     25,3%
+//   pregunto TALLA o COLOR         1.192     24,8%   <- el peor, y el mas usado
+//
+// Pedir los datos convirtio EL DOBLE que seguir preguntando. Y lo que mas
+// se usaba era lo que peor funcionaba.
+//
+// LA DIFERENCIA CON BIKERPRO, que importa: alli la ciudad DESBLOQUEA el
+// precio -el envio va por destino- asi que darla permite dar el total. Aqui
+// el envio va incluido y el precio ya se dijo. Lo que se adapta es el
+// MOVIMIENTO: quien escribe su ciudad esta comprando, y ese es el momento
+// de pedir lo que falta de una, como parte normal del proceso.
+//
+// Se acusa recibo CON EL DATO EN LA MANO -"a Palmira te llega en 1 a 3 dias
+// habiles"- porque repetirle su ciudad demuestra que se le leyo. Y el plazo
+// ahi no es un adorno: es la pregunta que viene detras.
+// --------------------------------------------------------------------------
+function cerrarTrasElDato({ datosAportados, ciudadConfirmada, faltan, producto, cantidadInformada }) {
+  const dioLaCiudad = (datosAportados || []).includes("ciudad");
+  const partes = [];
+
+  if (dioLaCiudad && ciudadConfirmada) {
+    const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
+    partes.push(
+      t && t.texto
+        ? `¡Perfecto! A ${ciudadConfirmada} te llega en ${t.texto}.`
+        : `¡Perfecto! A ${ciudadConfirmada} te lo despachamos.`
+    );
+  } else {
+    partes.push("¡Perfecto, gracias!");
+  }
+
+  // Y TODO lo que falta en la MISMA pedida, no de a uno. Pedir un dato,
+  // esperar, pedir el siguiente es lo que convierte una venta en un
+  // formulario.
+  partes.push(pedirLoQueFalta(faltan, { cantidadInformada, comoProceso: true }));
+  return partes;
+}
+
 /**
  * EL ARRANQUE: que decirle a quien solo saluda.
  *
@@ -275,7 +342,7 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
  * clienta pregunto "¿cuánto me salen dos?" y se le acaba de responder por
  * dos, volver a preguntarle cuantas quiere es no haberla leido.
  */
-function pedirLoQueFalta(faltan, { cantidadInformada = null } = {}) {
+function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false } = {}) {
   const nombres = {
     nombre: "tu nombre completo",
     telefono: "un número de contacto",
@@ -290,6 +357,32 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null } = {}) {
   // que falta es que confirme, no que la repita.
   const yaSeSabeCuantas = Number(cantidadInformada) > 1;
   const faltaCantidad = (faltan || []).includes("cantidad") && !yaSeSabeCuantas;
+
+  // ----------------------------------------------------------------------
+  // "COMO PROCESO": la pedida suena a tramite normal, no a interrogatorio
+  //
+  // Es la forma que BIKERPRO midio como la mejor: todo junto, en una sola
+  // pedida, y presentado como el paso que falta para despachar — no como
+  // una lista de requisitos.
+  //
+  // VA ANTES QUE `yaSeSabeCuantas` A PROPOSITO. Al reves, una venta de dos
+  // unidades se saltaba este camino y repetia siempre la misma frase:
+  //
+  //   clienta: "soy Marco y vivo en Palmira, mandame dos"
+  //   bot:     "Si te llevas las dos, me pasas la dirección..."
+  //   clienta: "Calle 45 # 23-10, mi celular es 3058742138"
+  //   bot:     "Si te llevas las dos, me pasas la dirección..."   <- igual
+  //
+  // Ese estribillo palabra por palabra es lo que Marco veia como un robot.
+  // ----------------------------------------------------------------------
+  if (comoProceso) {
+    const todo = [...pide];
+    if (faltaCantidad) todo.push("si quieres uno o dos");
+    if (!todo.length) return yaSeSabeCuantas ? "¿Te las despacho?" : "¿Te lo despacho?";
+    return yaSeSabeCuantas
+      ? `Para despachártelas hoy me pasas ${enumerar(todo)} 🙌`
+      : `Para despachártelo hoy me pasas ${enumerar(todo)} 🙌`;
+  }
 
   if (yaSeSabeCuantas) {
     return pide.length
@@ -377,6 +470,9 @@ function textoDeterminista({
   mensajeCliente = "",
   memoria = {},
   nombreCliente = null,
+  datosAportados = [],
+  ciudadConfirmada = null,
+  datosDeEntrega = null,
 }) {
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
 
@@ -499,11 +595,52 @@ function textoDeterminista({
         partes.push(lineaComercial(cot, producto, { asumida }));
       }
 
+      // ---- 2.5 SI ACABA DE DAR UN DATO, SE CIERRA ----
+      //
+      // Va antes que el resto de las ramas porque aportar un dato de entrega
+      // es la señal mas fuerte de que la venta avanza: mas que una pregunta
+      // y mas que un "me interesa".
+      if ((datosAportados || []).length && !lectura.pregunta) {
+        return componer(
+          [
+            ...partes,
+            ...cerrarTrasElDato({
+              datosAportados,
+              ciudadConfirmada,
+              faltan,
+              producto,
+              cantidadInformada: cot && cot.cantidad,
+            }),
+          ],
+          { emoji: null }
+        );
+      }
+
       // ---- 3. EL SIGUIENTE PASO, SOLO SI PROCEDE ----
       //
       // Una duda informativa NO autoriza a pedir los datos de entrega. Se
       // piden cuando hay señal de compra, cuando la duda era comercial -ahi
       // el siguiente paso es natural- o cuando el cliente no pregunto nada.
+      // ----------------------------------------------------------------
+      // PREGUNTO ALGO QUE EL CATALOGO NO CUBRE
+              //
+      // Va ANTES de pedir datos, porque es el caso que se colaba. `lectura
+      // .pregunta` exige un tema reconocido, asi que una duda no catalogada
+      // caia en "no pregunto nada" y recibia la pedida de datos:
+      //
+      //   clienta: "oye y esto me lo puedo poner dormida toda la noche?"
+      //   bot:     "¿Cuántos quieres? Y para despachártelo me pasas..."
+      //
+      // Se contesta lo unico honesto -no lo sabemos, lo confirma una
+      // persona- y la tarea queda registrada en el cerebro. Decir "no lo
+      // sé" con calidez vende mas que contestar otra cosa: la clienta que
+      // pregunta por seguridad y recibe un formulario se va.
+      // ----------------------------------------------------------------
+      if (!lectura.compra && !lectura.temas.length && lectura.pareceUnaPregunta && !lectura.soloSaludo) {
+        partes.push("Esa no te la quiero contestar a medias: se la paso a una persona del equipo y te confirma enseguida.");
+        return componer(partes, { emoji: null });
+      }
+
       if (lectura.compra || (!lectura.pregunta && !lectura.soloSaludo)) {
         // Hay señal de compra, o el cliente esta ya en la captura y no
         // pregunto nada: se piden los datos que falten.
@@ -551,6 +688,30 @@ function textoDeterminista({
       // reclamo posterior.
       // ------------------------------------------------------------------
       const nombre = cotizacion.productoNombre || (producto && producto.nombre) || "Producto";
+
+      // ------------------------------------------------------------------
+      // Y LLEVA A DONDE VA, QUE ES LO QUE SE ESTABA CONFIRMANDO A CIEGAS
+      //
+      // El cuadro decia producto, cantidad, total y condiciones. NO decia
+      // el nombre, la ciudad ni la direccion, asi que la clienta confirmaba
+      // un envio sin ver el destino. Una direccion mal entendida se
+      // despachaba y nadie lo notaba hasta que el paquete volvia.
+      //
+      // Y produjo un segundo defecto, mas visible: corregir la direccion no
+      // cambiaba NI UNA LETRA del mensaje, asi que la guarda anti-eco veia
+      // el mismo texto y contestaba "dime qué necesitas" a quien acababa de
+      // corregirla. El dato correcto se habia guardado bien; lo que fallaba
+      // era que no se le mostraba.
+      //
+      // Se muestran solo los datos CONFIRMADOS. Uno propuesto por el modelo
+      // y sin validar no puede aparecer en el cuadro que ella aprueba.
+      // ------------------------------------------------------------------
+      const entrega = [];
+      const d = datosDeEntrega || {};
+      const aQuien = [d.nombre, d.ciudad].filter(Boolean).join(" · ");
+      if (aQuien) entrega.push(`Para: ${aQuien}`);
+      if (d.direccion) entrega.push(`Dirección: ${d.direccion}`);
+
       return [
         "Confirmemos tu pedido:",
         // "1 unidad(es)" era lo mas robot del cuadro, y estaba justo donde
@@ -559,6 +720,7 @@ function textoDeterminista({
         `${nombre} · ${voz.unidades(cotizacion.cantidad)}`,
         `Total: ${pesos(cotizacion.total)}`,
         ...lineasDeCondiciones(cotizacion),
+        ...entrega,
         "",
         '¿Está todo bien? Respóndeme "sí" y lo despacho ✅',
       ].join("\n");
@@ -651,7 +813,16 @@ function textoDeterminista({
 
       // Su duda, respondida. El precio se puede decir -es informativo- pero
       // NO crea oferta: el estado sigue blindado.
-      const respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion }, { maximo: 2 });
+      //
+      // Y SE CONTESTA POR LA CANTIDAD QUE PREGUNTA, no por la del pedido.
+      // Con un pedido de 1 confirmado, "¿que valen dos?" se contestaba con
+      // el precio de una — o no se contestaba. `cotizacionInformativa` trae
+      // la cotizacion de lo que pregunto, cuando el catalogo la tiene.
+      const respuesta = contestar.aTemas(
+        lectura.temas,
+        { producto, cotizacion: cotizacionInformativa || cotizacion },
+        { maximo: 2 }
+      );
       if (respuesta.texto) partes.push(respuesta.texto);
 
       // El pedido se nombra cuando el cliente pregunta por el -entrega,
@@ -683,8 +854,26 @@ function textoDeterminista({
       // Un vendedor responde la duda y se calla. Si el cliente quiere otra
       // cosa, la pregunta.
       // ------------------------------------------------------------------
-      if (lectura.compra || lectura.temas.includes(preguntas.TEMAS.PRECIO)) {
-        partes.push("Si quieres pedir otro, le digo a una persona del equipo que te lo arme.");
+      // ------------------------------------------------------------------
+      // SOLO SI QUIERE OTRO DE VERDAD, Y NO POR PREGUNTAR UN PRECIO
+      //
+      // La condicion incluia el tema PRECIO, y eso convirtio la frase en
+      // otro estribillo. Salia en los tres mensajes seguidos de la clienta:
+      //
+      //   "Que valen dos?"                  -> ...le digo a una persona
+      //   "Que valen dos unidades?"         -> ...le digo a una persona
+      //   "Quiero saber cuánto valen dos"   -> ...le digo a una persona
+      //
+      // Preguntar un precio no es pedir otro. Quien pregunta quiere SABER,
+      // y ya se le contesto arriba; ofrecerle un gestor humano en cada
+      // respuesta es insistir, no atender.
+      //
+      // Cuando SI dice que quiere otro, se le dice — y queda anotado como
+      // tarea pendiente de verdad, con su motivo y su pregunta. La frase
+      // sin el registro detras era una promesa vacia.
+      // ------------------------------------------------------------------
+      if (lectura.compra || lectura.quiereOtro) {
+        partes.push("Para pedir otro te ayuda una persona del equipo; ya le paso tu mensaje.");
       }
 
       // Por `componer` como todos: unia con join y salia en minuscula
@@ -755,17 +944,37 @@ const PASAR_A_PERSONA =
  * El eco de verdad es responder LO MISMO a preguntas DISTINTAS. Por eso la
  * guarda solo actua cuando los temas del turno cambian.
  *
+ * Y HAY UN LIMITE QUE NO SE CRUZA: una pregunta RECONOCIDA nunca se
+ * sustituye por "dime qué necesitas". Salio probando la repregunta:
+ *
+ *   clienta: "cuánto vale"              -> el precio
+ *   clienta: "cuánto vale?"             -> el precio (pregunto otra vez)
+ *   clienta: "pero cuánto vale con el envío"
+ *   bot:     "Perdón, no quiero repetirme. Dime concretamente qué necesitas"
+ *
+ * Le pidio concretar a quien habia preguntado con toda claridad, y encima
+ * en el tercer intento: justo cuando ya estaba perdiendo la paciencia. El
+ * texto coincidia porque la respuesta correcta ERA la misma, y la guarda
+ * leyo eso como un bot atascado.
+ *
+ * Esta guarda existe para que el bot no parezca roto repitiendose. Negarle
+ * la respuesta a quien pregunta claro no lo arregla: lo empeora, porque
+ * ademas suena a que no la entendimos. Si se sabe que pregunta, se
+ * contesta — aunque la respuesta sea la misma de antes.
+ *
  * @param {string} texto             el que se iba a enviar
  * @param {string|null} ultimoDicho  el ultimo texto que mando el negocio
  * @param {object} [opciones]
  * @param {boolean} [opciones.mismaPregunta] el cliente pregunto lo mismo
+ * @param {boolean} [opciones.preguntaReconocida] se sabe que esta preguntando
  * @returns {{texto: string, repetido: boolean, escalar: boolean}}
  */
-function sinRepetir(texto, ultimoDicho, { mismaPregunta = false } = {}) {
+function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconocida = false } = {}) {
   const a = String(texto || "").trim();
   const b = String(ultimoDicho || "").trim();
   if (!a || !b || a !== b) return { texto: a, repetido: false, escalar: false };
   if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
+  if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
 
   // Ya se habia pedido concretar y seguimos en el mismo sitio: no hay una
   // tercera forma de decir lo mismo. Pasa a una persona.
@@ -792,6 +1001,9 @@ function preparar({
   mensajeCliente = "",
   memoria = {},
   nombreCliente = null,
+  datosAportados = [],
+  ciudadConfirmada = null,
+  datosDeEntrega = null,
 }) {
   const determinista = textoDeterminista({
     situacion,
@@ -804,6 +1016,9 @@ function preparar({
     mensajeCliente,
     memoria,
     nombreCliente,
+    datosAportados,
+    ciudadConfirmada,
+    datosDeEntrega,
   });
   const bloqueos = [];
 
@@ -847,9 +1062,70 @@ function preparar({
   }
 
   if (bloqueos.length) {
-    // Borrador descartado completo. El cliente recibe el texto determinista,
-    // que es correcto aunque sea mas seco.
+    // Borrador descartado completo. El cliente recibe el texto determinista.
     return { texto: determinista, origen: "determinista", bloqueos };
+  }
+
+  // ==========================================================================
+  // CUANDO EL CATALOGO SABE RESPONDER, RESPONDE EL CATALOGO
+  //
+  // ESTA DECISION VA DESPUES DE LOS FILTROS, Y NO ANTES. La primera version
+  // la puso antes -parecia mas eficiente: si el determinista iba a ganar,
+  // para que revisar el borrador- y eso rompio una prueba que resulto tener
+  // razon.
+  //
+  // El filtro de importes no sirve solo para BLOQUEAR: sirve para MEDIR
+  // cuantas veces el modelo intenta inventar un precio. Saltandolo, el bot
+  // habria seguido respondiendo bien y habriamos perdido la señal de que
+  // Gemini empieza a inventar cifras. Esa metrica es de las pocas que avisan
+  // ANTES de que pase algo caro.
+  //
+  // Asi que el borrador se revisa siempre y se registra siempre; lo que
+  // cambia aqui es solo QUIEN redacta el mensaje que sale.
+  //
+  // EL HALLAZGO QUE OBLIGO A ESTO. Marco seguia viendo un bot plano DESPUES
+  // de reescribir toda la voz, y la razon era que la voz casi no se usaba:
+  // si el borrador del modelo pasaba los dos filtros, se enviaba el del
+  // modelo. Con Gemini configurado, eso es casi siempre.
+  //
+  // La prueba estaba en su propia captura: "Hola, cuéntame en qué te puedo
+  // ayudar con el cinturón térmico" no existe en este codigo. Lo escribio
+  // Gemini — correcto, inofensivo y plano.
+  //
+  // EL REPARTO CORRECTO, Y NO ES "LA IA ES PEOR":
+  //
+  //   · Si el cliente pregunta algo que esta EN EL CATALOGO -precio, envio,
+  //     pago, garantia, color, talla, entrega- la mejor respuesta ya existe,
+  //     esta redactada con su tono y esta cubierta por pruebas. Pedirle al
+  //     modelo que improvise sobre el mismo dato solo añade variabilidad,
+  //     latencia y coste, y le da una oportunidad mas de equivocarse.
+  //
+  //   · Si pregunta algo que NO esta catalogado -una objecion rara, una
+  //     charla, un caso que nadie previo- el determinista no tiene nada
+  //     bueno que decir y el modelo SI. Ahi redacta el modelo.
+  //
+  // El filtro de importes y el de claims siguen aplicandose igual al
+  // borrador que se use. Esto cambia QUIEN redacta, no que se revisa.
+  //
+  // Se puede volver atras sin desplegar: IA_REDACTA_SIEMPRE=1.
+  // ==========================================================================
+  const { lectura: loQuePregunto, preguntoComercial: esComercial } = analizarTurno(mensajeCliente);
+
+  const elCatalogoLoCubre =
+    // Preguntas con respuesta en el catalogo.
+    loQuePregunto.temas.length > 0 ||
+    esComercial ||
+    // Momentos de la venta con texto propio y probado: el arranque, el
+    // cuadro de confirmacion, el cierre. Son los que NO conviene improvisar.
+    loQuePregunto.soloSaludo ||
+    ["resumen", "confirmado", "ya_confirmado", "cancelado", "producto_ambiguo"].includes(situacion);
+
+  if (elCatalogoLoCubre && !PREFERIR_LA_IA) {
+    return {
+      texto: determinista,
+      origen: "determinista",
+      bloqueos: [{ tipo: BLOQUEOS.CUBIERTO_POR_EL_CATALOGO }],
+    };
   }
 
   return { texto: borradorIA, origen: "ia", bloqueos: [] };

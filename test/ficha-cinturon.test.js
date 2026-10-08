@@ -157,15 +157,62 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
   // Son las preguntas que mas se repiten en este producto y ninguna tiene
   // respuesta aprobada. Si no estuvieran declaradas, el modelo las
   // contestaria con algo verosimil.
+  //
   // Esta lista se vacia a medida que Marco confirma datos. Han salido:
-  // "tallas" y "colores" (confirmados), "la garantia" y "el tiempo de
-  // entrega" (confirmados el 2026-10-07). Lo que queda son los que de
-  // verdad siguen abiertos, y el mas delicado es el contorno del ajuste.
-  for (const tema of [/dos o mas unidades/, /contorno/, /tramita la garantia/, /dia exacto/]) {
+  // "tallas" y "colores", "la garantia" y "el tiempo de entrega", y el
+  // 2026-10-08 el tramite y el alcance de la garantia mas el precio de dos.
+  // Lo que queda son los que de verdad siguen abiertos, y el mas delicado
+  // es el contorno del ajuste.
+  for (const tema of [/tres o mas unidades/, /contorno/, /material/, /dia exacto/]) {
     assert.ok(
       p.sinDatoConfirmado.some((s) => tema.test(s)),
       `falta declarar ${tema} como dato sin confirmar: el modelo lo rellenaria`
     );
+  }
+});
+
+// --------------------------------------------------------------------------
+// Y LO CONTRARIO, QUE ES EL DEFECTO QUE DE VERDAD SE COLO
+//
+// La ficha se contradecia a si misma: `precios` tenia la clave "2" y a la
+// vez `sinDatoConfirmado` declaraba que faltaba "el precio por dos o mas
+// unidades". Igual con la garantia: los campos `garantiaCubre`,
+// `garantiaNoCubre` y `garantiaComoSeTramita` estaban rellenos mientras la
+// lista seguia diciendo que no se sabian.
+//
+// Un dato confirmado y declarado dudoso a la vez es lo peor de los dos
+// mundos: el bot lo tiene y no lo usa, o lo usa y el filtro se lo tumba.
+//
+// Y NINGUNA PRUEBA LO HABRIA VISTO, porque confirmar un dato toca DOS
+// sitios -el campo y la lista- y las pruebas solo miraban la lista. Esta
+// comprueba la coherencia ENTRE los dos, que es donde estaba el hueco.
+// --------------------------------------------------------------------------
+test("un dato que YA esta en la ficha no puede declararse desconocido", () => {
+  const p = elCinturon();
+  const declarado = (re) => p.sinDatoConfirmado.some((s) => re.test(s));
+
+  if (p.precios && p.precios["2"] !== undefined) {
+    assert.equal(
+      declarado(/\bdos o mas unidades\b/),
+      false,
+      "el precio de 2 esta en `precios` y a la vez declarado sin confirmar"
+    );
+  }
+  if (p.garantiaComoSeTramita) {
+    assert.equal(declarado(/tramita la garantia/), false, "el tramite esta en la ficha y declarado sin confirmar");
+  }
+  if (p.garantiaCubre) {
+    assert.equal(declarado(/cubre exactamente la garantia/), false, "el alcance esta en la ficha y declarado sin confirmar");
+  }
+
+  // Y al revés: lo que NO tiene campo sigue declarado. El precio de tres no
+  // esta en la tabla, asi que tiene que seguir en la lista.
+  if (!p.precios || p.precios["3"] === undefined) {
+    assert.ok(declarado(/tres o mas unidades/), "falta el precio de 3 y no esta declarado");
+  }
+  // El contorno es el caso vivo: `ajuste.contornoMaximoCm` sigue en null.
+  if (!p.ajuste || p.ajuste.contornoMaximoCm === null) {
+    assert.ok(declarado(/contorno/), "no hay medida de contorno y no esta declarada");
   }
 });
 

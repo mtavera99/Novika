@@ -35,7 +35,7 @@
 //    una instruccion al modelo.
 // ==========================================================================
 
-const { aplanar } = require("./texto");
+const { aplanar, cantidadesEn, PREGUNTA_PRECIO } = require("./texto");
 
 /**
  * Temas que el cliente puede preguntar.
@@ -71,11 +71,13 @@ const TEMAS = {
  */
 const PATRONES = [
   // ---- Precio ----
-  [TEMAS.PRECIO, /\bcuanto\s+(vale|cuesta|sale|es|seria|me\s+sale|saldria)\b/],
-  [TEMAS.PRECIO, /\ben\s+cuanto\b/],
-  [TEMAS.PRECIO, /\b(que|cual\s+es\s+el)\s+precio\b/],
-  [TEMAS.PRECIO, /\bprecios?\b/],
-  [TEMAS.PRECIO, /\bvalor\b/],
+  //
+  // La lista vive en `texto.js` porque el cerebro tambien la necesita para
+  // decidir si repite una cifra. Tenerla DOS veces fue un defecto real: las
+  // dos copias se separaron y el plural ("que valen dos") no estaba en
+  // ninguna, asi que preguntar por dos unidades no se reconocia.
+  ...PREGUNTA_PRECIO.map((re) => [TEMAS.PRECIO, re]),
+  [TEMAS.PRECIO, /\b(cual\s+es\s+el)\s+precio\b/],
   [TEMAS.PRECIO, /\bcuanto\b.*\bcon\s+envio\b/],
 
   // ---- Envio ----
@@ -189,7 +191,10 @@ const SENALES_DE_COMPRA = [
   /\b(lo|la|los|las)\s+(quiero|llevo|compro|necesito)\b/,
   /\bme\s+(lo|la|los|las)\s+(llevo|quedo)\b/,
   /\b(quiero|llevo|dame|mandame|enviame)\s+(los|las)\s+dos\b/,
-  /\bquiero\s+(uno|una|un|dos|tres|comprarlo|comprarla|pedirlo|pedirla|ese|esa|el|la)\b/,
+  // El DIGITO tambien: "quiero 2 unidades" no se leia como compra porque
+  // esto solo cubria los numeros escritos con letras.
+  /\bquiero\s+(\d{1,2}|uno|una|un|dos|tres|cuatro|cinco|comprarlo|comprarla|pedirlo|pedirla|ese|esa|el|la)\b/,
+  /\b(quiero|llevo|dame|mandame|enviame|necesito)\s+\d{1,2}\s*(unidades?|cinturones|cinturon)?\b/,
   /\b(dale|hagale|hagamoslo|de\s+una|despachalo|despachelo)\b/,
   /\b(como\s+)?(hago|hacemos)\s+para\s+(pedir|comprar|que\s+me\s+llegue)\b/,
   /\b(mandem?el[oa]|envielo|enviamelo|envienmelo|despachenlo)\b/,
@@ -223,7 +228,73 @@ const SENALES_DEBILES = [
   // cuestan las dos?"). Aqui solo vale sin interrogacion.
   // El lookbehind excluye la hora: "a las dos de la tarde".
   /(?<!\ba\s)\blas\s+dos\b/,
-  /\b(listo|perfecto|vale|bueno)\b/,
+  // "vale" en Colombia es "de acuerdo", y por eso esta aqui... pero tambien
+  // es el verbo de "¿cuánto VALE?". Sin el lookbehind, preguntar el precio
+  // contaba como aceptar la compra, y el bot le pedia los datos de entrega a
+  // quien solo estaba averiguando — justo lo que este modulo existe para
+  // evitar. Lo mismo con "a como vale".
+  /(?<!\b(?:cuanto|cuantos|cuantas|que|cual|como)\s)\b(listo|perfecto|vale|bueno)\b/,
+];
+
+// --------------------------------------------------------------------------
+// LA CANTIDAD POR LA QUE PREGUNTA, QUE NO ES LA DEL PEDIDO
+//
+// "Nunca contestes el precio de una unidad a una pregunta sobre dos". Para
+// cumplirlo hay que saber por cuantas pregunta, y eso es un dato DISTINTO
+// de la cantidad que ya tiene en su ficha o en un pedido confirmado.
+//
+// SE LEE PEGADO AL VERBO, no en todo el mensaje, y el motivo es una
+// direccion: "cuanto vale a Calle 20 # 15-30" tiene un 20 y un 15, y leer
+// cualquier numero del mensaje haria que preguntara por 20 unidades. El
+// mismo error que ya se cometio una vez leyendo "calle 45" como 45 unidades.
+// --------------------------------------------------------------------------
+const UNIDADES_CONSULTADAS = [
+  // "que valen dos", "cuanto cuestan 2", "cuanto sale el par", "precio de 3"
+  /\b(?:vale|valen|cuesta|cuestan|sale|salen|saldria|saldrian|seria|serian|precio\s+de|por|como)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\b/,
+  // "y las dos", "los dos", "el par"
+  /\b(?:las|los)\s+(dos|tres|cuatro)\b/,
+  /\bel\s+(par)\b/,
+  // "dos unidades", "2 cinturones"
+  /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?)\b/,
+];
+
+/**
+ * Por cuantas unidades pregunta, si lo dice.
+ *
+ * @returns {number|null} null cuando no lo dice: entonces NO se adivina.
+ */
+function cantidadPreguntadaEn(plano) {
+  const { NUMEROS_EN_PALABRAS } = require("./texto");
+  for (const re of UNIDADES_CONSULTADAS) {
+    const m = plano.match(re);
+    if (!m) continue;
+    const bruto = m[1];
+    const valor = /^\d+$/.test(bruto) ? Number(bruto) : NUMEROS_EN_PALABRAS[bruto];
+    // Fuera de 1..20 no es una cantidad: es un precio, un año o una calle.
+    if (Number.isFinite(valor) && valor >= 1 && valor <= 20) return valor;
+  }
+  return null;
+}
+
+// --------------------------------------------------------------------------
+// "OTRO" ES UNA INTENCION DISTINTA DE "CUANTO VALE"
+//
+// Con un pedido ya confirmado hay dos preguntas que se parecen y no son lo
+// mismo:
+//
+//   "¿que valen dos?"      -> quiere SABER un precio. Se le dice y punto.
+//   "¿cuanto vale otro?"   -> quiere OTRO. Eso es una venta adicional.
+//
+// La diferencia importa porque la segunda necesita que una persona la arme
+// -el bot no toca un pedido confirmado- y la primera no necesita a nadie.
+// Confundirlas en un sentido pierde una venta; en el otro, convierte la
+// respuesta en el estribillo "le digo a una persona" en cada mensaje.
+// --------------------------------------------------------------------------
+const QUIERE_OTRO = [
+  /\b(otro|otra|otros|otras)\b/,
+  /\b(uno|una|dos)\s+mas\b/,
+  /\bmas\s+unidades?\b/,
+  /\b(pedir|comprar|llevar)\s+(mas|otro|otra)\b/,
 ];
 
 /** Saludos puros: no preguntan nada. */
@@ -246,6 +317,25 @@ function leer(texto) {
     if (re.test(plano) && !temas.includes(tema)) temas.push(tema);
   }
 
+  // ----------------------------------------------------------------------
+  // "¿QUE PRECIO TIENE EL ENVIO?" PREGUNTA POR EL ENVIO, NO POR EL PRODUCTO
+  //
+  // La palabra "precio" marcaba el tema PRECIO y el bot contestaba las dos
+  // cosas: "el cinturón te queda en $49.900. El envío va incluido". Le
+  // soltaba una cifra que no habia pedido antes de contestar lo suyo.
+  //
+  // "con envio" es lo CONTRARIO -"¿cuánto vale con envío?" pregunta el
+  // total- y por eso se distingue por la preposicion: "del/el envio" es el
+  // envio en si, "con envio" es el producto ya sumado.
+  // ----------------------------------------------------------------------
+  const PRECIO_DEL_ENVIO = /\b(precio|valor|cuanto|vale|cuesta|sale)\b[^?]*\b(de|del)?\s*(el\s+)?envio\b/;
+  const PRECIO_CON_ENVIO = /\bcon\s+(el\s+)?envio\b/;
+  if (temas.includes(TEMAS.PRECIO) && PRECIO_DEL_ENVIO.test(plano) && !PRECIO_CON_ENVIO.test(plano)) {
+    const i = temas.indexOf(TEMAS.PRECIO);
+    temas.splice(i, 1);
+    if (!temas.includes(TEMAS.ENVIO)) temas.unshift(TEMAS.ENVIO);
+  }
+
   const saludo = SALUDOS.some((re) => re.test(plano));
   const interrogacion = /\?/.test(crudo);
   const compra =
@@ -257,11 +347,41 @@ function leer(texto) {
   // gente pregunta sin escribirlo ("cuanto vale").
   const interroga = interrogacion || temas.length > 0;
 
+  // ----------------------------------------------------------------------
+  // "ESTO ES UNA PREGUNTA" Y "SE DE QUE ME PREGUNTA" SON DOS COSAS
+  //
+  // `pregunta` exige un tema reconocido, asi que una duda que el catalogo
+  // no cubre quedaba clasificada como "no pregunto nada". Y eso llevaba a
+  // la peor respuesta que daba el bot:
+  //
+  //   clienta: "oye y esto me lo puedo poner dormida toda la noche?"
+  //   bot:     "¿Cuántos quieres? Y para despachártelo me pasas tu nombre
+  //             completo, la ciudad y la dirección."
+  //
+  // Le pide la direccion a quien pregunta por la seguridad del producto.
+  // Es justo lo que este modulo existe para evitar, colandose por el hueco
+  // de los temas NO catalogados.
+  //
+  // Saber que es una pregunta -aunque no se sepa de que- ya basta para no
+  // contestar con un formulario.
+  // ----------------------------------------------------------------------
+  const PALABRA_DE_PREGUNTA =
+    /\b(que|qué|cual|cuales|como|cuando|donde|cuanto|cuanta|cuantos|cuantas|quien|por\s+que|se\s+puede|puedo|podria|hay|tienen|sirve|funciona|es\s+seguro)\b/;
+
   return {
     temas,
     pregunta: interroga && temas.length > 0,
     compra,
     saludo,
+    // Por cuantas pregunta. Solo interesa si pregunta el precio: en
+    // cualquier otro sitio la cantidad la decide la ficha, no el detector.
+    cantidadPreguntada: temas.includes(TEMAS.PRECIO) ? cantidadPreguntadaEn(plano) : null,
+    // ¿Habla de UNO MAS? Es lo que distingue una venta adicional de una
+    // simple consulta de precio cuando ya hay un pedido confirmado.
+    quiereOtro: QUIERE_OTRO.some((re) => re.test(plano)),
+    // Parece una pregunta, aunque no se sepa de que. Basta para no
+    // responder con un formulario.
+    pareceUnaPregunta: interrogacion || PALABRA_DE_PREGUNTA.test(plano),
     // Un "hola" pelado: ni pregunta ni compra. Merece un arranque, no un
     // interrogatorio.
     soloSaludo: saludo && temas.length === 0 && !compra && plano.split(/\s+/).length <= 4,
@@ -280,4 +400,12 @@ function esInformativo(texto) {
   return r.pregunta && !r.compra;
 }
 
-module.exports = { TEMAS, leer, esInformativo, SENALES_DE_COMPRA, SENALES_DEBILES, PATRONES };
+module.exports = {
+  TEMAS,
+  leer,
+  esInformativo,
+  cantidadPreguntadaEn,
+  SENALES_DE_COMPRA,
+  SENALES_DEBILES,
+  PATRONES,
+};
