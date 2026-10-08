@@ -81,7 +81,19 @@ function loConfirmo(que, pronombre = "lo") {
   // compositor ya le pone la mayuscula: `componer` llama a `mayuscula()`.
   const sujeto = String(que || "");
   const enMinuscula = sujeto ? sujeto.charAt(0).toLowerCase() + sujeto.slice(1) : sujeto;
-  return `${enMinuscula} te ${pronombre} confirmo con el equipo en un momento, no quiero darte un dato equivocado.`;
+
+  // SIN "EN UN MOMENTO". Decia "te lo confirmo con el equipo en un momento",
+  // y eso es una promesa de tiempo que nadie puede cumplir: no hay nadie de
+  // guardia, ni aviso, ni plazo. Si la clienta escribe un domingo por la
+  // noche, "en un momento" es falso.
+  //
+  // Lo que SI es verdad y ademas tranquiliza: que la pregunta queda anotada
+  // y que una persona responde por aqui. Eso lo respalda el registro de
+  // tareas pendientes del cerebro, que existe de verdad.
+  return (
+    `${enMinuscula} no te ${pronombre} quiero decir a medias. ` +
+    `Lo dejo anotado para el equipo y te responden por aquí.`
+  );
 }
 
 /**

@@ -337,11 +337,42 @@ describe("5 · la conversacion completa", () => {
     assert.ok(salidas.findIndex((s) => s.type === "text") < salidas.findIndex((s) => s.type === "image"));
   });
 
-  test("las fotos no se repiten en el turno siguiente", async () => {
+  test("las fotos no se repiten solas en el turno siguiente", async () => {
+    // El candado es contra el SPAM: cinco imagenes en cada mensaje llenan
+    // la pantalla del telefono. Preguntar otra cosa no las vuelve a traer.
     const { hablar } = await montar();
     await hablar("Muéstrame fotos del cinturón");
-    const segunda = await hablar("y mándame fotos otra vez");
-    assert.equal(imagenes(segunda.salidas).length, 0, "se reenviaron las fotos");
+    const segunda = await hablar("¿y tiene garantía?");
+    assert.equal(imagenes(segunda.salidas).length, 0, "se reenviaron las fotos sin que nadie las pidiera");
+  });
+
+  // ------------------------------------------------------------------------
+  // PERO SI DICE QUE NO LE LLEGARON, SE REPITEN
+  //
+  // El bot ofrece reenviarlas -"si no te cargaron, dime y te las paso otra
+  // vez"- y la deduplicacion lo impedia. El ofrecimiento era una promesa
+  // falsa: la clienta pedia las fotos otra vez y no pasaba nada.
+  //
+  // Escribir y resolver no son lo mismo, y aqui tampoco: evitar el spam no
+  // puede ganarle a un cliente que dice que no recibio lo que le ofrecimos.
+  // ------------------------------------------------------------------------
+  test("«no me cargaron las fotos» SÍ las reenvía", async () => {
+    const { hablar } = await montar();
+    const primera = await hablar("Muéstrame fotos del cinturón");
+    assert.ok(imagenes(primera.salidas).length > 0, "no mandó fotos la primera vez");
+
+    const segunda = await hablar("no me cargaron las fotos");
+    assert.ok(
+      imagenes(segunda.salidas).length > 0,
+      "dijo que no le cargaron y no se reenviaron: el ofrecimiento era falso"
+    );
+  });
+
+  test("y pedirlas otra vez explícitamente también", async () => {
+    const { hablar } = await montar();
+    await hablar("Muéstrame fotos del cinturón");
+    const segunda = await hablar("me las mandas otra vez? no las veo");
+    assert.ok(imagenes(segunda.salidas).length > 0, "las pidió otra vez y no llegaron");
   });
 
   test("el precio se dice una vez, y se repite solo si lo vuelven a preguntar", async () => {
