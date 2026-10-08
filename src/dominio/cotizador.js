@@ -350,14 +350,39 @@ function firmaDeCondiciones(cotizacion) {
  * Es el ultimo filtro antes de enviar. Aunque el modelo invente un precio,
  * aqui se detecta y no sale.
  */
+/**
+ * Identificadores propios que NO son dinero aunque lleven cifras.
+ *
+ * EL DEFECTO QUE ARREGLA, y era intermitente: el numero de pedido tiene la
+ * forma NOV-MUYR5558-508BAE67, y ese "5558" lo leia el filtro como un
+ * importe no autorizado. Resultado: el mensaje "Tu pedido NOV-... ya está
+ * confirmado" se BLOQUEABA — pero solo cuando al id le tocaban cuatro
+ * digitos seguidos, asi que el mismo texto pasaba o fallaba segun el id.
+ *
+ * Un filtro que falla una vez de cada tantas es peor que uno que falla
+ * siempre: el fallo se atribuye a cualquier otra cosa.
+ *
+ * SE EXIME EL IDENTIFICADOR COMPLETO, NO LAS CIFRAS SUELTAS. La tentacion
+ * era pedir que la cifra no estuviera pegada a letras, y eso SI abriria un
+ * agujero: "te queda en 49900pesos" dejaria de revisarse. Aqui solo se
+ * exime un patron propio y reconocible -prefijo NOV-, dos bloques- que
+ * genera el codigo y que ningun modelo va a usar para colar un precio.
+ */
+const ID_DE_PEDIDO = /\bNOV-[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/g;
+
 function revisarImportes(texto, importesAutorizados) {
   const autorizados = new Set((importesAutorizados || []).map(Number));
   const sospechosos = [];
 
+  // Los identificadores se tapan con guiones de la misma longitud: asi las
+  // posiciones del resto del texto no se mueven y lo que queda se revisa
+  // igual de estricto.
+  const limpio = String(texto ?? "").replace(ID_DE_PEDIDO, (id) => "-".repeat(id.length));
+
   // Cifras con formato de dinero: $12.000, 12.000, 12000, $ 12,000
   const re = /\$?\s?(\d{1,3}(?:[.,]\d{3})+|\d{4,7})/g;
   let m;
-  while ((m = re.exec(String(texto ?? ""))) !== null) {
+  while ((m = re.exec(limpio)) !== null) {
     const n = Number(m[1].replace(/[.,]/g, ""));
     if (!Number.isFinite(n)) continue;
     if (!autorizados.has(n)) sospechosos.push({ texto: m[0].trim(), valor: n });
@@ -376,4 +401,5 @@ module.exports = {
   firmaDeCondiciones,
   revisarImportes,
   versionDeCatalogo,
+  ID_DE_PEDIDO,
 };

@@ -252,8 +252,14 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
   return partes.filter(Boolean).join(" ");
 }
 
-/** Lo que falta para despachar, pedido como lo pediria una persona. */
-function pedirLoQueFalta(faltan) {
+/**
+ * Lo que falta para despachar, pedido como lo pediria una persona.
+ *
+ * `cantidadInformada` evita el peor efecto de pedir la cantidad: si la
+ * clienta pregunto "¿cuánto me salen dos?" y se le acaba de responder por
+ * dos, volver a preguntarle cuantas quiere es no haberla leido.
+ */
+function pedirLoQueFalta(faltan, { cantidadInformada = null } = {}) {
   const nombres = {
     nombre: "tu nombre completo",
     telefono: "un número de contacto",
@@ -264,7 +270,16 @@ function pedirLoQueFalta(faltan) {
   };
 
   const pide = (faltan || []).filter((f) => f !== "cantidad").map((f) => nombres[f] || f);
-  const faltaCantidad = (faltan || []).includes("cantidad");
+  // Si ya se le informo el precio de N unidades, la cantidad esta dicha: lo
+  // que falta es que confirme, no que la repita.
+  const yaSeSabeCuantas = Number(cantidadInformada) > 1;
+  const faltaCantidad = (faltan || []).includes("cantidad") && !yaSeSabeCuantas;
+
+  if (yaSeSabeCuantas) {
+    return pide.length
+      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y te las despacho.`
+      : "¿Te las despacho?";
+  }
 
   if (faltaCantidad && !pide.length) return "¿Cuántos quieres?";
   if (faltaCantidad) return `¿Cuántos quieres? Y para despacharlo me pasas ${enumerar(pide)}.`;
@@ -460,7 +475,7 @@ function textoDeterminista({
       if (lectura.compra || (!lectura.pregunta && !lectura.soloSaludo)) {
         // Hay señal de compra, o el cliente esta ya en la captura y no
         // pregunto nada: se piden los datos que falten.
-        partes.push(pedirLoQueFalta(faltan));
+        partes.push(pedirLoQueFalta(faltan, { cantidadInformada: cot && cot.cantidad }));
       } else if (preguntoComercial) {
         // ----------------------------------------------------------------
         // PREGUNTO EL PRECIO, PERO NO DIJO QUE LO QUIERA
