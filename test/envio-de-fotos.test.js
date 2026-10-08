@@ -533,25 +533,33 @@ describe("5 · la ruta del panel", () => {
 module.exports = {};
 
 // --------------------------------------------------------------------------
-// UN BSUID NO ES UN DESTINATARIO
+// A UN BSUID **SI** SE LE ESCRIBE — PERO EN SU CAMPO
 //
-// SALIO DE LA AUDITORIA REAL: 8 fallos de envio, todos con el mismo error
-// del proveedor y el mismo tipo de destinatario:
+// ESTA PRUEBA DECIA LO CONTRARIO, y era una conclusion sin comprobar.
 //
-//   contacto CO.1667873168388823
-//   error 131026 · Message undeliverable
+// Venia de una auditoria real: 8 fallos de envio, todos
+// `CO.1667873168388823` con `error 131026 · Message undeliverable`. De ahi
+// se concluyo "a estos clientes no se les puede escribir", y el propio
+// comentario dejaba el pendiente anotado: "hay que comprobar en la
+// documentacion de Meta si la API admite responder a un usuario sin numero".
 //
-// No es un telefono: es un BSUID, el identificador de los clientes que
-// escriben con NOMBRE DE USUARIO de WhatsApp y no tienen numero.
-// `normalizar.js` ya los distingue, y su comentario avisaba de esto
-// literalmente: "la clave de la conversacion y el telefono al que se
-// despacha son cosas distintas, y confundirlas rompe el despacho".
+// Marco insistio en que si se podia. Tenia razon. Comprobado en la
+// documentacion de Meta (Business-scoped user IDs, actualizada el
+// 15-sep-2026):
 //
-// Se confundian: el cerebro envia a `telefono || idCliente`, asi que sin
-// telefono mandaba al BSUID. El cliente no recibia nada y el fallo pasaba
-// en la red, donde no lo veia nadie.
+//   · con telefono -> se pone `to` y se OMITE `recipient`
+//   · con BSUID    -> se pone `recipient` y se OMITE `to`
+//
+// Los 8 fallos no fueron porque no se pueda: fue porque se mandaba el BSUID
+// EN `to`, que es exactamente lo que Meta rechaza. El bloqueo que se puso
+// entonces evitaba el error... y tambien evitaba la venta.
+//
+// ⚠️ La documentacion de Azure dice que `to` acepta las dos cosas y que el
+// servicio detecta el formato. Eso vale para EL WRAPPER DE AZURE, no para la
+// API de Meta, que es la que usamos. Seguir esa frase habria dejado el mismo
+// fallo con otra cara.
 // --------------------------------------------------------------------------
-test("no se intenta enviar a un BSUID: se bloquea con un motivo que se entiende", async () => {
+test("a un BSUID se le escribe con `recipient`, y sin `to`", async () => {
   const llamadas = [];
   const emisor = crearEmisor({
     config: { ...require("../src/config").config, respuestaAutomatica: true, whatsappToken: "t", idNumero: "000" },
@@ -568,12 +576,37 @@ test("no se intenta enviar a un BSUID: se bloquea con un motivo que se entiende"
     permiso: PERMISOS.CONVERSACION,
   });
 
-  assert.equal(r.enviado, false, "intentó enviar a un identificador que Meta rechaza");
-  assert.equal(r.bloqueado, true);
-  assert.match(r.motivo, /telefono/i, `el motivo no explica la causa: ${r.motivo}`);
-  // Y NO se gasta ni una llamada a la red: reintentar contra un
-  // destinatario invalido llena el diario y tapa el motivo real.
-  assert.equal(llamadas.length, 0, "gastó llamadas a la API contra un destinatario inválido");
+  assert.equal(r.enviado, true, `no le escribió a un cliente al que SÍ se puede escribir: ${r.motivo || ""}`);
+  assert.equal(llamadas.length, 1, "no salió la llamada a la API");
+
+  const cuerpo = JSON.parse(llamadas[0].body);
+  assert.equal(cuerpo.recipient, "CO.1667873168388823", "no mandó el BSUID en `recipient`");
+  assert.equal("to" in cuerpo, false, "mandó también `to`: Meta exige uno de los dos, no los dos");
+  // El BSUID va COMPLETO: Meta avisa de que recortar o modificar cualquier
+  // parte -incluido el codigo de pais y el punto- hace fallar la peticion.
+  assert.match(cuerpo.recipient, /^CO\./);
+});
+
+test("y un destinatario que no es ni teléfono ni BSUID sigue bloqueado sin gastar red", async () => {
+  // La guarda no desaparece: lo que cambia es QUE se considera valido.
+  // Reintentar contra un destinatario imposible llena el diario y tapa el
+  // motivo real.
+  const llamadas = [];
+  const emisor = crearEmisor({
+    config: { ...require("../src/config").config, respuestaAutomatica: true, whatsappToken: "t", idNumero: "000" },
+    repos: null,
+    fetchImpl: async (url, opc) => {
+      llamadas.push(opc);
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: "w1" }] }) };
+    },
+  });
+
+  for (const para of ["basura", "CO.", "12345"]) {
+    const r = await emisor.enviarTexto({ para, texto: "hola", permiso: PERMISOS.CONVERSACION });
+    assert.equal(r.enviado, false, `intentó enviar a "${para}"`);
+    assert.equal(r.bloqueado, true);
+  }
+  assert.equal(llamadas.length, 0, "gastó llamadas a la API contra destinatarios inválidos");
 });
 
 test("pero un teléfono normal sigue saliendo", async () => {

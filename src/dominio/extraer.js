@@ -25,7 +25,19 @@ const { aplanar, cantidadesEn, NUMEROS_EN_PALABRAS } = require("./texto");
 const { CIUDADES_SEMILLA } = require("./destino");
 
 /** Tipos de via, para reconocer una direccion. */
-const VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal|dg|diag|transversal|tv|trans|manzana|mz|circular|circunvalar|autopista|via|vereda|km|kilometro|lote|finca|conjunto|urbanizacion)\b/;
+// `barrio`, `corregimiento` y `sector` NO ESTABAN, y en los pueblos la
+// direccion ES eso. Costo una venta el 08-oct en San Andres de Sotavento:
+//
+//   bot:     "...me pasas la dirección"
+//   clienta: "Barrio buenos aires"
+//   bot:     "Para preparar tu pedido me pasas la dirección"   <- IGUAL
+//   clienta: "No entiendo"
+//
+// Sin `barrio` en esta lista, ese mensaje no era ni un INTENTO de dirección:
+// caia en "no se reconoce ningun tipo de via" y el bot repetia la peticion
+// palabra por palabra. Es el mismo bucle que ya documenta el bloque del
+// nombre, unas lineas mas abajo.
+const VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal|dg|diag|transversal|tv|trans|manzana|mz|circular|circunvalar|autopista|via|vereda|vda|barrio|brr|corregimiento|sector|km|kilometro|lote|finca|conjunto|urbanizacion)\b/;
 
 // ==========================================================================
 // EL NOMBRE, CUANDO EL CLIENTE LO DICE

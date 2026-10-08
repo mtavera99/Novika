@@ -58,12 +58,11 @@ const EXPLICACION = {
   // -jerga- y volvia a intentarlo. Lo hizo dos veces el 07-oct contra el
   // mismo cliente. No es un fallo que se arregle reintentando.
   [MOTIVOS_BLOQUEO.SIN_TELEFONO]:
-    "Este cliente escribio con su NOMBRE DE USUARIO de WhatsApp, no con un numero, asi que no tiene " +
-    "telefono al que escribirle: su identificador empieza por `CO.` y Meta rechaza los mensajes a ese " +
-    "destino (error 131026). El mensaje NO salio, y reintentarlo no va a cambiar nada. " +
-    "Lo unico que funciona hoy es que el cliente vuelva a escribir y deje un numero, o contactarlo por " +
-    "otra via. Si Meta admitiera responder a un usuario sin numero habria que confirmarlo en su " +
-    "documentacion: mientras no se sepa, el panel no finge que se envio.",
+    "El destinatario no es ni un telefono ni un identificador de WhatsApp con la forma que exige Meta, " +
+    "asi que no habia a donde enviar y NO se gasto el intento. " +
+    "Ojo: a los clientes que entran con NOMBRE DE USUARIO (su id empieza por `CO.`) SI se les puede " +
+    "escribir — el mensaje sale con su identificador—, lo que no tenemos de ellos es el telefono, y " +
+    "ese si hace falta para despachar.",
   [MOTIVOS_BLOQUEO.TEXTO_VACIO]: "El mensaje estaba vacio.",
   [MOTIVOS_BLOQUEO.SIN_PERMISO]: "Ese envio no declaro permiso. Es un fallo interno, no tuyo.",
 };

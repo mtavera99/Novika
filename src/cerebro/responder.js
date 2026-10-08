@@ -398,7 +398,7 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
  * clienta pregunto "¿cuánto me salen dos?" y se le acaba de responder por
  * dos, volver a preguntarle cuantas quiere es no haberla leido.
  */
-function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false } = {}) {
+function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false, yaSePidieron = false } = {}) {
   const nombres = {
     nombre: "tu nombre completo",
     // "TU NUMERO DE CELULAR", no "un numero de contacto".
@@ -478,6 +478,32 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
   if (faltaCantidad && !pide.length) return "¿Cuántos quieres?";
   if (faltaCantidad) return `¿Cuántos quieres? Y para preparar tu pedido me pasas ${enumerar(pide)} 🙌`;
   if (!pide.length) return invitar;
+
+  // ----------------------------------------------------------------------
+  // NO SE PIDE DOS VECES CON LAS MISMAS PALABRAS
+  //
+  // EL BUCLE QUE VIO MARCO, literal, del 08-oct:
+  //
+  //   bot:     "...me pasas la dirección"
+  //   clienta: "Barrio buenos aires"
+  //   bot:     "Para preparar tu pedido me pasas la dirección"   <- IGUAL
+  //   clienta: "No entiendo"
+  //
+  // Ella SI contesto. Lo que paso es que su direccion no traia numero -en
+  // un pueblo la direccion es el barrio- y el extractor la descarto. Pero
+  // repetir la peticion palabra por palabra no le dice QUE le falta: le
+  // dice que no la leimos. Con razon escribio "No entiendo".
+  //
+  // La segunda vez se pide distinto y concreto: lo que de verdad necesita
+  // el mensajero para encontrarla.
+  // ----------------------------------------------------------------------
+  if (yaSePidieron && pide.length === 1 && pide[0] === nombres.direccion) {
+    return (
+      "Me falta poder ubicarte bien: dime el barrio y, si tienes, la calle con el número, " +
+      "o un punto de referencia (una tienda, una esquina, el color de la casa) 🙌"
+    );
+  }
+
   return `Para preparar tu pedido me pasas ${enumerar(pide)} 🙌`;
 }
 
@@ -988,7 +1014,7 @@ function textoDeterminista({
         // dirección": ni un "perfecto". Es el momento mas importante de la
         // conversacion y se trataba como un tramite.
         if (lectura.compra && !preguntoComercial) partes.push("¡Perfecto!");
-        partes.push(pedirLoQueFalta(faltan, { cantidadInformada: cot && cot.cantidad }));
+        partes.push(pedirLoQueFalta(faltan, { cantidadInformada: cot && cot.cantidad, yaSePidieron: Boolean(memoria.datosPedidos) }));
       } else if (preguntoComercial) {
         // ----------------------------------------------------------------
         // PREGUNTO EL PRECIO, PERO NO DIJO QUE LO QUIERA
