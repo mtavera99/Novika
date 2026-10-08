@@ -83,7 +83,6 @@
     "si hay descuento por cantidad",
     "hasta que contorno ajusta la correa",
     "las medidas exactas del cinturon",
-    "el material",
     "que trae exactamente el paquete",
     "si se puede pagar por transferencia o Nequi",
     "los niveles de temperatura o de intensidad",
@@ -202,5 +201,10 @@
     "texto": "Sí, es justo para eso: el calor en la zona baja del abdomen ayuda a relajar y alivia el cólico.",
     "fuente": "Marco lo autorizo expresamente el 2026-10-08: \"si una persona le pregunta como esto sirve para los colicos, si claro eso sirve para los colicos porque el calor\".",
     "_porQue": "ES EL USO PREVISTO DEL PRODUCTO, no una promesa medica, y la distincion es la que permite decirlo. 'Sirve para los colicos' describe para que esta hecho; 'cura los colicos' promete un resultado clinico y sigue en claimsProhibidos. El producto se llama cinturon termico para colicos: negarse a decir para que sirve era la peor respuesta que daba el bot, y ademas la mas absurda.\n\nNO SE AMPLIA SIN AUTORIZACION. Nada de endometriosis, quistes, embarazo ni medicacion: esos siguen prohibidos uno por uno."
+  },
+  "material": {
+    "texto": "Es en plástico, y la parte que va sobre el abdomen lleva almohadillas.",
+    "fuente": "Marco lo autorizo el 2026-10-08: \"el material es plastico y obviamente la parte del abdomen son como almohadillas\".",
+    "_porQue": "Lo que dijo Marco, y NADA MAS. Me ofrecio buscar fichas tecnicas en MercadoLibre para tener contexto; eso sirve para que yo entienda el producto, NO como fuente de lo que el bot afirma. Una ficha de otro vendedor no es una autorizacion de esta marca: si el bot dice 'poliester con gel' porque lo leyo en un anuncio ajeno y llega otra cosa, la devolucion es nuestra. Para ampliar esto hace falta que Marco lo confirme pieza por pieza."
   }
 }

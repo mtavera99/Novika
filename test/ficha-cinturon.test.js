@@ -163,7 +163,9 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
   // 2026-10-08 el tramite y el alcance de la garantia mas el precio de dos.
   // Lo que queda son los que de verdad siguen abiertos, y el mas delicado
   // es el contorno del ajuste.
-  for (const tema of [/tres o mas unidades/, /contorno/, /material/, /dia exacto/]) {
+  // 'el material' salio el 2026-10-08: Marco lo confirmo (plastico y
+  // almohadillas). Sigue aqui lo que de verdad no se sabe.
+  for (const tema of [/tres o mas unidades/, /contorno/, /dia exacto/, /trae exactamente el paquete/]) {
     assert.ok(
       p.sinDatoConfirmado.some((s) => tema.test(s)),
       `falta declarar ${tema} como dato sin confirmar: el modelo lo rellenaria`

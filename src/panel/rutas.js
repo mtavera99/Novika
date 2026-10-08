@@ -665,6 +665,37 @@ function crearRutasDelPanel({ obtenerCerebro }) {
   // ----------------------------------------------------------------------
   // Atendido
   // ----------------------------------------------------------------------
+  // ----------------------------------------------------------------------
+  // EMPEZAR DE CERO
+  //
+  // Para poder PROBAR. El chat de pruebas de Marco lleva dias de mensajes,
+  // y con la memoria acumulada el bot no se comporta como con un cliente
+  // nuevo: no se presenta, no repite el precio, y si hubo un escalado sigue
+  // callado. Sin esto no se puede comprobar ningun cambio.
+  //
+  // Borra la memoria del BOT. NO borra el historial ni los pedidos: el
+  // historial es la unica prueba de lo que se le dijo a una persona, y un
+  // pedido es un compromiso con quien despacha.
+  // ----------------------------------------------------------------------
+  router.post("/empezar-de-cero", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const id = String((req.body && req.body.id) || "").trim();
+    if (!id) return res.status(400).json({ ok: false, error: "Falta el cliente." });
+
+    try {
+      const { repos } = await piezas();
+      const conv = await atencion.empezarDeCero(repos, id, { por: "panel" });
+      if (!conv) return res.status(404).json({ ok: false, error: "Esa conversacion no existe." });
+
+      diario.anotar("panel_conversacion_reiniciada", { idCliente: id });
+      log.info("panel_conversacion_reiniciada", { idCliente: id });
+      return res.json({ ok: true, aviso: "Listo: el bot vuelve a tratar este chat como nuevo." });
+    } catch (e) {
+      log.error("panel_empezar_de_cero_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: "No se pudo reiniciar." });
+    }
+  });
+
   router.post("/atendido", async (req, res) => {
     if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
     const id = String((req.body && req.body.id) || "").trim();
