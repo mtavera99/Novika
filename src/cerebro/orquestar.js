@@ -48,6 +48,9 @@ const preguntas = require("../dominio/preguntas");
 const extraer = require("../dominio/extraer");
 const senales = require("../catalogo/senales");
 const responder = require("./responder");
+// Solo para `prometeConfirmar`: el cerebro necesita saber si el texto que va
+// a enviar prometio que una persona confirma algo, para dejar la tarea.
+const contestar = require("./contestar");
 const { enSerie } = require("../almacen/mutex");
 const { PERMISOS } = require("../whatsapp/enviar");
 const atencionDeChat = require("../almacen/atencion");
@@ -636,7 +639,57 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     let situacion = "escalado";
     let estadoDestino = conversacion.estado;
 
-    if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
+    // ------------------------------------------------------------------
+    // LAS TRES RAZONES POR LAS QUE SI HAY QUE LLAMAR A UNA PERSONA
+    //
+    // Marco lo dijo con un ejemplo: "si la persona está pidiendo una
+    // garantía, eso lo tiene que solucionar el humano; pero estaba pasando
+    // que con cualquier pregunta de una vez lo dejaba para contacto humano".
+    //
+    // Estaba exactamente al reves. Medido el 09-oct, con el codigo de
+    // produccion:
+    //
+    //   "quiero hablar con una persona"
+    //     -> "¡Perfecto, gracias! Para preparar tu pedido me pasas la
+    //         ciudad y la dirección"
+    //   "me llegó dañado, quiero la garantía"
+    //     -> "¡Claro que sí! Tiene 1 mes de garantía, así que compras con
+    //         tranquilidad. ¡Perfecto! Para preparar tu pedido me pasas…"
+    //   "esto es un robo, son unos estafadores, los voy a denunciar"
+    //     -> "¡Perfecto, gracias! Para preparar tu pedido me pasas…"
+    //
+    // Las tres son las que NINGUN bot debe atender, y las tres seguian
+    // dentro del embudo de venta. Mientras tanto, una duda sobre el
+    // material si escalaba.
+    //
+    // Esta rama va ANTES de todo lo demas -incluida la cotizacion- porque
+    // ninguna de las tres se arregla vendiendo. Y es el unico escalado que
+    // se puede provocar desde el TEXTO del cliente, asi que las tres listas
+    // son estrechas y estan en `src/dominio/preguntas.js` con su motivo.
+    // ------------------------------------------------------------------
+    const intencion = preguntas.leer(evento.texto || "");
+    const motivoDeHumano = intencion.reclamaGarantia
+      ? "reclamo_de_garantia"
+      : intencion.estaMolesto
+        ? "cliente_molesto"
+        : intencion.pideHumano
+          ? "pidio_una_persona"
+          : null;
+
+    if (motivoDeHumano) {
+      situacion = "escalado";
+      estadoDestino = estados.ESTADOS.ESCALADO;
+      traza.motivoEscalado = motivoDeHumano;
+      traza.avisos.push(`escalado legitimo: ${motivoDeHumano}`);
+      contar("escalado_a_persona");
+      atencionDeChat.anotarPendiente(conversacion, {
+        motivo:
+          motivoDeHumano === "reclamo_de_garantia"
+            ? atencionDeChat.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO
+            : atencionDeChat.MOTIVOS_PENDIENTE.NO_SUPO,
+        pregunta: evento.texto || "",
+      });
+    } else if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
       // "si" / "ok" / "gracias" sobre un pedido ya confirmado. NO se cotiza,
       // NO se crea pedido. Esta es la regla que pidio Marco.
       //
@@ -684,10 +737,43 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       };
       estadoDestino = estados.ESTADOS.POSVENTA;
     } else if (decision.accion === confirmacion.ACCIONES.CANCELAR) {
-      const r = await cancelarPedido(pedidoActivo, evento);
-      situacion = r.cancelado ? "cancelado" : "escalado";
-      traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado } : null;
-      estadoDestino = estados.ESTADOS.CANCELADO;
+      // ----------------------------------------------------------------
+      // CANCELAR ALGO QUE NO EXISTE NO ES UN ESCALADO.
+      //
+      // Esto era `situacion = r.cancelado ? "cancelado" : "escalado"`, y el
+      // "escalado" pausaba el bot 12 h. Resultado: a quien decia "no
+      // gracias" SIN tener ningun pedido, el bot le contestaba "esto lo
+      // revisa una persona" y se callaba medio dia. No hay nada que
+      // revisar: la clienta dijo que no.
+      //
+      // Dos caminos distintos y por eso se separan:
+      //
+      //   con pedido  -> "cancelado". Hay plata y logistica de por medio.
+      //   sin pedido  -> "declina". Es una conversacion que no cuajo; se
+      //                  cierra con calidez, se deja la puerta abierta y el
+      //                  bot SIGUE VIVO, porque "no por ahora" se convierte
+      //                  en compra con una frecuencia altisima.
+      //
+      // Y el estado NO se mueve a CANCELADO cuando no habia pedido: si la
+      // clienta vuelve con "bueno, listo, lo quiero", tiene que poder
+      // comprar sin que nadie toque el panel.
+      // ----------------------------------------------------------------
+      if (!pedidoActivo) {
+        situacion = "declina";
+        traza.pedido = null;
+        estadoDestino = conversacion.estado;
+        traza.avisos.push("dijo que no sin tener pedido: se cierra con calidez, no se escala ni se pausa");
+        contar("declino_sin_pedido");
+      } else {
+        const r = await cancelarPedido(pedidoActivo, evento);
+        situacion = r.cancelado ? "cancelado" : "escalado";
+        traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado } : null;
+        estadoDestino = r.cancelado ? estados.ESTADOS.CANCELADO : estados.ESTADOS.ESCALADO;
+        if (!r.cancelado) {
+          traza.avisos.push("hay pedido y no se pudo cancelar: lo gestiona una persona");
+          contar("escalado_a_persona");
+        }
+      }
     } else if (decision.accion === confirmacion.ACCIONES.CONFIRMAR) {
       const r = await confirmarPedido({ conversacion, producto, evento, revisiones: validacion.revisiones });
       traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado, creado: r.creado } : null;
@@ -781,8 +867,32 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     // REGLA 3: preparar siempre, enviar solo si procede
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // LA CUENTA DE LAS OBJECIONES DE PRECIO
+    //
+    // Vive en la conversacion PERSISTIDA, no en memoria: en Render cada
+    // despliegue reinicia el proceso, y una escalera que se reinicia a la
+    // mitad vuelve a empezar por el primer escalon con un cliente que ya
+    // objeto tres veces.
+    //
+    // Se cuenta aqui -y no en el redactor- porque el redactor se llama
+    // tambien desde el panel y desde las pruebas, y contar ahi inflaria la
+    // cuenta sin que el cliente hubiera dicho nada.
+    // ------------------------------------------------------------------
+    if (loQuePregunta.temas.includes(preguntas.TEMAS.OBJECION_PRECIO)) {
+      conversacion.objecionesDePrecio = Number(conversacion.objecionesDePrecio || 0) + 1;
+      traza.objecionesDePrecio = conversacion.objecionesDePrecio;
+    }
+
     const preparada = responder.preparar({
       situacion,
+      vezDeLaObjecion: Math.max(1, Number(conversacion.objecionesDePrecio || 0)),
+      // POR QUE se escala, cuando se escala. Sin esto, las tres situaciones
+      // que de verdad necesitan una persona -un reclamo, un cliente
+      // molesto y quien pide hablar con alguien- recibian la misma frase
+      // generica, y a quien esta enfadado una frase de tramite lo enfada
+      // mas. Es `null` en el resto de los turnos.
+      motivoEscalado: traza.motivoEscalado || null,
       cotizacion: conversacion.cotizacion,
       cotizacionInformativa: cotizacionConsultada,
       faltan: traza.faltan || [],
@@ -944,11 +1054,25 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       });
     }
 
-    if (situacion === "escalado" || preguntoAlgoNoCatalogado) {
+    // LO QUE SE PROMETE, QUEDA ANOTADO — AHORA MIRANDO LA PROMESA.
+    //
+    // La condicion era `situacion === "escalado" || preguntoAlgoNoCatalogado`,
+    // y el segundo termino es un proxy que dejo de valer al añadir los
+    // dieciseis temas del 09-oct: "¿a cuántos grados llega?" YA tiene tema,
+    // asi que no abria tarea, y sin embargo la respuesta dice "los confirmo
+    // con el equipo y te cuento". Una promesa que no deja tarea es una
+    // promesa que nadie va a cumplir, y el cliente se queda esperando.
+    //
+    // Se mira el TEXTO PREPARADO, que es donde esta la promesa. Y se
+    // conserva `preguntoAlgoNoCatalogado`: una pregunta que no se entendio
+    // tiene que verla una persona aunque el texto no prometa nada.
+    const prometioConfirmar = contestar.prometeConfirmar(preparada.texto);
+    if (situacion === "escalado" || preguntoAlgoNoCatalogado || prometioConfirmar) {
       atencionDeChat.anotarPendiente(conversacion, {
         motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
         pregunta: evento.texto || "",
       });
+      if (prometioConfirmar && !preguntoAlgoNoCatalogado) contar("promesa_anotada");
     }
 
     // ------------------------------------------------------------------

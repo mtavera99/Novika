@@ -658,6 +658,13 @@ function analizarTurno(mensajeCliente) {
  */
 function textoDeterminista({
   situacion,
+  // Cuantas veces ha objetado el precio en esta conversacion. Viaja desde
+  // el cerebro, que es quien lleva la cuenta en la conversacion persistida.
+  vezDeLaObjecion = 1,
+  // El motivo del escalado, cuando hay uno. Cambia SOLO el texto de la rama
+  // "escalado": un reclamo de garantia, un cliente enfadado y alguien que
+  // pide hablar con una persona no se contestan con la misma frase.
+  motivoEscalado = null,
   cotizacion = null,
   cotizacionInformativa = null,
   faltan = [],
@@ -921,7 +928,7 @@ function textoDeterminista({
           const comerciales = lectura.temas.filter((t) => TEMAS_COMERCIALES.includes(t));
           const politicas = contestar.aTemas(
             comerciales.filter((t) => t !== preguntas.TEMAS.PRECIO),
-            { producto, cotizacion: null },
+            { producto, cotizacion: null, vezDeLaObjecion },
             { maximo: 2 }
           );
           if (politicas.texto) partes.push(politicas.texto);
@@ -943,7 +950,7 @@ function textoDeterminista({
       // argumento, y sin este aviso las repetia en el mismo mensaje.
       const resto = contestar.aTemas(
         otros,
-        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot) },
+        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot), vezDeLaObjecion },
         { maximo: 2 }
       );
       if (resto.texto) partes.push(resto.texto);
@@ -1149,7 +1156,16 @@ function textoDeterminista({
         // es lo que SI hacemos -queda su ficha con lo que pidio- y es la
         // misma palabra que ya usa `loConfirmo`.
         // ----------------------------------------------------------------
-        partes.push("¿Te lo aparto? 🙌");
+        // ⚠️ SALVO EN EL ULTIMO ESCALON DE LA OBJECION DE PRECIO.
+        //
+        // Ahi el mensaje acaba de decir "déjame pasarle tu caso a una
+        // persona del equipo", y pegarle detras "¿te lo aparto?" deja un
+        // mensaje que se contradice solo: pasa el caso y a la vez sigue
+        // cerrando. Es el unico sitio donde la regla de "termina siempre
+        // con una pregunta" esta mal.
+        const enManosDeUnaPersona =
+          vezDeLaObjecion >= 3 && lectura.temas.includes(preguntas.TEMAS.OBJECION_PRECIO);
+        if (!enManosDeUnaPersona) partes.push("¿Te lo aparto? 🙌");
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
@@ -1331,10 +1347,10 @@ function textoDeterminista({
         respuesta = { texto: "ya respondido" };
         // Y las dudas que NO sean comerciales, detras.
         const otras = lectura.temas.filter((t) => !TEMAS_COMERCIALES.includes(t));
-        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder }, { maximo: 1 });
+        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder, vezDeLaObjecion }, { maximo: 1 });
         if (extra.texto) partes.push(extra.texto);
       } else {
-        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder }, { maximo: 2 });
+        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder, vezDeLaObjecion }, { maximo: 2 });
         if (respuesta.texto) partes.push(respuesta.texto);
       }
 
@@ -1437,6 +1453,36 @@ function textoDeterminista({
       return "Listo, lo cancelamos sin ningún problema. Si cambias de opinión me escribes y lo armamos de nuevo 🙌";
 
     // ----------------------------------------------------------------------
+    // DECLINA: DIJO QUE NO, Y NO HAY NINGUN PEDIDO QUE CANCELAR
+    //
+    // Antes este caso no existia: caia en "escalado", le decia "esto lo
+    // revisa una persona" y PAUSABA EL BOT 12 HORAS. A quien habia dicho
+    // "no gracias". No hay nada que revisar y no hay por que callarse.
+    //
+    // Lo que si hay es una venta que todavia puede pasar: en contraentrega
+    // el "no por ahora" se vuelve compra con mucha frecuencia, porque el
+    // cliente no arriesga plata. Asi que se cierra bien, se recuerda la
+    // unica condicion que de verdad quita el miedo -pagar al recibir- y se
+    // deja la puerta abierta SIN presionar y SIN pedir datos.
+    //
+    // Y no termina en pregunta, a proposito. Es la unica rama donde el
+    // cierre con pregunta esta mal: a quien acaba de decir que no, otra
+    // pregunta se le lee como insistencia.
+    // ----------------------------------------------------------------------
+    case "declina": {
+      const pagaAlRecibir = contestar.pagaAlRecibir(producto);
+      return componer(
+        [
+          "Tranquila, sin problema.",
+          pagaAlRecibir
+            ? "Si más adelante lo quieres, aquí estoy: recuerda que pagas al recibir, así que no arriesgas nada."
+            : "Si más adelante lo quieres, aquí estoy.",
+        ],
+        { emoji: "saludo" }
+      );
+    }
+
+    // ----------------------------------------------------------------------
     // ESCALADO: se pasa a una persona. Y SE RESPONDE LO QUE PREGUNTO IGUAL.
     //
     // "Dame un momento, te confirmo en seguida" era lo unico que salia, y
@@ -1480,7 +1526,51 @@ function textoDeterminista({
     // la venta, no protegerla.
     // ----------------------------------------------------------------------
     case "escalado": {
-      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion }, { maximo: 2 });
+      // ------------------------------------------------------------------
+      // LOS TRES ESCALADOS QUE SI LO SON TIENEN TEXTO PROPIO
+      //
+      // La frase generica -"esto lo reviso con una persona del equipo"- es
+      // correcta para un hueco de catalogo. Para un reclamo, para alguien
+      // enfadado o para quien pidio hablar con una persona, es exactamente
+      // la frase equivocada: suena a tramite justo donde el cliente
+      // necesita sentir que alguien se hizo cargo.
+      //
+      // Y NO SE VENDE EN NINGUNO DE LOS TRES. En el reclamo, ademas, no se
+      // repite el argumento de la garantia: al cliente que la esta
+      // reclamando ya se le vendio una vez.
+      // ------------------------------------------------------------------
+      if (motivoEscalado === "reclamo_de_garantia") {
+        const comoSeTramita = producto && producto.garantiaComoSeTramita;
+        return componer(
+          [
+            "Uy, qué pena que te haya llegado así.",
+            comoSeTramita
+              ? "Eso lo gestiona directamente una persona del equipo: ya le paso tu mensaje para que te ayude con el cambio."
+              : "Eso lo gestiona una persona del equipo: ya le paso tu mensaje.",
+            "Si puedes, mándame una foto de cómo llegó por aquí mismo, que así lo resuelven más rápido.",
+          ],
+          { emoji: null }
+        );
+      }
+      if (motivoEscalado === "cliente_molesto") {
+        // Sin emoji y sin una sola palabra de venta. Un 🙌 delante de
+        // alguien que amenaza con denunciar se lee como burla.
+        return componer(
+          [
+            "Te entiendo, y siento que hayas tenido esta experiencia.",
+            "Prefiero que esto lo vea una persona del equipo y no yo: ya le paso tu mensaje y te responde por aquí.",
+          ],
+          { emoji: null }
+        );
+      }
+      if (motivoEscalado === "pidio_una_persona") {
+        return componer(
+          ["¡Claro que sí!", "Ya le paso tu mensaje a una persona del equipo y te responde por aquí."],
+          { emoji: "atencion" }
+        );
+      }
+
+      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion, vezDeLaObjecion }, { maximo: 2 });
       return componer([
         saludo || voz.apertura(lectura.temas),
         resto.texto,
@@ -1585,6 +1675,8 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
  */
 function preparar({
   situacion,
+  vezDeLaObjecion = 1,
+  motivoEscalado = null,
   cotizacion = null,
   cotizacionInformativa = null,
   faltan = [],
@@ -1605,6 +1697,8 @@ function preparar({
 }) {
   const determinista = textoDeterminista({
     situacion,
+    vezDeLaObjecion,
+    motivoEscalado,
     cotizacion,
     cotizacionInformativa,
     faltan,
