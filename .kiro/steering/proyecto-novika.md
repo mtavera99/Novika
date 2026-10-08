@@ -138,3 +138,35 @@ npm run cutover             archivos → postgres  (· --simular · --inverso)
 ```
 
 El cutover se ejecuta **desde el Shell de `novika-bot`** en Render: la Internal Database URL solo resuelve dentro de su red privada, y el cutover necesita el disco y la base a la vez. Detalle en `docs/POSTGRES.md`.
+
+## Reglas de negocio que no se negocian
+
+### El celular SIEMPRE se exige en un pedido
+
+Lo pidió Marco: *«no se te olvide siempre requerir el número de celular para
+los pedidos»*.
+
+No es un campo más: **la transportadora llama al celular**, y un pedido
+contraentrega sin número es un paquete que vuelve. Está en
+`REQUERIDOS_PARA_DESPACHAR`, así que un pedido sin él **no se construye ni se
+despacha**, y el bot lo pide con esa palabra —«tu número de celular», no «un
+número de contacto», que admite un fijo—.
+
+El caso donde de verdad hace falta pedirlo: los clientes con **nombre de
+usuario de WhatsApp** (BSUID `CO.…`), que no traen teléfono. El 07-oct, **tres
+de los quince chats del día** eran de esos. Lo cubre
+`test/entrega-y-caja.test.js` §5.
+
+### Una columna nueva no entra en `COLUMNAS_REQUERIDAS` el mismo día
+
+Las migraciones se aplican **a mano** (`npm run migrar`), así que el código
+puede arrancar contra una base migrada a medias. Exigir al arrancar una
+columna que la migración todavía no creó **tumba el servicio entero**: pasó el
+2026-10-08 con `pedidos.entrega` y el panel se quedó sin un solo chat —y desde
+fuera no se ve un error de esquema, se ve un panel vacío, indistinguible de
+haber perdido los datos—.
+
+Regla: en `COLUMNAS_REQUERIDAS` solo van columnas que el adaptador **escribe de
+verdad**. Si no se escribe, no puede faltar. Y el orden para añadir una es:
+migrar → comprobar → desplegar el código que la escribe. **Nunca en el mismo
+despliegue.** Lo vigila `test/esquema-y-despliegue.test.js`.
