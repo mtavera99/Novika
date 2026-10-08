@@ -36,6 +36,20 @@
 const fecha = require("./fecha");
 const { CLASES } = require("./datos");
 const fichaDe = require("./ficha");
+const atencion = require("../almacen/atencion");
+
+/**
+ * Los motivos de una tarea pendiente, dichos en castellano.
+ *
+ * El motivo guardado es una clave ("quiere_otra_compra"). Mostrarla tal
+ * cual obliga a traducirla mentalmente, y quien atiende tiene prisa.
+ */
+const MOTIVOS_EN_CLARO = {
+  [atencion.MOTIVOS_PENDIENTE.SIN_DATO]: "preguntó algo que no está en el catálogo",
+  [atencion.MOTIVOS_PENDIENTE.OTRA_COMPRA]: "quiere otra compra y ya tiene un pedido",
+  [atencion.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO]: "quiere cambiar algo de un pedido confirmado",
+  [atencion.MOTIVOS_PENDIENTE.NO_SUPO]: "el bot no supo resolverlo y se detuvo",
+};
 
 /** Escape de HTML. Todo lo que venga de un cliente pasa por aqui. */
 function esc(s) {
@@ -96,6 +110,7 @@ header .derecha .boton[aria-current="page"] { background:var(--azul); border-col
 .aviso.ok { background:#13301f; border:1px solid #1f5c38; color:#9ff0c0; }
 .aviso.mal { background:#3a1d1d; border:1px solid #6b2b2b; color:#ffb4b4; }
 .aviso.info { background:#1a2435; border:1px solid #2b3f5c; color:#b8cdf0; }
+.aviso.ambar { background:#3a2f16; border:1px solid #6b5524; color:#ffdf9e; }
 
 .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:16px; }
 .kpi { background:var(--caja); border:1px solid var(--borde); border-radius:12px; padding:14px; }
@@ -560,17 +575,48 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
         .join("")
     : `<div class="vacio">Sin mensajes todavia.</div>`;
 
+  // ------------------------------------------------------------------
+  // QUE SE DESPACHA Y COMO SE COBRA, no solo cuanto
+  //
+  // La tabla decia codigo, estado, unidades, total y fecha. NO decia el
+  // PRODUCTO ni el METODO DE PAGO.
+  //
+  // El producto faltaba porque hoy solo hay uno, y eso se arregla justo
+  // antes de que haya dos: el dia que entre el segundo, esta tabla no
+  // dejaria distinguir que lleva cada pedido.
+  //
+  // Y EL PAGO ES EL PEOR DE LOS DOS. Es contraentrega: quien despacha
+  // tiene que saber que hay que RECAUDAR. Un pedido contraentrega que no
+  // dice que se cobra al entregar es un paquete entregado sin cobrar. El
+  // dato ya viaja dentro de la cotizacion -el pedido la guarda como
+  // snapshot-, solo no se mostraba.
+  // ------------------------------------------------------------------
+  // Los nombres salen de `condiciones` de la cotizacion, que es donde el
+  // cotizador los deja de verdad: `pagoEtiqueta` es la frase que vio la
+  // clienta y `pagoMetodo` la clave. Se prefiere la etiqueta porque es la
+  // que ella aprobo, palabra por palabra.
+  const comoPaga = (p) => {
+    const c = (p.cotizacion && p.cotizacion.condiciones) || {};
+    return c.pagoEtiqueta || c.pagoMetodo || "—";
+  };
+  const queLleva = (p) =>
+    (p.producto && (p.producto.nombre || p.producto.id)) ||
+    (p.cotizacion && p.cotizacion.productoNombre) ||
+    "—";
+
   const tablaPedidos = pedidos.length
     ? `<h2 style="font-size:16px;margin:18px 0 10px">Pedidos de este cliente</h2>
 <table>
-<thead><tr><th>Codigo</th><th>Estado</th><th>Unidades</th><th>Total</th><th>Creado</th><th>Acciones</th></tr></thead>
+<thead><tr><th>Codigo</th><th>Producto</th><th>Estado</th><th>Unidades</th><th>Total</th><th>Pago</th><th>Creado</th><th>Acciones</th></tr></thead>
 <tbody>${pedidos
         .map(
           (p) => `<tr>
   <td data-label="Codigo">${esc(p.id)}</td>
+  <td data-label="Producto">${esc(queLleva(p))}</td>
   <td data-label="Estado">${esc(p.estado)} <span class="pastilla">v${esc(p.version)}</span></td>
   <td data-label="Unidades">${esc((p.cotizacion && p.cotizacion.cantidad) || 1)}</td>
   <td data-label="Total">${esc(pesos((p.cotizacion && p.cotizacion.total) || 0))}</td>
+  <td data-label="Pago">${esc(comoPaga(p))}</td>
   <td data-label="Creado">${esc(fecha.fechaYHoraBogota(p.creadoEn))}</td>
   <td class="acciones" data-label="Acciones">
     ${
@@ -584,9 +630,29 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
         .join("")}</tbody></table>`
     : `<div class="vacio" style="margin-top:16px">Este cliente todavia no tiene pedidos.</div>`;
 
+  // ------------------------------------------------------------------
+  // LO QUE EL BOT PROMETIO Y NADIE HA CONTESTADO
+  //
+  // Cuando el bot dice "se la paso a una persona del equipo", el cerebro
+  // deja una tarea con el motivo y la pregunta. Si esa tarea no se VE,
+  // la promesa sigue siendo vacia: solo cambia de sitio.
+  //
+  // Va arriba y en amarillo porque es lo unico de esta pantalla que tiene
+  // una persona esperando al otro lado.
+  // ------------------------------------------------------------------
+  const porContestar = atencion.pendienteDe(conversacion);
+  const avisoPendiente = porContestar.hay
+    ? `<div class="aviso ambar">
+         <b>Pendiente de contestar</b> · ${esc(MOTIVOS_EN_CLARO[porContestar.motivo] || porContestar.motivo)}
+         <div style="margin-top:4px">Preguntó: «${esc(porContestar.pregunta)}»</div>
+         <div class="nota">Espera desde ${esc(fecha.fechaYHoraBogota(porContestar.desde))}. Se cierra sola cuando respondas o la marques atendida.</div>
+       </div>`
+    : "";
+
   return (
     cabecera({ titulo: `Chat · ${nombre}`, seccion: "chats" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
+    avisoPendiente +
     `<div class="kpis">
   <div class="kpi"><b>${esc(nombre)}</b>${
     n.hay && !n.confirmado ? ` <span class="pastilla pendiente">sin confirmar</span>` : ""
@@ -1085,7 +1151,7 @@ const ETIQUETAS_FILTRO = {
 const QUIEN_CORTO = { cliente: "cliente", bot: "bot", operador: "tú" };
 
 function bandeja({ datos, aviso = null }) {
-  const { filas, total, pagina, paginas, filtro, q, cuentas } = datos;
+  const { filas, total, pagina, paginas, filtro, q, cuentas, recortada, techo } = datos;
 
   const enlace = (f, p = 1) =>
     `/panel/chats?filtro=${encodeURIComponent(f)}${q ? `&q=${encodeURIComponent(q)}` : ""}${p > 1 ? `&pagina=${p}` : ""}`;
@@ -1107,6 +1173,10 @@ function bandeja({ datos, aviso = null }) {
       `<span class="pastilla ${esc(f.clase)}">${esc(ETIQUETAS[f.clase] || f.clase)}</span>`,
       f.pedidosVivos ? `<span class="pastilla ok">${f.pedidosVivos} pedido(s)</span>` : "",
       f.atencion && f.atencion.pausado ? `<span class="pastilla pendiente">persona</span>` : "",
+      // La promesa del bot, visible SIN abrir el chat. Si hay que entrar en
+      // cada conversacion para saber cual espera respuesta de una persona,
+      // la lista no sirve para repartir el trabajo.
+      f.pendiente && f.pendiente.hay ? `<span class="pastilla pendiente">por contestar</span>` : "",
       noSalio ? `<span class="pastilla no">no salió</span>` : "",
     ].join("");
 
@@ -1147,6 +1217,12 @@ function bandeja({ datos, aviso = null }) {
        ${q ? `<a class="limpiar" href="${esc(enlace(filtro))}">limpiar</a>` : ""}
      </form>` +
     `<div class="pests">${pestanasFiltro}</div>` +
+    // Un límite que no se ve es un error silencioso: la bandeja diría un
+    // total que no es, y el chat que falta es justo el que nadie atendió.
+    (recortada
+      ? `<div class="aviso ambar">Se están leyendo las ${esc(techo)} conversaciones más recientes, y hay más.
+           Los totales y las pestañas cuentan solo esas. Usa la búsqueda para llegar a una conversación concreta.</div>`
+      : "") +
     `<div class="nota" style="margin:4px 0 10px">${esc(total)} conversación(es)${
       q ? ` que coinciden con “${esc(q)}”` : ""
     }.</div>` +

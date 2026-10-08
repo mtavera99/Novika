@@ -295,8 +295,11 @@ function cumple(fila, filtro) {
  * @param {string} [opciones.q]       busqueda por nombre, telefono o ciudad
  * @param {number} [opciones.pagina]  1 en adelante
  */
-async function bandeja(repos, { filtro = FILTROS.TODOS, q = "", pagina = 1, porPagina = 25, ahora = Date.now() } = {}) {
-  const todas = await repos.conversaciones.listar({ limite: 2000 });
+async function bandeja(
+  repos,
+  { filtro = FILTROS.TODOS, q = "", pagina = 1, porPagina = 25, ahora = Date.now(), techo = 2000 } = {}
+) {
+  const todas = await repos.conversaciones.listar({ limite: techo });
 
   // Una sola consulta de pedidos para saber quien compro. Con PostgreSQL
   // esto es un indice; con archivos, una lectura de carpeta.
@@ -328,6 +331,9 @@ async function bandeja(repos, { filtro = FILTROS.TODOS, q = "", pagina = 1, porP
       estado: conv.estado,
       clase: clasificar(conv, { ahora }),
       atencion: atencion.leer(conv),
+      // Lo que el bot prometio que contestaria una persona. Se calcula aqui
+      // para que la fila lo pueda marcar sin abrir la conversacion.
+      pendiente: atencion.pendienteDe(conv),
       esperando: esperandoRespuesta(conv),
       mensajes: mensajes.length,
       // El ultimo mensaje y QUIEN lo dijo: una fila donde no se distingue si
@@ -381,6 +387,20 @@ async function bandeja(repos, { filtro = FILTROS.TODOS, q = "", pagina = 1, porP
     filtro,
     q: String(q || ""),
     cuentas,
+    // ------------------------------------------------------------------
+    // SI LA LISTA SE CORTO, SE DICE
+    //
+    // Se leen como mucho `techo` conversaciones. Mientras haya menos, da
+    // igual; el dia que haya mas, las que sobren desaparecian SIN AVISO:
+    // ni en la pestaña, ni en el total, ni en la paginacion. Una bandeja
+    // que dice "1.247 chats" cuando hay 3.000 no es un limite, es un
+    // error silencioso — y el chat que falta es el que nadie atendio.
+    //
+    // No se sube el techo a ciegas: con el almacen de archivos, listar
+    // son N lecturas de disco. Lo que se arregla es que se NOTE.
+    // ------------------------------------------------------------------
+    recortada: todas.length >= techo,
+    techo,
   };
 }
 
