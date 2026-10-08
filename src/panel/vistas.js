@@ -173,6 +173,18 @@ h2.seccion { font-size:16px; margin:20px 0 10px; }
 .entrega .botones { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
 table.compacta td { padding:9px 12px; }
 
+/* ---- CAUSAS DE SILENCIO ---- */
+.causa { background:var(--caja); border:1px solid var(--borde); border-left-width:4px;
+  border-radius:12px; padding:12px; margin-bottom:10px; }
+.causa.alta { border-left-color:#ff6b6b; }
+.causa.media { border-left-color:#ffc857; }
+.causaTop { display:flex; justify-content:space-between; gap:10px; align-items:baseline;
+  margin-bottom:6px; }
+.causaTop b { font-size:15px; }
+.causa .porque { color:var(--suave); font-size:13px; margin:0 0 6px; line-height:1.4; }
+.causa .arreglo { font-size:14px; margin:0; line-height:1.4; }
+.kpi.no b { color:#ff9aa4; }
+
 table { width:100%; border-collapse:collapse; background:var(--caja);
   border:1px solid var(--borde); border-radius:12px; overflow:hidden; }
 th, td { text-align:left; padding:11px 12px; border-bottom:1px solid var(--borde); font-size:14px; }
@@ -402,6 +414,7 @@ function cabecera({ titulo, dia = null, extra = "", seccion = null }) {
   <div class="derecha">
     <a class="boton" href="/panel"${seccion === "tablero" ? ' aria-current="page"' : ""}>Tablero</a>
     <a class="boton" href="/panel/chats"${seccion === "chats" ? ' aria-current="page"' : ""}>Chats</a>
+    <a class="boton" href="/panel/sin-responder"${seccion === "sin-responder" ? ' aria-current="page"' : ""}>Sin responder</a>
     <a class="boton" href="/panel/buscar"${seccion === "buscar" ? ' aria-current="page"' : ""}>Buscar</a>
     <a class="boton" href="/panel/guias"${seccion === "guias" ? ' aria-current="page"' : ""}>Guías</a>
     <a class="boton" href="/panel/novedades"${seccion === "novedades" ? ' aria-current="page"' : ""}>Novedades</a>
@@ -1271,7 +1284,115 @@ function datosDeEntrega({ conversacion, pedido = null, editable = false, envioMa
     ${formulario}`;
 }
 
+
+// ==========================================================================
+// POR QUE EL BOT NO CONTESTO
+//
+// La pantalla que faltaba, y la razon de que faltara es instructiva: cada
+// causa estaba prevista, registrada en el diario y en los logs de Render...
+// y ninguna se veia en el panel. El bot se callaba y el tablero seguia
+// mostrando un dia normal.
+//
+// Esta pantalla responde tres cosas, en este orden:
+//   1. a cuantos clientes no se contesto
+//   2. por que, con la palanca concreta para arreglarlo
+//   3. quienes son, para poder contestarles ahora
+// ==========================================================================
+
+function sinResponder({ datos, config: cfg = {} }) {
+  const { total, causas, pausados, esperando, cuantosEsperan, nuncaRespondidos } = datos;
+
+  const titular = cuantosEsperan
+    ? `<div class="aviso mal" style="font-size:16px">
+         <b>${esc(cuantosEsperan)} cliente(s) están esperando respuesta.</b>
+         ${nuncaRespondidos ? `De esos, <b>${esc(nuncaRespondidos)}</b> no han recibido NINGUNA respuesta.` : ""}
+       </div>`
+    : `<div class="aviso ok" style="font-size:16px"><b>Nadie está esperando respuesta.</b>
+         Todos los chats tienen una respuesta después del último mensaje del cliente.</div>`;
+
+  // El estado de los interruptores, aqui mismo. Es la primera cosa que se
+  // mira cuando el bot no contesta, y estaba solo en /health.
+  const interruptores = `<div class="kpis">
+    <div class="kpi ${cfg.respuestaAutomatica ? "" : "no"}">
+      <b>${cfg.respuestaAutomatica ? "Encendida" : "APAGADA"}</b><span>respuesta automática</span>
+      <div class="nota">${cfg.respuestaAutomatica ? "el bot contesta" : "prepara y no envía"}</div></div>
+    <div class="kpi ${(cfg.numerosDePrueba || []).length ? "no" : ""}">
+      <b>${(cfg.numerosDePrueba || []).length || "ninguno"}</b><span>números de prueba</span>
+      <div class="nota">${
+        (cfg.numerosDePrueba || []).length
+          ? "SOLO esos números reciben respuesta"
+          : "abierto al público"
+      }</div></div>
+    <div class="kpi ${pausados.length ? "no" : ""}">
+      <b>${esc(pausados.length)}</b><span>chats sin bot</span>
+      <div class="nota">${pausados.length ? "una persona tomó el control" : "el bot atiende todos"}</div></div>
+  </div>`;
+
+  const bloqueCausas = causas.length
+    ? causas
+        .map(
+          (c) => `<div class="causa ${esc(c.gravedad)}">
+            <div class="causaTop"><b>${esc(c.titulo)}</b><span class="pastilla">${esc(c.cuantos)}</span></div>
+            <p class="porque">${esc(c.porQue)}</p>
+            <p class="arreglo"><b>Qué hacer:</b> ${esc(c.comoSeArregla)}</p>
+          </div>`
+        )
+        .join("")
+    : `<div class="vacio">No se registró ningún mensaje sin enviar.</div>`;
+
+  const bloquePausados = pausados.length
+    ? `<h2 class="seccion">Chats donde el bot está callado · ${pausados.length}</h2>
+       <p class="nota">El bot se calla cuando una persona responde, para que el cliente no reciba dos
+         voces. La pausa caduca sola a las ${esc(require("../almacen/atencion").HORAS_DE_PAUSA)} horas,
+         pero puedes devolverlos ahora.</p>
+       <div class="listaChats">${pausados
+         .map(
+           (p) => `<a class="filaChat" href="/panel/chat?id=${encodeURIComponent(p.contactoId)}">
+             <div class="filaTop"><b>${esc(p.contactoId)}</b>
+               <span class="cuando">${p.horas !== null ? `hace ${esc(p.horas)} h` : "sin fecha"}</span></div>
+             <div class="filaPie">lo tomó: ${esc(p.por)}</div>
+           </a>`
+         )
+         .join("")}</div>
+       <form method="post" action="/panel/devolver-todos" style="margin-top:12px"
+             onsubmit="return confirm('¿Devolver ${pausados.length} chat(s) al bot? Si alguien está atendiendo ahora mismo, el bot volverá a hablar ahí.')">
+         <button type="submit">Devolver los ${esc(pausados.length)} al bot</button>
+       </form>`
+    : "";
+
+  const bloqueEsperando = esperando.length
+    ? `<h2 class="seccion">Esperando respuesta · ${esc(cuantosEsperan)}</h2>
+       <p class="nota">El último mensaje es del cliente y nadie ha contestado después.
+         Los que llevan más tiempo, arriba.</p>
+       <div class="listaChats">${esperando
+         .map(
+           (e) => `<a class="filaChat" href="/panel/chat?id=${encodeURIComponent(e.contactoId)}">
+             <div class="filaTop"><b>${esc(e.contactoId)}</b>
+               <span class="cuando">${esc(e.minutos)} min</span></div>
+             <div class="filaEtiquetas">
+               ${e.nuncaRespondido ? `<span class="pastilla no">sin ninguna respuesta</span>` : ""}
+               ${e.pausado ? `<span class="pastilla pausado">bot pausado</span>` : ""}
+             </div>
+             <div class="filaUltimo">${esc(e.texto) || "<i>(sin texto)</i>"}</div>
+           </a>`
+         )
+         .join("")}</div>`
+    : "";
+
+  return (
+    cabecera({ titulo: "Por qué el bot no contestó", dia: datos.dia, seccion: "sin-responder" }) +
+    titular +
+    interruptores +
+    `<h2 class="seccion">Causas · ${esc(total)} mensaje(s) sin salir</h2>` +
+    bloqueCausas +
+    bloquePausados +
+    bloqueEsperando +
+    pie()
+  );
+}
+
 module.exports = {
+  sinResponder,
   bandeja,
   datosDeEntrega,
   esc,
