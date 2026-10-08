@@ -58,6 +58,21 @@ function catalogoReal() {
 
 const elCinturon = () => catalogoReal().porId.get("cinturon-termico-colicos");
 
+// --------------------------------------------------------------------------
+// UN WAMID QUE NO PUEDE COLISIONAR
+//
+// Estaba construido con `Date.now()` y un contador por conversacion, y eso
+// produjo un fallo INTERMITENTE: dos pruebas distintas que arrancan en el
+// mismo milisegundo generan el mismo wamid, y el deduplicador -que hace
+// bien su trabajo- descarta el segundo mensaje. La prueba fallaba una vez
+// cada tantas corridas sin que nada estuviera mal en el codigo.
+//
+// Una prueba intermitente es peor que ninguna: enseña a volver a correrla
+// en vez de a leer el fallo. El contador es de modulo y es unico.
+// --------------------------------------------------------------------------
+let SECUENCIA = 0;
+const wamidUnico = (prefijo) => `wamid.${prefijo}${++SECUENCIA}_${process.pid}`;
+
 /** Una conversacion contra el catalogo real, con emisor espia. */
 async function conversacion({ respuestaAutomatica = true } = {}) {
   mutex._reiniciar();
@@ -99,7 +114,7 @@ async function conversacion({ respuestaAutomatica = true } = {}) {
     salidas.length = 0;
     const traza = await cerebro.procesar({
       clase: "mensaje",
-      wamid: `wamid.CONV${Date.now()}_${n}`,
+      wamid: wamidUnico("CONV"),
       idCliente: "573001234567",
       telefono: "573001234567",
       nombre: "Ana Pérez",
@@ -293,14 +308,23 @@ describe("3 · continuidad", () => {
 // --------------------------------------------------------------------------
 
 describe("4 · sin inventar", () => {
-  test("la garantía se admite como no confirmada, con la concordancia correcta", async () => {
+  test("la garantía se responde con el plazo confirmado", async () => {
+    // ANTES ESTA PRUEBA EXIGIA QUE EL BOT ADMITIERA no tener la garantia, y
+    // comprobaba la concordancia de "te la confirmo". Marco confirmo 1 mes
+    // el 2026-10-07, asi que ahora se responde el dato.
+    //
+    // La concordancia se sigue vigilando donde todavia aplica: hay temas sin
+    // confirmar y esos siguen usando "te lo/la confirmo".
     const { dice } = await conversacion();
     const r = await dice("¿tiene garantía?");
-    assert.match(r.texto, /garantía/i);
-    assert.match(r.texto, /confirmo/i);
-    // Salio "La garantía te LO confirmo", que es justo el error que hace
-    // sonar a maquina.
-    assert.equal(/garantía te lo confirmo/i.test(r.texto), false, "concordancia incorrecta");
+    assert.match(r.texto, /garantía de 1 mes/i, `no dijo el plazo: ${r.texto}`);
+
+    // Y el alcance NO se completa: que cubre y como se tramita no estan
+    // definidos.
+    assert.equal(/te lo cambiamos|reembols|devolvemos el dinero/i.test(r.texto), false, "prometió un alcance");
+
+    const tramite = await dice("¿y cómo la hago efectiva?");
+    assert.match(tramite.texto, /persona del equipo/i, `no derivó el trámite: ${tramite.texto}`);
   });
 
   test("ante «¿me sirve?» NO promete que sirva para cualquier contorno", async () => {
@@ -312,10 +336,30 @@ describe("4 · sin inventar", () => {
     assert.match(r.texto, /no tengo las medidas|confirmo/i, "no admitió que no tiene la medida");
   });
 
-  test("el tiempo de entrega no se inventa", async () => {
+  test("el tiempo de entrega se dice como RANGO, nunca como un día concreto", async () => {
+    // ANTES ESTA PRUEBA EXIGIA QUE NO HUBIERA NINGUN PLAZO, y era lo
+    // correcto mientras el dato no existia. Marco lo confirmo el 2026-10-07
+    // tomandolo de BIKERPRO -mismas transportadoras, mismos tiempos-, asi
+    // que mantener la asercion obligaria a callar un dato aprobado.
+    //
+    // Lo que hay que vigilar ahora es OTRA cosa, y es mas sutil: que el
+    // rango no se convierta en una fecha. "1 a 3 días hábiles" es un plazo
+    // de la transportadora; "te llega mañana" es una promesa que depende de
+    // la hora de corte y que nadie de NOVIKA controla.
     const { dice } = await conversacion();
     const r = await dice("¿cuándo llega?");
-    assert.equal(/\d+\s*(d[ií]as?|horas?)/i.test(r.texto), false, `prometió un plazo: ${r.texto}`);
+
+    assert.match(r.texto, /1 a 3 días hábiles/, `no dijo el plazo confirmado: ${r.texto}`);
+    assert.match(r.texto, /según la ciudad/, "sin el matiz, el rango se lee como un compromiso");
+    assert.equal(
+      /mañana|pasado mañana|hoy mismo|el lunes|el martes|al día siguiente/i.test(r.texto),
+      false,
+      `prometió una fecha concreta: ${r.texto}`
+    );
+
+    // Y el candado de verdad: esas promesas estan prohibidas por codigo.
+    const claims = responder.revisarClaims("Te llega mañana sin falta.", elCinturon());
+    assert.equal(claims.ok, false, "prometer un día concreto tiene que estar bloqueado");
   });
 
   test("responde la desconfianza con un hecho, no con adjetivos", async () => {

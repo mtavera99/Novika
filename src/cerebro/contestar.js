@@ -159,13 +159,54 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
       return partes.join(" ");
     }
 
-    case TEMAS.GARANTIA:
-      if (producto && producto.garantia) return String(producto.garantia);
-      return loConfirmo("La garantía", "la");
+    // ----------------------------------------------------------------------
+    // GARANTIA. El plazo esta confirmado; lo que CUBRE, no.
+    //
+    // Se dice el plazo y se para ahi. La tentacion es completar con "te lo
+    // cambiamos si sale defectuoso", que suena razonable y nadie aprobo: el
+    // alcance de la garantia y como se tramita siguen sin definir, y una
+    // promesa de cambio es la que acaba en una discusion.
+    // ----------------------------------------------------------------------
+    case TEMAS.GARANTIA: {
+      const plazo = producto && producto.garantia;
+      if (!plazo) return loConfirmo("La garantía", "la");
+      return `Tiene garantía de ${plazo}.`;
+    }
 
-    case TEMAS.ENTREGA:
-      if (declaradoSinConfirmar(producto, /tiempo de entrega/)) return loConfirmo("El tiempo de entrega", "lo");
-      return loConfirmo("El tiempo de entrega", "lo");
+    // ----------------------------------------------------------------------
+    // EL TRAMITE DE LA GARANTIA: SE DICE EL PLAZO Y SE ADMITE EL RESTO
+    //
+    // Marco confirmo el plazo, no el procedimiento. Contestar "1 mes" a
+    // "¿cómo la hago efectiva?" responde otra pregunta, y completarlo con
+    // "te lo cambiamos" es la promesa que nadie aprobo y la que acaba en
+    // una discusion cuando el cliente la invoca.
+    // ----------------------------------------------------------------------
+    case TEMAS.GARANTIA_TRAMITE: {
+      const plazo = producto && producto.garantia;
+      const partes = [];
+      if (plazo) partes.push(`Tiene garantía de ${plazo}.`);
+      partes.push("Cómo se tramita te lo explica una persona del equipo, para no darte un dato equivocado.");
+      return partes.join(" ");
+    }
+
+    // ----------------------------------------------------------------------
+    // CUANDO LLEGA. UN RANGO, NUNCA UN DIA.
+    //
+    // El dato es de la transportadora y es aproximado. El matiz "según la
+    // ciudad" NO es un adorno: sin el, el rango se lee como un compromiso,
+    // y en un pueblo apartado no se cumple.
+    //
+    // Y se escribe aqui, en codigo, y no se deja al modelo: la frase
+    // siguiente natural -"te llega mañana"- es la que el modelo completa
+    // solo, depende de la hora de corte de la transportadora y no la
+    // controla nadie de NOVIKA. Esas promesas estan en claimsProhibidos.
+    // ----------------------------------------------------------------------
+    case TEMAS.ENTREGA: {
+      const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
+      if (!t || !t.texto) return loConfirmo("El tiempo de entrega", "lo");
+      const matiz = t.matiz ? ` ${t.matiz}` : "";
+      return `La transportadora normalmente entrega en ${t.texto}${matiz}.`;
+    }
 
     case TEMAS.MATERIAL: {
       const dato = caracteristica(producto, /material|tela|cuero/);
@@ -225,6 +266,8 @@ function aTemas(temas, contexto, { maximo = 2 } = {}) {
   // respuesta salia con la frase de la talla repetida dos veces.
   let lista = [...(temas || [])];
   if (lista.includes(TEMAS.MEDIDAS)) lista = lista.filter((t) => t !== TEMAS.TALLA);
+  // El tramite ya dice el plazo: si vienen los dos, el plazo solo sobra.
+  if (lista.includes(TEMAS.GARANTIA_TRAMITE)) lista = lista.filter((t) => t !== TEMAS.GARANTIA);
 
   for (const tema of lista) {
     if (respondidos.length >= maximo) break;

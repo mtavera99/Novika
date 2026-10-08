@@ -61,6 +61,21 @@ function elCinturon() {
 }
 
 // --------------------------------------------------------------------------
+// UN WAMID QUE NO PUEDE COLISIONAR
+//
+// Estaba construido con `Date.now()` y un contador por conversacion, y eso
+// produjo un fallo INTERMITENTE: dos pruebas distintas que arrancan en el
+// mismo milisegundo generan el mismo wamid, y el deduplicador -que hace
+// bien su trabajo- descarta el segundo mensaje. La prueba fallaba una vez
+// cada tantas corridas sin que nada estuviera mal en el codigo.
+//
+// Una prueba intermitente es peor que ninguna: enseña a volver a correrla
+// en vez de a leer el fallo. El contador es de modulo y es unico.
+// --------------------------------------------------------------------------
+let SECUENCIA = 0;
+const wamidUnico = (prefijo) => `wamid.${prefijo}${++SECUENCIA}_${process.pid}`;
+
+// --------------------------------------------------------------------------
 // 1 · LA FICHA CONFIRMADA
 // --------------------------------------------------------------------------
 
@@ -282,7 +297,7 @@ async function montar({ respuestaAutomatica = true } = {}) {
     salidas.length = 0;
     const traza = await cerebro.procesar({
       clase: "mensaje",
-      wamid: `wamid.ACT${Date.now()}_${n}`,
+      wamid: wamidUnico("ACT"),
       idCliente: "573001234567",
       telefono: "573001234567",
       nombre: "Ana Pérez",

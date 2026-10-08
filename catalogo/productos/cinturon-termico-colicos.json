@@ -1,5 +1,5 @@
 {
-  "_LEEME": "ACTIVO desde el 2026-10-07. Ficha confirmada por Marco: nombre comercial, color unico rosado, talla unica con correa ajustable, descripcion aprobada palabra por palabra, precio de 1 unidad 49.900 COP, envio incluido y pago contraentrega. Todo vive en los campos que lee el cotizador, no en texto libre. LO QUE SIGUE SIN CONFIRMAR esta en sinDatoConfirmado, y el bot responde a esas preguntas diciendo que lo confirma una persona: garantia, tiempo de entrega, precio por 2 o mas unidades, medidas del ajuste. OJO con las medidas: Marco fue explicito en que NO se prometa que sirve para cualquier contorno, y eso esta en claimsProhibidos como frases concretas, no como una advertencia al modelo.",
+  "_LEEME": "ACTIVO desde el 2026-10-07. Ficha confirmada por Marco: nombre comercial, color unico rosado, talla unica con correa ajustable, descripcion aprobada palabra por palabra, precio de 1 unidad 49.900 COP, envio incluido y pago contraentrega. Todo vive en los campos que lee el cotizador, no en texto libre. LO QUE SIGUE SIN CONFIRMAR esta en sinDatoConfirmado, y el bot responde a esas preguntas diciendo que lo confirma una persona: precio por 2 o mas unidades, medidas del ajuste, como se tramita la garantia. CONFIRMADOS el 2026-10-07 ademas: garantia de 1 mes y entrega en 1 a 3 dias habiles segun la ciudad -este ultimo tomado de BIKERPRO con autorizacion de Marco, por ser las mismas transportadoras-. OJO con las medidas: Marco fue explicito en que NO se prometa que sirve para cualquier contorno, y eso esta en claimsProhibidos como frases concretas, no como una advertencia al modelo.",
   "id": "cinturon-termico-colicos",
   "slug": "cinturon-termico-colicos",
   "nombre": "Cinturón térmico NOVIKA",
@@ -79,8 +79,8 @@
     "pago": "contraentrega - Marco, 2026-10-07"
   },
   "sinDatoConfirmado": [
-    "la garantia",
-    "el tiempo de entrega",
+    "como se tramita la garantia",
+    "que cubre exactamente la garantia",
     "el precio por dos o mas unidades",
     "si hay descuento por cantidad",
     "hasta que contorno ajusta la correa",
@@ -89,7 +89,8 @@
     "que trae exactamente el paquete",
     "si se puede pagar por transferencia o Nequi",
     "los niveles de temperatura o de intensidad",
-    "si funciona con bateria o enchufado, y cuanto dura"
+    "si funciona con bateria o enchufado, y cuanto dura",
+    "el dia exacto en que llega"
   ],
   "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como frases que el texto no puede contener: si el modelo redacta algo que las menciona, se descarta su borrador y sale el texto determinista. Son las preguntas que mas se repiten en este producto y ninguna tiene respuesta aprobada todavia.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.",
   "claimsPermitidos": [],
@@ -114,9 +115,23 @@
     "le queda a todas",
     "sirve para todas las tallas",
     "talla unica universal",
-    "ajuste universal"
+    "ajuste universal",
+    "te llega manana",
+    "llega manana",
+    "te llega hoy",
+    "llega hoy mismo",
+    "se despacha hoy mismo",
+    "te llega el lunes",
+    "te llega pasado manana",
+    "llega en un dia",
+    "entrega al dia siguiente",
+    "entrega inmediata",
+    "entrega el mismo dia",
+    "te lo despacho hoy",
+    "lo despacho hoy mismo",
+    "sale hoy mismo"
   ],
-  "_nota_claims": "Esta lista solo prohibe, nunca afirma, asi que ampliarla no necesita aprobacion; reducirla si. Es un producto de bienestar que se compra por dolor menstrual: el riesgo no es exagerar el precio, es hacer una promesa medica.\n\nLAS DOCE ULTIMAS LINEAS SON DEL 2026-10-07, y las pidio Marco al confirmar la ficha: 'no tenemos medidas del ajuste, no prometas que sirve para cualquier contorno'. El riesgo es concreto y nace de un dato verdadero: 'talla unica con correa ajustable' invita a seguir la frase con 'asi que le sirve a cualquiera', que es exactamente lo que no se sabe. Son frases literales porque revisarClaims las busca en el texto; una instruccion del tipo 'no prometas ajuste universal' no es un candado. Y el dato que falta esta declarado en sinDatoConfirmado como 'hasta que contorno ajusta la correa', para que la pregunta directa se derive a una persona en vez de contestarse por aproximacion.",
+  "_nota_claims": "Esta lista solo prohibe, nunca afirma, asi que ampliarla no necesita aprobacion; reducirla si. Es un producto de bienestar que se compra por dolor menstrual: el riesgo no es exagerar el precio, es hacer una promesa medica.\n\nLAS DOCE ULTIMAS LINEAS SON DEL 2026-10-07, y las pidio Marco al confirmar la ficha: 'no tenemos medidas del ajuste, no prometas que sirve para cualquier contorno'. El riesgo es concreto y nace de un dato verdadero: 'talla unica con correa ajustable' invita a seguir la frase con 'asi que le sirve a cualquiera', que es exactamente lo que no se sabe. Son frases literales porque revisarClaims las busca en el texto; una instruccion del tipo 'no prometas ajuste universal' no es un candado. Y el dato que falta esta declarado en sinDatoConfirmado como 'hasta que contorno ajusta la correa', para que la pregunta directa se derive a una persona en vez de contestarse por aproximacion.\n\nLAS ONCE ULTIMAS LINEAS SON DEL MISMO CAMBIO QUE HABILITO EL TIEMPO DE ENTREGA (2026-10-07). No son una precaucion generica: son el riesgo que ABRE ese dato. Mientras el bot no podia hablar de plazos, no habia como prometer una fecha; ahora que dice '1 a 3 dias habiles' el paso siguiente -'te llega manana'- es el que da el modelo solo, y ese si es incumplible porque depende de la transportadora y de la hora de corte. BIKERPRO tiene el mismo candado y por el mismo motivo.",
   "motorDePrecio": "tabla",
   "precios": {
     "1": 49900
@@ -145,14 +160,22 @@
       "porQue": "Marco lo confirmo el 2026-10-07: los 49.900 incluyen el envio. El cotizador devuelve envio 0 con el motivo 'envio incluido en el precio', y el mensaje al cliente dice 'Envío incluido' tomandolo de aqui, no de una frase escrita a mano.",
       "noHeredar": [],
       "revisarCuando": "Si se añade un segundo producto con flete aparte, revisar que este no herede su politica. Y si aparece un destino donde el flete real se coma el margen -zonas apartadas, San Andres-, es una decision de Marco, no del bot: el bot seguira cobrando 49.900."
+    },
+    "tiempoDeEntrega": {
+      "texto": "1 a 3 días hábiles",
+      "matiz": "según la ciudad",
+      "fuente": "mismas transportadoras que BIKERPRO - Marco, 2026-10-07",
+      "esRango": true
     }
   },
   "_nota_envio": "COBERTURA NO DECLARADA. Marco dijo 'envio incluido' sin acotar a que ciudades. Para el cliente no hay riesgo: paga 49.900 y nada mas, en cualquier destino. El riesgo es de MARGEN, y es suyo: un envio a una zona apartada puede costar mas que el margen del producto. No se asume ninguna restriccion por mi cuenta porque restringir ciudades tambien seria inventar una politica. Si quiere limitar cobertura, se cambia 'tipo' a 'por_destino' con la tabla de departamentos y el cotizador empieza a exigir el departamento antes de cotizar.",
   "datosRequeridos": [],
   "faq": [],
-  "garantia": "",
+  "garantia": "1 mes",
   "restricciones": [],
   "pendientes": [],
   "_nota_pendientes": "VACIA desde el 2026-10-07: los tres bloqueantes se resolvieron -nombre comercial, descripcion autorizada y variantes (talla y color unicos, asi que no hay nada que elegir)- y el producto quedo activo. La lista llego a tener 14 elementos; nueve se movieron a sinDatoConfirmado, donde el bot los admite en voz alta en vez de inventarlos, y cinco se confirmaron. Si manana vuelve a aparecer un hueco que impida vender, se añade aqui y el producto se desactiva solo: la validacion no deja activo un producto con pendientes.",
-  "_nota_caracteristicas": "Estas frases SE LE MUESTRAN AL CLIENTE tal cual, asi que van con sus tildes y redactadas para leerse en un chat. El modulo que contesta las usa sin reescribirlas: reformular un dato aprobado seria editarlo. OJO: no entran en la huella comercial del cotizador -esa solo cubre precios, motor, politica de envio, promociones y pago-, asi que corregir una tilde aqui NO caduca las ofertas vivas. Si algun dia se añade una medida de ajuste, eso SI necesita aprobacion de Marco: hoy esta prohibido prometer contorno."
+  "_nota_caracteristicas": "Estas frases SE LE MUESTRAN AL CLIENTE tal cual, asi que van con sus tildes y redactadas para leerse en un chat. El modulo que contesta las usa sin reescribirlas: reformular un dato aprobado seria editarlo. OJO: no entran en la huella comercial del cotizador -esa solo cubre precios, motor, politica de envio, promociones y pago-, asi que corregir una tilde aqui NO caduca las ofertas vivas. Si algun dia se añade una medida de ajuste, eso SI necesita aprobacion de Marco: hoy esta prohibido prometer contorno.",
+  "_nota_garantia": "1 mes, confirmado por Marco el 2026-10-07. Se responde tal cual cuando preguntan. OJO: lo que cubre y como se tramita NO esta definido, asi que el bot dice el plazo y nada mas; si preguntan como la hacen efectiva, eso sigue en sinDatoConfirmado y lo atiende una persona.",
+  "_nota_tiempoDeEntrega": "Marco autorizo usar el dato de BIKERPRO porque son las MISMAS transportadoras y por tanto los mismos tiempos. En su codigo aparece igual en cuatro sitios -prompt, promesas, comercial- siempre como '1 a 3 dias habiles segun la ciudad'.\n\nES UN RANGO APROXIMADO DE LA TRANSPORTADORA, NO UNA PROMESA, y esa distincion es la que hay que proteger. BIKERPRO la blinda en codigo con un detector de 'promesa_de_fecha' porque el modelo tiende a concretar: pasa de '1 a 3 dias habiles' a 'te llega manana' sin que nadie se lo pida, y una fecha incumplida es una devolucion. Habilitar este dato ABRE ese riesgo, asi que las promesas de dia exacto entraron a claimsProhibidos en el mismo cambio. El dato y su candado van juntos.\n\n'segun la ciudad' se dice siempre: el rango no es igual en Medellin que en un pueblo, y omitirlo convierte el rango en un compromiso."
 }
