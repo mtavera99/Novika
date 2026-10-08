@@ -577,3 +577,91 @@ describe("4 · optimización para celular", () => {
     assert.match(html, /aria-label="Volver arriba"/);
   });
 });
+
+// --------------------------------------------------------------------------
+// UN LIMITE QUE NO SE VE ES UN ERROR SILENCIOSO
+//
+// La bandeja lee como mucho `techo` conversaciones. Mientras haya menos da
+// igual; el dia que haya mas, las que sobran desaparecian SIN AVISO: ni en
+// el total, ni en las pestañas, ni en la paginacion.
+//
+// Una bandeja que dice "1.247 chats" cuando hay 3.000 no esta aplicando un
+// limite: esta mintiendo. Y el chat que falta es, por definicion, el que
+// nadie ha mirado.
+//
+// No se sube el techo a ciegas -con el almacen de archivos, listar son N
+// lecturas de disco- pero tiene que NOTARSE.
+// --------------------------------------------------------------------------
+
+describe("el recorte de la lista se avisa", () => {
+  test("si no se corta, no se avisa", async () => {
+    const repos = await conRepos();
+    await sembrar(repos, { id: "573001", nombre: "Ana", mensajes: [{ de: "cliente", texto: "hola" }] });
+
+    const b = await datos.bandeja(repos, { techo: 50 });
+    assert.equal(b.recortada, false, "avisa de un recorte que no hubo");
+  });
+
+  test("si se corta, la bandeja lo dice y la vista lo muestra", async () => {
+    const repos = await conRepos();
+    for (let i = 0; i < 6; i++) {
+      await sembrar(repos, { id: `5730020${i}`, nombre: `C${i}`, mensajes: [{ de: "cliente", texto: "hola" }] });
+    }
+
+    // Techo por debajo de lo sembrado: es el caso que hoy no pasa y que
+    // pasara solo, sin que nadie cambie nada, cuando crezca el volumen.
+    const b = await datos.bandeja(repos, { techo: 3 });
+    assert.equal(b.recortada, true, "no avisó de que la lista venía recortada");
+    assert.equal(b.techo, 3);
+
+    const html = vistas.bandeja({ datos: b });
+    assert.match(html, /hay más|hay mas/i, `la vista no avisa del recorte: ${html.slice(0, 200)}`);
+  });
+});
+
+// --------------------------------------------------------------------------
+// LO QUE EL BOT PROMETIO, VISIBLE SIN ABRIR EL CHAT
+//
+// Si para saber que conversacion espera a una persona hay que entrar en
+// cada una, la lista no sirve para repartir el trabajo — y la promesa del
+// bot ("se la paso a una persona del equipo") sigue siendo vacia: solo
+// cambia de sitio.
+// --------------------------------------------------------------------------
+
+describe("las preguntas que esperan a una persona se ven en la lista", () => {
+  test("la fila trae la marca y el motivo", async () => {
+    const repos = await conRepos();
+    await sembrar(repos, { id: "573003001", nombre: "Carolina", mensajes: [{ de: "cliente", texto: "cuanto vale otro?" }] });
+
+    const conv = await repos.conversaciones.obtener("573003001");
+    atencion.anotarPendiente(conv, {
+      motivo: atencion.MOTIVOS_PENDIENTE.OTRA_COMPRA,
+      pregunta: "cuanto vale otro?",
+    });
+    await repos.conversaciones.guardar(conv);
+
+    const b = await datos.bandeja(repos);
+    const fila = b.filas.find((f) => f.contactoId === "573003001");
+    assert.ok(fila, "la conversación no aparece en la bandeja");
+    assert.equal(fila.pendiente.hay, true, "la fila no sabe que hay algo pendiente");
+    assert.equal(fila.pendiente.motivo, atencion.MOTIVOS_PENDIENTE.OTRA_COMPRA);
+
+    const html = vistas.bandeja({ datos: b });
+    assert.match(html, /por contestar/i, "la lista no marca la conversación");
+  });
+
+  test("y deja de verse cuando una persona responde", async () => {
+    const repos = await conRepos();
+    await sembrar(repos, { id: "573003002", nombre: "Ana", mensajes: [{ de: "cliente", texto: "de que material es?" }] });
+
+    let conv = await repos.conversaciones.obtener("573003002");
+    atencion.anotarPendiente(conv, { motivo: atencion.MOTIVOS_PENDIENTE.SIN_DATO, pregunta: "de que material es?" });
+    await repos.conversaciones.guardar(conv);
+
+    await atencion.marcarAtendido(repos, "573003002", { por: "marco" });
+
+    const b = await datos.bandeja(repos);
+    const fila = b.filas.find((f) => f.contactoId === "573003002");
+    assert.equal(fila.pendiente.hay, false, "sigue marcada después de atenderla");
+  });
+});
