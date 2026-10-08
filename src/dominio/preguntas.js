@@ -364,14 +364,52 @@ const NO_LE_LLEGARON = [
 const OTRA_VEZ = /\b(otra\s+vez|de\s+nuevo|nuevamente|repite|reenvia|reenviame|mandalas|pasalas)\b/;
 const NOMBRA_IMAGENES = /\b(fotos?|imagen(es)?|videos?|fotico|fotitos)\b/;
 
-/** ¿Pide que se le reenvien las fotos? */
-function pideReenvioDeFotos(texto) {
+/**
+ * ¿Pide que se le reenvien las fotos?
+ *
+ * EL CONTEXTO IMPORTA, y es la correccion de Marco: "no las veo" o "estan
+ * borrosas" solo se refieren a las fotos cuando la conversacion va de las
+ * fotos. La primera version aceptaba la queja SOLA, y entonces "no veo el
+ * boton", "no veo la direccion que puse" o "no se ve bien el precio"
+ * disparaban cinco imagenes que nadie habia pedido.
+ *
+ * Dos contextos valen, y los dos son explicitos:
+ *
+ *   · NOMBRA las imagenes -"las fotos no cargan"-, que no deja duda.
+ *   · O acabamos de mandarlas. Una queja de "no las veo" justo despues de
+ *     recibir unas imagenes se refiere a esas imagenes; la misma frase tres
+ *     dias despues, no.
+ *
+ * @param {string} texto
+ * @param {object} [contexto]
+ * @param {boolean} [contexto.fotosRecientes] se le mandaron fotos hace poco
+ */
+function pideReenvioDeFotos(texto, { fotosRecientes = false } = {}) {
   const plano = aplanar(texto);
   if (!plano) return false;
-  // La queja vale sola.
-  if (NO_LE_LLEGARON.some((re) => re.test(plano))) return true;
-  // Y pedirlas otra vez, si dice de que.
-  return OTRA_VEZ.test(plano) && NOMBRA_IMAGENES.test(plano);
+
+  // Si nombra las imagenes, no hace falta mas contexto.
+  if (NOMBRA_IMAGENES.test(plano)) {
+    return NO_LE_LLEGARON.some((re) => re.test(plano)) || OTRA_VEZ.test(plano);
+  }
+
+  // Si NO las nombra, solo vale la queja y solo si acabamos de mandarlas.
+  if (!fotosRecientes) return false;
+  return NO_LE_LLEGARON.some((re) => re.test(plano));
+}
+
+/** Cuanto tiempo despues de mandarlas una queja sigue siendo sobre ellas. */
+const MINUTOS_DE_CONTEXTO_DE_FOTOS = 60;
+
+/**
+ * ¿Se le mandaron fotos hace poco? Es lo que convierte "no las veo" en una
+ * queja sobre las fotos y no sobre cualquier otra cosa.
+ */
+function fotosRecientes(cuando, { ahora = Date.now(), minutos = MINUTOS_DE_CONTEXTO_DE_FOTOS } = {}) {
+  if (!cuando) return false;
+  const t = new Date(cuando).getTime();
+  if (!Number.isFinite(t)) return false;
+  return ahora - t <= minutos * 60000;
 }
 
 /** Saludos puros: no preguntan nada. */
@@ -486,6 +524,8 @@ module.exports = {
   esInformativo,
   cantidadPreguntadaEn,
   pideReenvioDeFotos,
+  fotosRecientes,
+  MINUTOS_DE_CONTEXTO_DE_FOTOS,
   SENALES_DE_COMPRA,
   SENALES_DEBILES,
   PATRONES,

@@ -654,7 +654,15 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // como tal: una persona le responde.
       if (pedidoActivo) {
         situacion = "ya_confirmado";
-        traza.pedido = { id: pedidoActivo.id, estado: pedidoActivo.estado };
+        traza.pedido = {
+        id: pedidoActivo.id,
+        estado: pedidoActivo.estado,
+        // La guia, para poder decir que YA SALIO en vez de "te avisamos
+        // en cuanto salga". Solo existe si una persona despacho de
+        // verdad: el dominio no deja marcar despachado sin guia.
+        guia: (pedidoActivo.despacho && pedidoActivo.despacho.guia) || null,
+        transportadora: (pedidoActivo.despacho && pedidoActivo.despacho.transportadora) || null,
+      };
       } else {
         situacion = "escalado";
         traza.pedido = null;
@@ -665,7 +673,15 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       estadoDestino = conversacion.estado;
     } else if (decision.accion === confirmacion.ACCIONES.RESPONDER_ESTADO && pedidoActivo) {
       situacion = "ya_confirmado";
-      traza.pedido = { id: pedidoActivo.id, estado: pedidoActivo.estado };
+      traza.pedido = {
+        id: pedidoActivo.id,
+        estado: pedidoActivo.estado,
+        // La guia, para poder decir que YA SALIO en vez de "te avisamos
+        // en cuanto salga". Solo existe si una persona despacho de
+        // verdad: el dominio no deja marcar despachado sin guia.
+        guia: (pedidoActivo.despacho && pedidoActivo.despacho.guia) || null,
+        transportadora: (pedidoActivo.despacho && pedidoActivo.despacho.transportadora) || null,
+      };
       estadoDestino = estados.ESTADOS.POSVENTA;
     } else if (decision.accion === confirmacion.ACCIONES.CANCELAR) {
       const r = await cancelarPedido(pedidoActivo, evento);
@@ -807,7 +823,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       cantidadSinTarifa,
       // Para no prometer fotos que la deduplicacion no va a reenviar.
       // El campo lo anota el envio por producto: `fotosEnviadas[productoId]`.
-      pideReenvioDeFotos: preguntas.pideReenvioDeFotos(evento.texto || ""),
+      pideReenvioDeFotos: preguntas.pideReenvioDeFotos(evento.texto || "", {
+        fotosRecientes: preguntas.fotosRecientes(
+          ((conversacion.fotosEnviadas || {})[(producto || candidato || {}).id || conversacion.productoId] || {}).cuando || null
+        ),
+      }),
       fotosYaEnviadas: Boolean(
         (conversacion.fotosEnviadas || {})[(producto || candidato || {}).id || conversacion.productoId]
       ),
@@ -1003,7 +1023,14 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // deduplicacion evita llenar la pantalla sin que nadie lo pida; no
     // puede ganarle a un cliente que dice que no las recibio, porque el
     // propio mensaje le ofrece reenviarlas.
-    const pidioReenvio = preguntas.pideReenvioDeFotos(evento.texto || "");
+    // El contexto: ¿se le mandaron fotos hace poco? Sin esto, "no las veo"
+    // referido a cualquier otra cosa disparaba cinco imagenes.
+    const idParaFotos = (productoParaFotos && productoParaFotos.id) || conversacion.productoId;
+    const cuandoFotos =
+      ((conversacion.fotosEnviadas || {})[idParaFotos] || {}).cuando || null;
+    const pidioReenvio = preguntas.pideReenvioDeFotos(evento.texto || "", {
+      fotosRecientes: preguntas.fotosRecientes(cuandoFotos),
+    });
 
     // ------------------------------------------------------------------
     // SI EL MENSAJE PROMETE FOTOS, LAS FOTOS SALEN
