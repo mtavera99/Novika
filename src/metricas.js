@@ -83,6 +83,21 @@ const NOMBRES = [
   "respuesta_bloqueada_por_interruptor",
   "escalado_a_persona",
 
+  // --- panel ---
+  //
+  // Estos los incrementaba `panel/rutas.js` desde hace tiempo SIN estar en
+  // esta lista, asi que `incrementar` los mandaba todos al cajon de
+  // "desconocido": seis acciones distintas sumando en el mismo contador y
+  // ninguna visible por su nombre. Se vio al añadir `panel_entregado`.
+  "panel_confirmacion_enviada",
+  "panel_confirmacion_no_enviada",
+  "panel_respuesta_enviada",
+  "panel_respuesta_no_enviada",
+  "panel_fotos_enviadas",
+  "panel_fotos_no_enviadas",
+  "panel_despachado",
+  "panel_entregado",
+
   // --- fallos ---
   "error_interno",
   "transicion_invalida",

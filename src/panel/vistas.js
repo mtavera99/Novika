@@ -435,6 +435,7 @@ function cabecera({ titulo, dia = null, extra = "", seccion = null }) {
     <a class="boton" href="/panel/buscar"${seccion === "buscar" ? ' aria-current="page"' : ""}>Buscar</a>
     <a class="boton" href="/panel/guias"${seccion === "guias" ? ' aria-current="page"' : ""}>Guías</a>
     <a class="boton" href="/panel/novedades"${seccion === "novedades" ? ' aria-current="page"' : ""}>Novedades</a>
+    <a class="boton" href="/panel/indicadores"${seccion === "indicadores" ? ' aria-current="page"' : ""}>Indicadores</a>
     <a class="boton" href="/panel/auditoria"${seccion === "auditoria" ? ' aria-current="page"' : ""}>Auditoría</a>
     <form method="post" action="/panel/salir" style="display:inline">
       <button type="submit">Salir</button>
@@ -932,15 +933,29 @@ function guias({ datos: d, transportadoras = [], aviso = null }) {
       ? abiertas.map((n) => `<span class="pastilla urgente">${esc(n.tipo)}</span>`).join(" ")
       : `<span class="pastilla atendida">sin novedad</span>`
   }</td>
+  <td class="acciones" data-label="Entrega">
+    <button class="primario" onclick="entregar('${esc(p.id)}')">Marcar entregado</button>
+  </td>
 </tr>`;
   };
+
+  // Los ya entregados se listan aparte y SIN boton: lo que se cobro no se
+  // vuelve a cobrar, y un boton ahi solo sirve para equivocarse.
+  const filaEntregado = (p) => `<tr>
+  <td data-label="Codigo">${esc(p.id)}</td>
+  <td data-label="Cliente">${esc((p.destinatario && p.destinatario.nombre) || "")}</td>
+  <td data-label="Guia">${esc((p.despacho && p.despacho.guia) || "")}</td>
+  <td data-label="Entregado">${esc(fecha.fechaYHoraBogota(p.entrega && p.entrega.entregadoEn))}</td>
+  <td data-label="Recaudado">${esc(pesos((p.entrega && p.entrega.importeRecaudado) || 0))}</td>
+</tr>`;
 
   return (
     cabecera({ titulo: "Guías y despachos", seccion: "guias" }) +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     `<div class="kpis">
   <div class="kpi"><b>${d.porDespachar.length}</b><span>por despachar</span></div>
-  <div class="kpi"><b>${d.despachados.length}</b><span>despachados</span></div>
+  <div class="kpi"><b>${d.despachados.length}</b><span>en la calle</span></div>
+  <div class="kpi"><b>${(d.entregados || []).length}</b><span>entregados</span></div>
   <div class="kpi"><b>${d.conNovedad.length}</b><span>con novedad abierta</span></div>
 </div>` +
     `<h2 style="font-size:16px;margin:20px 0 10px">Por despachar</h2>` +
@@ -948,11 +963,20 @@ function guias({ datos: d, transportadoras = [], aviso = null }) {
       ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Ciudad</th><th>Total</th><th>Estado</th><th>Guía</th></tr></thead>
 <tbody>${d.porDespachar.map(filaPorDespachar).join("")}</tbody></table>`
       : `<div class="vacio">Nada pendiente de despachar.</div>`) +
-    `<h2 style="font-size:16px;margin:24px 0 10px">Despachados</h2>` +
+    `<h2 style="font-size:16px;margin:24px 0 10px">En la calle</h2>` +
     (d.despachados.length
-      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Transportadora</th><th>Despachado</th><th>Novedades</th></tr></thead>
-<tbody>${d.despachados.map(filaDespachado).join("")}</tbody></table>`
+      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Transportadora</th><th>Despachado</th><th>Novedades</th><th>Entrega</th></tr></thead>
+<tbody>${d.despachados.map(filaDespachado).join("")}</tbody></table>
+<p style="font-size:13px;color:var(--suave);margin-top:8px">
+  Esto es <b>contraentrega</b>: hasta que no se marque entregado, ese importe no entró en la caja.
+  Es lo que separa <i>facturado</i> de <i>recaudado</i> en <a href="/panel/indicadores">Indicadores</a>.
+</p>`
       : `<div class="vacio">Todavía no hay despachos.</div>`) +
+    `<h2 style="font-size:16px;margin:24px 0 10px">Entregados</h2>` +
+    ((d.entregados || []).length
+      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Entregado</th><th>Recaudado</th></tr></thead>
+<tbody>${d.entregados.map(filaEntregado).join("")}</tbody></table>`
+      : `<div class="vacio">Ninguna entrega registrada todavía.</div>`) +
     bloqueParcial({
       titulo: "Lo que falta: partir el PDF de la transportadora automáticamente",
       texto:
@@ -968,6 +992,11 @@ async function despachar(codigo) {
   var transportadora = (document.getElementById("t-" + codigo) || {}).value || "";
   if (!guia.trim()) { avisar("Falta el número de guía: sin él el pedido no se puede rastrear.", "mal"); return; }
   var r = await pedir("/panel/guias/despachar", { codigo: codigo, guia: guia, transportadora: transportadora });
+  if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error, "mal");
+}
+async function entregar(codigo) {
+  var r = await pedir("/panel/guias/entregar", { codigo: codigo });
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
   else avisar(r.error, "mal");
 }
@@ -1117,6 +1146,129 @@ function auditoria({ serie = [], embudo: emb, atribucion: atr, dias = 14 }) {
             })
           : "")
       : `<div class="vacio">Sin datos de origen todavía.</div>`) +
+    pie()
+  );
+}
+
+// --------------------------------------------------------------------------
+// INDICADORES: LOS NUMEROS DEL DIA EN UNA PANTALLA
+//
+// Marco los pidio juntos -"pedidos entregados, despachados, los que no han
+// despachado, el porcentaje de cierre, donde se escapan los clientes,
+// cuantas ventas diarias, cuanto vamos recaudado, cuantos respondio el
+// bot"- y casi todos EXISTIAN ya, repartidos entre tres pantallas. Leer el
+// dia obligaba a recorrer /panel, /guias y /auditoria sumando a mano.
+//
+// REGLA DE ESTA PANTALLA: ninguna cifra se calcula aqui. Todas vienen de
+// `analitica` y `datos`, que son puros y estan probados. Esto solo pinta.
+//
+// Y NINGUN CERO SE PRESENTA COMO UN HECHO SI NO SE SABE. Un "recaudado: $0"
+// cuando nadie marca entregas no significa que no se haya cobrado:
+// significa que no se registro. Se dice, con `bloqueParcial`, en vez de
+// mostrar un cero que se lee como una mala noticia.
+// --------------------------------------------------------------------------
+function indicadores({ caja, despachos: d, embudo: emb, atendidos: at, hoy, serie, dias }) {
+  const pct = (v) => (v === null || v === undefined ? "—" : `${esc(v)}%`);
+
+  // Donde se escapan: el paso con mas gente perdida. Es la respuesta
+  // concreta a "donde se escapan los clientes", en vez de dejar la tabla
+  // entera para que alguien la interprete.
+  const fuga = emb.hayDatos
+    ? [...emb.filas].filter((f) => f.perdidosEnElPaso > 0).sort((a, b) => b.perdidosEnElPaso - a.perdidosEnElPaso)[0]
+    : null;
+
+  // El cierre: de quien escribio, cuantos confirmaron.
+  const cierre = emb.hayDatos ? emb.filas.find((f) => f.id === "confirmado") : null;
+
+  const filasSerie = (serie || [])
+    .map(
+      (x) => `<tr>
+  <td data-label="Día">${esc(x.dia)}</td>
+  <td data-label="Pedidos">${x.pedidos}</td>
+  <td data-label="Unidades">${x.unidades}</td>
+  <td data-label="Facturado">${esc(pesos(x.importe))}</td>
+  <td data-label="Cancelados">${x.cancelados}</td>
+</tr>`
+    )
+    .join("");
+
+  return (
+    cabecera({ titulo: "Indicadores", dia: hoy, seccion: "indicadores" }) +
+    // ---- LA CAJA ----
+    `<h2 style="font-size:16px;margin:0 0 10px">La caja</h2>
+<div class="kpis">
+  <div class="kpi"><b>${esc(pesos(caja.recaudado))}</b><span>recaudado</span>
+    <div class="nota">${caja.pedidos.entregados} entregado${caja.pedidos.entregados === 1 ? "" : "s"} · plata que YA entró</div></div>
+  <div class="kpi"><b>${esc(pesos(caja.facturado))}</b><span>facturado</span>
+    <div class="nota">${caja.pedidos.vivos} pedido${caja.pedidos.vivos === 1 ? "" : "s"} sin cancelar</div></div>
+  <div class="kpi ${caja.enRiesgo > 0 ? "no" : ""}"><b>${esc(pesos(caja.enRiesgo))}</b><span>en riesgo</span>
+    <div class="nota">${caja.pedidos.despachados} en la calle · ${caja.pedidos.sinSalir} sin salir</div></div>
+  <div class="kpi"><b>${pct(caja.entregadoDeLoQueSalio)}</b><span>de lo que salió, entregado</span>
+    <div class="nota">no es la tasa de rechazo — ver abajo</div></div>
+</div>
+<p style="font-size:13px;color:var(--suave);margin:-6px 0 18px">
+  Esto es <b>contraentrega</b>: el cliente paga en la puerta, así que <b>facturado no es recaudado</b>.
+  Lo <i>en riesgo</i> es plata que todavía puede no entrar — y el flete ya se gastó.
+</p>` +
+    (caja.faltaEstadoDevuelto && caja.hayDatos
+      ? bloqueParcial({
+          titulo: "La tasa de rechazo todavía no se puede calcular",
+          texto:
+            "Es el número que decide si el canal es rentable, y <b>falta un estado para una entrega que " +
+            "FALLÓ</b>. Hoy un pedido despachado no se puede marcar como devuelto: cancelarlo se niega a " +
+            "propósito («el pedido ya salió: la cancelación la gestiona una persona»), así que un paquete " +
+            "que volvió queda indistinguible de uno que va en camino. Por eso arriba dice <i>de lo que " +
+            "salió, entregado</i> y no <i>tasa de entrega</i>: esa cifra sube sola a medida que alguien " +
+            "marca entregas, y no resta los rechazos porque no hay dónde anotarlos.",
+          comoSeDesbloquea:
+            "Para desbloquearlo: un estado «devuelto» con su motivo, que es también lo que permitiría " +
+            "medir cuánto cuesta cada rechazo en flete.",
+        })
+      : "") +
+    (!caja.hayEntregasRegistradas && caja.hayDatos
+      ? bloqueParcial({
+          titulo: "Nadie ha marcado entregas todavía",
+          texto:
+            "El cálculo está implementado y probado, pero <b>recaudado sale $0 porque no se ha registrado " +
+            "ninguna entrega</b>, no porque no se haya cobrado. Se marca en <a href='/panel/guias'>Guías</a>, " +
+            "en los pedidos que ya salieron. Mientras nadie lo marque, la tasa de entrega tampoco significa nada.",
+        })
+      : "") +
+    // ---- EL DESPACHO ----
+    `<h2 style="font-size:16px;margin:24px 0 10px">El despacho</h2>
+<div class="kpis">
+  <div class="kpi ${d.porDespachar.length > 0 ? "no" : ""}"><b>${d.porDespachar.length}</b><span>por despachar</span>
+    <div class="nota">confirmados que no han salido</div></div>
+  <div class="kpi"><b>${d.despachados.length}</b><span>despachados</span>
+    <div class="nota">salieron y aún no constan entregados</div></div>
+  <div class="kpi"><b>${d.entregados.length}</b><span>entregados</span>
+    <div class="nota">llegaron y se cobraron</div></div>
+  <div class="kpi ${d.conNovedad.length > 0 ? "no" : ""}"><b>${d.conNovedad.length}</b><span>con novedad abierta</span>
+    <div class="nota">${d.conNovedad.length > 0 ? "<a href='/panel/novedades'>revisar</a>" : "ninguna"}</div></div>
+</div>` +
+    // ---- EL CIERRE ----
+    `<h2 style="font-size:16px;margin:24px 0 10px">El cierre</h2>` +
+    (emb.hayDatos
+      ? `<div class="kpis">
+  <div class="kpi"><b>${pct(cierre ? cierre.conversionDesdeArriba : null)}</b><span>% de cierre</span>
+    <div class="nota">de quien escribió, cuántos confirmaron</div></div>
+  <div class="kpi"><b>${esc(fuga ? fuga.etiqueta : "—")}</b><span>dónde se escapan</span>
+    <div class="nota">${fuga ? `se caen ${fuga.perdidosEnElPaso} ahí` : "sin caídas registradas"}</div></div>
+  <div class="kpi"><b>${at.soloBot}</b><span>resolvió el bot</span>
+    <div class="nota">${pct(at.porcentajeDelBot)} de los ${at.contestados} contestados</div></div>
+  <div class="kpi"><b>${at.conPersona}</b><span>tocó una persona</span>
+    <div class="nota">${at.sinRespuesta} sin responder</div></div>
+</div>
+<p style="font-size:13px;color:var(--suave);margin:-6px 0 0">
+  El detalle del embudo, paso por paso, está en <a href="/panel/auditoria">Auditoría</a>.
+  «Resolvió el bot» cuenta <b>chats</b>, no mensajes: el historial guarda los últimos 60.
+</p>`
+      : `<div class="vacio">Sin conversaciones todavía.</div>`) +
+    // ---- POR DIA ----
+    `<h2 style="font-size:16px;margin:24px 0 10px">Ventas por día · últimos ${esc(dias)}</h2>` +
+    ((serie || []).some((x) => x.pedidos > 0)
+      ? `<table><thead><tr><th>Día</th><th>Pedidos</th><th>Unidades</th><th>Facturado</th><th>Cancelados</th></tr></thead><tbody>${filasSerie}</tbody></table>`
+      : `<div class="vacio">Sin pedidos en los últimos ${esc(dias)} días.</div>`) +
     pie()
   );
 }
@@ -1501,6 +1653,7 @@ module.exports = {
   guias,
   novedades,
   auditoria,
+  indicadores,
   bloqueParcial,
   bloqueada,
 };

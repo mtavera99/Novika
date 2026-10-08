@@ -43,6 +43,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { enSerie } = require("../mutex");
 const { MOTIVOS_NO_CREADO } = require("./contrato");
+const { CERRADOS } = require("../../dominio/pedido");
 
 const TIPO = "archivos";
 
@@ -350,8 +351,13 @@ async function crearReposDeArchivos({ dir }) {
 
     /** El pedido vivo del contacto. Si hay mas de uno, NO elige. */
     async activoDeContacto(contactoId) {
+      // CERRADOS: el pedido ya cumplio su ciclo y NO es el pedido "vivo"
+      // del contacto. `entregado` entra aqui por la misma razon que
+      // `despachado`: a quien ya recibio su pedido hay que dejarle comprar
+      // otra vez. Si un entregado contara como vivo, la clienta que vuelve
+      // acabaria modificando el pedido que ya tiene en casa.
       const vivos = (await pedidos.porContacto(contactoId)).filter(
-        (p) => p.estado !== "cancelado" && p.estado !== "despachado"
+        (p) => !CERRADOS.has(p.estado)
       );
       if (vivos.length === 1) return vivos[0];
       if (vivos.length === 0) return null;

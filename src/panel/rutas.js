@@ -1011,6 +1011,84 @@ const responder = require("../cerebro/responder");
   });
 
   // ----------------------------------------------------------------------
+  // MARCAR ENTREGADO: la plata que de verdad entro
+  //
+  // En contraentrega el pedido se cobra en la puerta, asi que esta accion
+  // es la que convierte una venta en caja. Sin ella, "cuanto vamos
+  // recaudado" solo se podia contestar con lo VENDIDO.
+  //
+  // No pide ningun dato: el importe lo congela el dominio desde la
+  // cotizacion del pedido. Pedirlo a mano seria dejar que la caja dependa
+  // de lo que alguien teclee.
+  // ----------------------------------------------------------------------
+  router.post("/guias/entregar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    if (!codigo) return res.status(400).json({ ok: false, error: "Falta el pedido." });
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
+
+      const r = dominioPedido.entregar({ pedido });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+
+      if (!r.yaEstaba) await repos.pedidos.reemplazar(r.pedido);
+      diario.anotar("panel_entregado", { codigo, yaEstaba: r.yaEstaba });
+      metricas.incrementar("panel_entregado");
+
+      return res.json({
+        ok: true,
+        aviso: r.yaEstaba
+          ? `El pedido ${codigo} ya estaba marcado como entregado. No se duplicó nada.`
+          : `Pedido ${codigo} entregado. Entra en la caja del día.`,
+      });
+    } catch (e) {
+      log.error("panel_entregar_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // INDICADORES: los numeros del dia en una pantalla
+  //
+  // Marco los pidio juntos y casi todos EXISTIAN ya, repartidos entre
+  // /panel, /guias y /auditoria. Leer el dia obligaba a sumar a mano.
+  //
+  // Aqui no se calcula nada: todo sale de `analitica` y `datos`, que son
+  // puros y estan probados.
+  // ----------------------------------------------------------------------
+  router.get("/indicadores", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    try {
+      const { repos } = await piezas();
+      const dias = Math.min(90, Math.max(1, Number(req.query.dias) || 14));
+      const [serie, pedidos, conversaciones] = await Promise.all([
+        datos.serie(repos, { dias }),
+        repos.pedidos.listar({ limite: 5000 }),
+        repos.conversaciones.listar({ limite: 2000 }),
+      ]);
+
+      html(
+        res,
+        vistas.indicadores({
+          caja: analitica.caja({ pedidos }),
+          despachos: analitica.despachos({ pedidos }),
+          embudo: analitica.embudo({ conversaciones, pedidos }),
+          atendidos: analitica.atendidos({ conversaciones }),
+          serie,
+          dias,
+          hoy: fecha.hoyBogota(),
+        })
+      );
+    } catch (e) {
+      log.error("panel_indicadores_fallo", { detalle: e.message });
+      res.status(500).send(`No se pudieron armar los indicadores: ${e.message}`);
+    }
+  });
+
+  // ----------------------------------------------------------------------
   // Novedades de entrega
   //
   // Lo IMPLEMENTADO: registrar, listar y resolver novedades.

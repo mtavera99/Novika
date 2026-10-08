@@ -43,7 +43,35 @@ const ESTADOS_PEDIDO = {
   MODIFICADO: "modificado",
   CANCELADO: "cancelado",
   DESPACHADO: "despachado",
+  /**
+   * ENTREGADO: llego y el cliente pago.
+   *
+   * En un negocio CONTRAENTREGA este es el unico estado en el que la plata
+   * existe de verdad. Sin el, "cuanto vamos recaudado" se contestaba con el
+   * importe de lo VENDIDO, que es otra pregunta: la diferencia entre las dos
+   * cifras es la tasa de rechazo.
+   */
+  ENTREGADO: "entregado",
 };
+
+/**
+ * Estados en los que el pedido YA CUMPLIO SU CICLO.
+ *
+ * Es la lista que decide cual es el pedido "vivo" de un contacto, y vive
+ * aqui -en el dominio- porque los DOS backends del almacen la necesitan y
+ * tenerla dos veces es como se separan. Ya paso con las dos listas de
+ * "pregunta de precio".
+ *
+ * `entregado` entra por la misma razon que `despachado`: a quien ya recibio
+ * su pedido hay que dejarle comprar otra vez. Si un entregado contara como
+ * vivo, la clienta que vuelve acabaria modificando el pedido que ya tiene
+ * en casa.
+ */
+const CERRADOS = new Set([
+  ESTADOS_PEDIDO.CANCELADO,
+  ESTADOS_PEDIDO.DESPACHADO,
+  ESTADOS_PEDIDO.ENTREGADO,
+]);
 
 /** Datos del destinatario imprescindibles para despachar. */
 const REQUERIDOS_PARA_DESPACHAR = ["nombre", "telefono", "ciudad", "direccion"];
@@ -398,6 +426,70 @@ function despachar({ pedido, guia, transportadora = null, wamid = null, ahora = 
 }
 
 /**
+ * ENTREGAR: el paquete llego y el cliente pago.
+ *
+ * --------------------------------------------------------------------------
+ * POR QUE ESTE ESTADO HACIA FALTA, Y NO ES UN LUJO DE PANEL
+ * --------------------------------------------------------------------------
+ *
+ * ESTE NEGOCIO ES CONTRAENTREGA. El cliente paga cuando el paquete esta en
+ * su mano, asi que un pedido confirmado -o incluso despachado- NO es plata
+ * cobrada: es plata en riesgo. Si se cae la entrega, el importe no entra y
+ * encima el flete ya se gasto.
+ *
+ * Sin este estado, el panel sumaba los pedidos vivos y lo llamaba el
+ * importe del dia. Para una venta anticipada eso seria correcto; para
+ * contraentrega contesta OTRA PREGUNTA. Marco pregunto "cuanto vamos
+ * recaudado", y lo que el panel sabia decir era cuanto se habia VENDIDO.
+ * La diferencia entre las dos cifras es exactamente la tasa de rechazo, que
+ * en la referencia de BIKERPRO es el numero que decide si el negocio gana o
+ * pierde.
+ *
+ * IDEMPOTENTE: marcar dos veces entregado no es un error -el panel puede
+ * reintentar, o dos personas pueden marcarlo- y no sube la version.
+ *
+ * SOLO DESDE DESPACHADO. Un pedido que no salio no puede haber llegado, y
+ * dejar que se marque entregado sin pasar por despachado permite cuadrar la
+ * caja con pedidos que nunca se enviaron. Si la entrega ocurrio de verdad,
+ * primero se registra el despacho con su guia.
+ */
+function entregar({ pedido, ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido que entregar" };
+
+  if (pedido.estado === ESTADOS_PEDIDO.ENTREGADO) {
+    return { ok: true, pedido, yaEstaba: true };
+  }
+
+  if (pedido.estado !== ESTADOS_PEDIDO.DESPACHADO) {
+    return {
+      ok: false,
+      motivo:
+        `el pedido esta "${pedido.estado}": solo se puede entregar lo que ya salio despachado. ` +
+        `Si llego de verdad, primero se registra el despacho con su guia`,
+    };
+  }
+
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  nuevo.version = pedido.version + 1;
+  nuevo.estado = ESTADOS_PEDIDO.ENTREGADO;
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.entrega = {
+    entregadoEn: ahora.toISOString(),
+    // El importe que se recaudo es el del pedido, y se congela aqui: si
+    // manana alguien modifica la cotizacion, la caja de ayer no se mueve.
+    importeRecaudado: (pedido.cotizacion && pedido.cotizacion.total) || 0,
+  };
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "entregado",
+    cuando: ahora.toISOString(),
+    importeRecaudado: nuevo.entrega.importeRecaudado,
+  });
+
+  return { ok: true, pedido: nuevo, yaEstaba: false };
+}
+
+/**
  * Registra una novedad de entrega.
  *
  * No cambia el estado del pedido: sigue despachado. Una novedad es algo que
@@ -497,6 +589,7 @@ function listoParaDespachar(pedido) {
 
 module.exports = {
   ESTADOS_PEDIDO,
+  CERRADOS,
   REQUERIDOS_PARA_DESPACHAR,
   CAMPOS_QUE_AFECTAN_PRECIO,
   claveDeEvento,
@@ -507,6 +600,7 @@ module.exports = {
   modificar,
   cancelar,
   despachar,
+  entregar,
   registrarNovedad,
   resolverNovedad,
   novedadesAbiertas,

@@ -267,6 +267,10 @@ const m = (de, texto, minutosAtras) => ({
     `/panel/chat?${T}&id=573001110005`,
     `/panel/sin-responder?${T}`,
     `/panel?${T}`,
+    `/panel/guias?${T}`,
+    `/panel/novedades?${T}`,
+    `/panel/indicadores?${T}`,
+    `/panel/auditoria?${T}`,
   ];
 
   for (const ruta of rutas) {
