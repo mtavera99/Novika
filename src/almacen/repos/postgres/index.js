@@ -469,9 +469,24 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
      * dia que haya decenas de miles de conversaciones, una consulta sin
      * tope tumba el servicio justo cuando mas se usa el panel.
      */
+    // ORDEN ESTABLE: el desempate por contacto_id no es decorativo.
+    //
+    // Estaba solo `ORDER BY actualizado_en DESC`, y con ese orden PostgreSQL
+    // NO garantiza que dos ejecuciones devuelvan los empates en el mismo
+    // sitio. Mientras se lea todo, da igual. En cuanto hay LIMIT -y lo hay-
+    // el conjunto leido puede variar entre llamadas, asi que una
+    // conversacion empatada en la frontera del limite puede aparecer en dos
+    // paginas o en NINGUNA.
+    //
+    // Y los empates no son raros: varios mensajes del mismo lote de webhook
+    // se guardan en el mismo instante.
+    //
+    // El patron correcto ya estaba en este mismo fichero -los pedidos de un
+    // contacto ordenan por `creado_en, codigo`- y faltaba justo en las dos
+    // consultas que alimentan el panel.
     async listar({ limite = 200 } = {}) {
       const { rows } = await pool.query(
-        "SELECT * FROM conversaciones ORDER BY actualizado_en DESC NULLS LAST LIMIT $1",
+        "SELECT * FROM conversaciones ORDER BY actualizado_en DESC NULLS LAST, contacto_id ASC LIMIT $1",
         [limite]
       );
       return rows.map(filaAConversacion);
@@ -521,7 +536,7 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
       const { rows } = await pool.query(
         `SELECT * FROM pedidos
           ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
-          ORDER BY creado_en DESC NULLS LAST
+          ORDER BY creado_en DESC NULLS LAST, codigo ASC
           LIMIT $${valores.length}`,
         valores
       );

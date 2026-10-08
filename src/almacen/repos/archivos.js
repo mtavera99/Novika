@@ -203,8 +203,16 @@ async function crearReposDeArchivos({ dir }) {
         const c = await leerJson(path.join(DIR_CONVERSACIONES, n));
         if (c) todas.push(c);
       }
+      // Mismo orden estable que PostgreSQL: fecha descendente y, en los
+      // empates, el id ascendente. Aqui salia estable por casualidad -el
+      // sort de JS lo es y la carpeta se lee en orden- y depender de una
+      // casualidad en los dos backends es como se separan.
       return todas
-        .sort((a, b) => String(b.actualizadoEn || "").localeCompare(String(a.actualizadoEn || "")))
+        .sort(
+          (a, b) =>
+            String(b.actualizadoEn || "").localeCompare(String(a.actualizadoEn || "")) ||
+            String(a.contactoId || "").localeCompare(String(b.contactoId || ""))
+        )
         .slice(0, limite);
     },
   };

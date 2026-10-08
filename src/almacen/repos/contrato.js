@@ -135,6 +135,54 @@ function pruebasDeContrato({ nombre, crear, test, assert }) {
     }
   });
 
+  // --------------------------------------------------------------------------
+  // ORDEN ESTABLE, Y LOS DOS BACKENDS IGUAL
+  //
+  // `listar` ordenaba por fecha sin desempate. Con LIMIT -y lo hay- eso
+  // significa que una conversacion empatada en la frontera del limite puede
+  // aparecer dos veces o NINGUNA, y el panel pagina sobre esa lista.
+  //
+  // Los empates no son raros: varios mensajes del mismo lote de webhook se
+  // guardan en el mismo instante.
+  //
+  // Se prueba en el CONTRATO para que los dos backends lo garanticen igual:
+  // con archivos salia estable por casualidad -el sort de JS lo es- y una
+  // casualidad no es una garantia.
+  // --------------------------------------------------------------------------
+  test(`[${nombre}] listar conversaciones tiene un orden estable con empates`, async () => {
+    const repos = await crear();
+    try {
+      const mismoInstante = "2026-10-08T00:00:00.000Z";
+      const ids = [];
+      for (let i = 0; i < 12; i++) {
+        const id = `5730${String(i).padStart(7, "0")}`;
+        ids.push(id);
+        await repos.contactos.guardar({ id, telefono: id });
+        await repos.conversaciones.guardar({
+          contactoId: id,
+          estado: "captura",
+          ficha: {},
+          mensajes: [],
+          actualizadoEn: mismoInstante,
+        });
+      }
+
+      // Tres lecturas seguidas: el orden tiene que ser el mismo.
+      const una = (await repos.conversaciones.listar({ limite: 50 })).map((c) => c.contactoId);
+      const dos = (await repos.conversaciones.listar({ limite: 50 })).map((c) => c.contactoId);
+      const tres = (await repos.conversaciones.listar({ limite: 50 })).map((c) => c.contactoId);
+      assert.deepEqual(una, dos, "dos lecturas devolvieron los empates en orden distinto");
+      assert.deepEqual(dos, tres, "el orden cambia entre lecturas");
+
+      // Y con LIMIT, la primera pagina tiene que ser un prefijo del total:
+      // es lo que hace que paginar no pierda ni repita filas.
+      const cortada = (await repos.conversaciones.listar({ limite: 5 })).map((c) => c.contactoId);
+      assert.deepEqual(cortada, una.slice(0, 5), "con LIMIT se devuelven filas distintas de las primeras");
+    } finally {
+      await repos.cerrar();
+    }
+  });
+
   test(`[${nombre}] una conversacion sobrevive a reabrir el almacen`, async () => {
     const repos = await crear();
     try {
