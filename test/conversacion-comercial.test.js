@@ -233,11 +233,13 @@ describe("2 · a quien averigua no se le piden los datos", () => {
     const r = await dice("¿cuánto cuesta?");
     assert.match(r.texto, /49\.900/);
     // Se comprueba EL HECHO -que invite sin pedir los datos- y no la frase
-    // exacta: la redaccion cambio al mejorar el tono ("¿Te animas y te lo
-    // despacho?" en vez de "¿Te sirve?") y una asercion pegada a las
-    // palabras obliga a reescribirla cada vez que se afina la voz.
+    // exacta: la redaccion ya cambio dos veces al afinar el tono y una
+    // asercion pegada a las palabras obliga a reescribirla cada vez.
     assert.match(r.texto, /\?/, `no hizo ningún microcierre: ${r.texto}`);
-    assert.match(r.texto, /te sirve|te animas|te lo despacho/i, `no invitó a cerrar: ${r.texto}`);
+    assert.match(r.texto, /te sirve|te ayude a pedirlo|te animas/i, `no invitó a cerrar: ${r.texto}`);
+    // Y la invitacion NO promete despacho: "¿te lo despacho?" daba por
+    // hecho un despacho que nadie ha confirmado que se pueda hacer.
+    assert.equal(/despach/i.test(r.texto), false, `prometió despacho: ${r.texto}`);
     assert.equal(/tu nombre completo/i.test(r.texto), false, "pidió los datos de golpe");
   });
 });

@@ -623,3 +623,150 @@ describe("7 · la intención de compra la contesta el código", () => {
     assert.equal(r.origen, "ia", `se descartó un borrador útil: ${r.texto}`);
   });
 });
+
+// --------------------------------------------------------------------------
+// 8 · LO QUE EL BOT NO PUEDE PROMETER
+//
+// Marco lo paro en seco: "no prometas despacho hoy. Necesita horario,
+// disponibilidad y capacidad de despacho confirmados". Ninguno de los tres
+// esta en el catalogo, asi que el bot estaba comprometiendo una operacion
+// que no controla.
+//
+// Y era la misma clase de promesa que YA estaba en `claimsProhibidos` para
+// el modelo -"te lo despacho hoy mismo"- que el codigo se saltaba porque
+// los claims solo se revisan sobre el borrador de la IA. El candado
+// vigilaba al modelo mientras el determinista decia lo mismo.
+// --------------------------------------------------------------------------
+
+describe("8 · ni despacho hoy, ni respuesta inmediata", () => {
+  test("ningún texto promete despachar", async () => {
+    const c = await conversacion();
+    const dichos = [];
+    dichos.push((await c.dice("hola")).texto);
+    dichos.push((await c.dice("cuanto vale")).texto);
+    dichos.push((await c.dice("lo quiero")).texto);
+    dichos.push((await c.dice("soy Ana, Cali, Carrera 7 # 12-34")).texto);
+    dichos.push((await c.dice("si confirmo")).texto);
+    dichos.push((await c.dice("que valen dos")).texto);
+
+    for (const t of dichos) {
+      assert.equal(
+        /despach/i.test(t),
+        false,
+        `prometió despacho, que no controlamos: ${t}`
+      );
+    }
+  });
+
+  test("ni respuesta «enseguida» o «en un momento»", async () => {
+    // No hay nadie de guardia. Si la clienta escribe un domingo por la
+    // noche, "en un momento" es falso — y una promesa de tiempo que no se
+    // cumple vale menos que decir "no lo sé".
+    const c = await conversacion();
+    const dichos = [
+      (await c.dice("de qué material es?")).texto,
+      (await c.dice("oye y lo puedo usar dormida?")).texto,
+      (await c.dice("cuanto cuestan tres?")).texto,
+    ];
+    for (const t of dichos) {
+      assert.equal(/enseguida|en un momento|ya mismo/i.test(t), false, `prometió inmediatez: ${t}`);
+      assert.match(t, /anot|equipo/i, `no dijo que queda para el equipo: ${t}`);
+    }
+  });
+
+  test("y el catálogo también se lo prohíbe al modelo", () => {
+    const { cargarCatalogo: cargar } = require("../src/catalogo");
+    const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+      "cinturon-termico-colicos"
+    );
+    const responder = require("../src/cerebro/responder");
+    for (const frase of [
+      "Para despachártelo hoy me pasas la dirección",
+      "Te confirmo enseguida con el equipo",
+      "Tu pedido ya salió",
+    ]) {
+      const v = responder.revisarClaims(frase, prod);
+      assert.equal(v.ok, false, `el filtro deja pasar la promesa: "${frase}"`);
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
+// 9 · UNA CONSULTA NUEVA NO ARRASTRA EL PEDIDO ANTERIOR
+//
+//   clienta: "y cuánto cuestan 2 con envío"
+//   bot:     "...$85.000. El envío va incluido... Tu pedido NOV-... ya está
+//             confirmado y te avisamos en cuanto salga."
+//
+// La ultima frase no la pidio nadie. Mezcla una consulta NUEVA -que es una
+// venta- con el estado de una compra vieja, y entierra lo que si importa.
+// --------------------------------------------------------------------------
+
+describe("9 · el número de pedido solo si pregunta por su pedido", () => {
+  test("preguntar un precio no trae el pedido anterior", async () => {
+    const c = await conversacion();
+    const pedido = await c.conPedidoConfirmado();
+
+    for (const frase of ["que valen dos", "y cuanto cuestan 2 con envio"]) {
+      const r = await c.dice(frase);
+      assert.match(r.texto, /85\.000/, `no contestó el precio: ${r.texto}`);
+      assert.equal(
+        r.texto.includes(pedido.id),
+        false,
+        `arrastró el número del pedido anterior sin que lo pidieran: ${r.texto}`
+      );
+      assert.equal(/ya está confirmado|está confirmado/i.test(r.texto), false, `habló de su pedido viejo: ${r.texto}`);
+    }
+  });
+
+  test("pero preguntando por SU pedido, sí", async () => {
+    // El otro lado del candado: quien pregunta por su compra tiene que
+    // recibir su numero y su estado.
+    const c = await conversacion();
+    const pedido = await c.conPedidoConfirmado();
+
+    const r = await c.dice("ya salio mi pedido?");
+    assert.ok(r.texto.includes(pedido.id), `no le dio el número de su pedido: ${r.texto}`);
+  });
+});
+
+// --------------------------------------------------------------------------
+// 10 · UNA RESPUESTA HUMANA CUALQUIERA NO RESUELVE LA TAREA
+//
+// La primera version cerraba la tarea si un operador escribia CUALQUIER
+// mensaje despues. "ya te confirmo", "dame un momento" o "hola" la cerraban
+// sin resolverla: la pregunta seguia sin contestar y desaparecia de la
+// lista, que es peor que no tener lista.
+// --------------------------------------------------------------------------
+
+describe("10 · la tarea se cierra con un acto explícito", () => {
+  test("un mensaje cualquiera del operador NO la cierra", () => {
+    const conv = { mensajes: [] };
+    atencion.anotarPendiente(conv, {
+      motivo: atencion.MOTIVOS_PENDIENTE.SIN_DATO,
+      pregunta: "de que material es",
+      ahora: Date.now() - 60000,
+    });
+    // El operador escribe, pero no resuelve.
+    atencion.anotarMensaje(conv, { de: atencion.QUIEN.OPERADOR, texto: "dame un momento y te confirmo" });
+
+    assert.equal(
+      atencion.pendienteDe(conv).hay,
+      true,
+      "un «dame un momento» cerró una tarea que sigue sin resolver"
+    );
+  });
+
+  test("y «marcar atendido» sí la cierra", async () => {
+    const c = await conversacion();
+    await c.dice("oye y lo puedo usar dormida?");
+    assert.equal(atencion.pendienteDe(await c.repos.conversaciones.obtener(CLIENTE)).hay, true);
+
+    await atencion.marcarAtendido(c.repos, CLIENTE, { por: "marco" });
+    assert.equal(
+      atencion.pendienteDe(await c.repos.conversaciones.obtener(CLIENTE)).hay,
+      false,
+      "marcarla atendida no la cerró"
+    );
+  });
+});

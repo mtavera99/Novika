@@ -298,12 +298,81 @@ function cantidadPreguntadaEn(plano) {
 // Confundirlas en un sentido pierde una venta; en el otro, convierte la
 // respuesta en el estribillo "le digo a una persona" en cada mensaje.
 // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// PREGUNTAR POR SU PEDIDO NO ES PREGUNTAR POR EL ENVIO
+//
+// Con un pedido confirmado, el numero de pedido se añadia a cualquier
+// mensaje que mencionara envio o entrega. Y "¿cuánto cuestan 2 con envío?"
+// menciona el envio sin preguntar nada de su pedido:
+//
+//   clienta: "y cuánto cuestan 2 con envío"
+//   bot:     "2 unidades te quedan en $85.000. El envío va incluido...
+//             Tu pedido NOV-... ya está confirmado y te avisamos..."
+//
+// Esa ultima frase no la pidio nadie. Mezcla una consulta NUEVA -quiere
+// comprar mas- con el estado de una compra vieja, y convierte una respuesta
+// de dos lineas en un parrafo donde lo importante queda enterrado.
+//
+// El estado del pedido se dice cuando pregunta POR EL PEDIDO: "¿ya salió?",
+// "¿cuándo me llega lo que pedí?", "mi guía".
+// --------------------------------------------------------------------------
+const PREGUNTA_POR_SU_PEDIDO = [
+  /\b(mi|el)\s+(pedido|compra|paquete|envio|guia|orden)\b/,
+  /\b(ya\s+)?(salio|despacharon|despacho|enviaron|mandaron)\b/,
+  /\bnumero\s+de\s+(pedido|guia)\b/,
+  /\b(cuando|donde)\s+(me\s+)?(llega|va\s+a\s+llegar|esta)\b.*\b(lo\s+que\s+pedi|mi\s+pedido|mi\s+paquete)\b/,
+  /\b(lo\s+que|el\s+que)\s+pedi\b/,
+  /\bestado\s+de\s+mi\b/,
+  /\brastre(o|ar)\b/,
+];
+
 const QUIERE_OTRO = [
   /\b(otro|otra|otros|otras)\b/,
   /\b(uno|una|dos)\s+mas\b/,
   /\bmas\s+unidades?\b/,
   /\b(pedir|comprar|llevar)\s+(mas|otro|otra)\b/,
 ];
+
+// --------------------------------------------------------------------------
+// "NO ME CARGARON LAS FOTOS"
+//
+// El bot ofrece reenviarlas -"si no te cargaron, dime y te las paso otra
+// vez"- y la deduplicacion lo impedia: no reenvia dos veces las mismas
+// imagenes al mismo chat, que es correcto para no llenar la pantalla pero
+// convierte el ofrecimiento en una promesa falsa.
+//
+// Lo que faltaba era distinguir "muestrame fotos" de "las fotos no me
+// llegaron". La segunda es un acto explicito del cliente, y entonces se
+// fuerza el reenvio: `enviarFotosDeProducto` ya acepta `forzar`.
+// --------------------------------------------------------------------------
+/**
+ * SE QUEJA DE QUE NO LE LLEGARON. Basta por si sola: es lo que se escribe
+ * justo despues de recibir unas imagenes que no abren, y no se dice de
+ * ninguna otra cosa de esta conversacion.
+ */
+const NO_LE_LLEGARON = [
+  /\bno\s+(me\s+)?(las|los|la|lo)?\s*(cargaron|cargan|carga|llegaron|llego|llegan|abren|abre|abrieron)\b/,
+  /\bno\s+(las|los|la|lo)\s+(veo|puedo\s+ver|recibi|recibo)\b/,
+  /\bno\s+(me\s+)?(se\s+ven|se\s+ve|veo)\b/,
+  /\bestan?\s+(borrosas?|en\s+blanco|cortadas?)\b/,
+];
+
+/**
+ * PIDE QUE SE REPITAN. Necesita que nombre las imagenes: "otra vez" suelto
+ * tambien sirve para "dime el precio otra vez", que no es pedir fotos.
+ */
+const OTRA_VEZ = /\b(otra\s+vez|de\s+nuevo|nuevamente|repite|reenvia|reenviame|mandalas|pasalas)\b/;
+const NOMBRA_IMAGENES = /\b(fotos?|imagen(es)?|videos?|fotico|fotitos)\b/;
+
+/** ¿Pide que se le reenvien las fotos? */
+function pideReenvioDeFotos(texto) {
+  const plano = aplanar(texto);
+  if (!plano) return false;
+  // La queja vale sola.
+  if (NO_LE_LLEGARON.some((re) => re.test(plano))) return true;
+  // Y pedirlas otra vez, si dice de que.
+  return OTRA_VEZ.test(plano) && NOMBRA_IMAGENES.test(plano);
+}
 
 /** Saludos puros: no preguntan nada. */
 const SALUDOS = [
@@ -390,6 +459,9 @@ function leer(texto) {
     // Parece una pregunta, aunque no se sepa de que. Basta para no
     // responder con un formulario.
     pareceUnaPregunta: interrogacion || PALABRA_DE_PREGUNTA.test(plano),
+    // ¿Pregunta por SU pedido? Es lo unico que autoriza a mencionar su
+    // numero de pedido y su estado.
+    porSuPedido: PREGUNTA_POR_SU_PEDIDO.some((re) => re.test(plano)),
     // Un "hola" pelado: ni pregunta ni compra. Merece un arranque, no un
     // interrogatorio.
     soloSaludo: saludo && temas.length === 0 && !compra && plano.split(/\s+/).length <= 4,
@@ -413,6 +485,7 @@ module.exports = {
   leer,
   esInformativo,
   cantidadPreguntadaEn,
+  pideReenvioDeFotos,
   SENALES_DE_COMPRA,
   SENALES_DEBILES,
   PATRONES,

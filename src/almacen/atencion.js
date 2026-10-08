@@ -117,15 +117,25 @@ function pendienteDe(conversacion) {
   const desde = new Date(p.desde).getTime();
   if (!Number.isFinite(desde)) return vacio;
 
-  // Resuelta si una persona la atendio DESPUES de que se pidiera.
+  // ----------------------------------------------------------------------
+  // SE CIERRA CON UN ACTO EXPLICITO, NO PORQUE ALGUIEN ESCRIBIERA
+  //
+  // La primera version la cerraba si un operador mandaba CUALQUIER mensaje
+  // despues. Parecia practico y era un agujero: "ya te confirmo", "dame un
+  // momento" o "hola" cerraban la tarea sin haberla resuelto. La pregunta
+  // seguia sin contestar y desaparecia de la lista — que es peor que no
+  // tener lista, porque ahora nadie la va a buscar.
+  //
+  // Escribir y resolver no son lo mismo. Se cierra cuando alguien dice que
+  // esta resuelto: "marcar atendido" en el panel, que es un boton y un
+  // acto deliberado.
+  //
+  // El riesgo de este diseño es el contrario -tareas que se quedan
+  // abiertas- y es el lado bueno: una tarea abierta de mas se ve y se
+  // cierra; una cerrada de menos no se ve nunca.
+  // ----------------------------------------------------------------------
   const a = leer(conversacion);
   if (a.atendidoEn && new Date(a.atendidoEn).getTime() >= desde) return vacio;
-
-  // O si un operador escribio en el chat despues.
-  const hablo = mensajes(conversacion).some(
-    (m) => m && m.de === QUIEN.OPERADOR && m.ts && new Date(m.ts).getTime() >= desde
-  );
-  if (hablo) return vacio;
 
   return { hay: true, motivo: p.motivo, pregunta: p.pregunta || "", desde: p.desde };
 }

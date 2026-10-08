@@ -101,7 +101,8 @@ const SISTEMA_BASE = [
   "LO QUE NO PUEDES ESCRIBIR",
   "- NUNCA precios, totales, importes ni cifras de dinero. Ni aproximados, ni rangos. Los pone el sistema.",
   "- NUNCA caracteristicas, garantias, plazos de entrega ni medidas que no aparezcan en los datos autorizados de este mensaje.",
-  "- Si no tienes el dato autorizado, dilo: que lo confirmas con el equipo en un momento. Eso es mejor que una respuesta amable con un dato inventado.",
+  "- Si no tienes el dato autorizado, dilo: que queda anotado para el equipo y le responden por aqui. NUNCA prometas un plazo ('en un momento', 'enseguida'): no hay nadie de guardia. Decir que no lo sabes es mejor que una respuesta amable con un dato inventado.",
+    "- NUNCA prometas despacho, y menos hoy: no tienes horario, disponibilidad ni capacidad de despacho. Di 'preparar tu pedido'. Confirmar un pedido no significa que ya salio.",
   "",
   "Responde SIEMPRE en JSON con esta forma:",
   '{"intencion":"...","candidatos":{},"productoSugerido":null,"borradorRespuesta":null,"preguntasDelCliente":[]}',
@@ -806,6 +807,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       cantidadSinTarifa,
       // Para no prometer fotos que la deduplicacion no va a reenviar.
       // El campo lo anota el envio por producto: `fotosEnviadas[productoId]`.
+      pideReenvioDeFotos: preguntas.pideReenvioDeFotos(evento.texto || ""),
       fotosYaEnviadas: Boolean(
         (conversacion.fotosEnviadas || {})[(producto || candidato || {}).id || conversacion.productoId]
       ),
@@ -997,6 +999,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // equivocado confunden mas que preguntar.
     // ------------------------------------------------------------------
     const pidioVerlo = texto.pideFotos(evento.texto || "");
+    // "No me cargaron" es un acto explicito: ahi SI se repiten. La
+    // deduplicacion evita llenar la pantalla sin que nadie lo pida; no
+    // puede ganarle a un cliente que dice que no las recibio, porque el
+    // propio mensaje le ofrece reenviarlas.
+    const pidioReenvio = preguntas.pideReenvioDeFotos(evento.texto || "");
 
     // ------------------------------------------------------------------
     // SI EL MENSAJE PROMETE FOTOS, LAS FOTOS SALEN
@@ -1025,7 +1032,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       productoParaFotos &&
       (productoParaFotos.imagenes || []).length &&
       sabemosDeQueProducto &&
-      (situacion === "producto_en_borrador" || pidioVerlo || esArranque || textoPrometeFotos)
+      (situacion === "producto_en_borrador" || pidioVerlo || pidioReenvio || esArranque || textoPrometeFotos)
     ) {
       const informeFotos = await fotos.enviarFotosDeProducto({
         emisor,
@@ -1035,6 +1042,8 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         para: evento.telefono || evento.idCliente,
         permiso: PERMISOS.CONVERSACION,
         pie: "",
+        // Lo pidio: se repiten.
+        forzar: pidioReenvio,
       });
       traza.fotos = {
         enviadas: informeFotos.enviadas,

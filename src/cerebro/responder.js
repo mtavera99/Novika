@@ -292,7 +292,7 @@ function cerrarTrasElDato({ datosAportados, ciudadConfirmada, faltan, producto, 
     partes.push(
       t && t.texto
         ? `¡Perfecto! A ${ciudadConfirmada} te llega en ${t.texto}.`
-        : `¡Perfecto! A ${ciudadConfirmada} te lo despachamos.`
+        : `¡Perfecto! Anoto ${ciudadConfirmada} para el envío.`
     );
   } else {
     partes.push("¡Perfecto, gracias!");
@@ -375,25 +375,42 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
   //
   // Ese estribillo palabra por palabra es lo que Marco veia como un robot.
   // ----------------------------------------------------------------------
+  // ----------------------------------------------------------------------
+  // NO SE PROMETE DESPACHO, Y MENOS "HOY"
+  //
+  // Todas estas frases decian "para despachártelo hoy", "te las despacho de
+  // una", "¿te lo despacho?". Marco lo paro en seco: despachar hoy exige
+  // horario, disponibilidad y capacidad de despacho CONFIRMADOS, y no hay
+  // ninguno de los tres en el catalogo. El bot estaba prometiendo una
+  // operacion que no controla.
+  //
+  // Y es la misma clase de promesa que ya esta en `claimsProhibidos` para
+  // el modelo —"te lo despacho hoy mismo"— que el codigo se saltaba porque
+  // los claims solo se revisan sobre el borrador de la IA. El candado
+  // vigilaba al modelo mientras el determinista decia lo mismo.
+  //
+  // "Preparar tu pedido" es lo que SI hacemos y no compromete a nadie:
+  // tomamos los datos y lo dejamos listo. Cuando salga, se avisa.
+  // ----------------------------------------------------------------------
+  const invitar = yaSeSabeCuantas ? "¿Quieres que te ayude a pedirlos?" : "¿Quieres que te ayude a pedirlo?";
+
   if (comoProceso) {
     const todo = [...pide];
     if (faltaCantidad) todo.push("si quieres uno o dos");
-    if (!todo.length) return yaSeSabeCuantas ? "¿Te las despacho?" : "¿Te lo despacho?";
-    return yaSeSabeCuantas
-      ? `Para despachártelas hoy me pasas ${enumerar(todo)} 🙌`
-      : `Para despachártelo hoy me pasas ${enumerar(todo)} 🙌`;
+    if (!todo.length) return invitar;
+    return `Para preparar tu pedido me pasas ${enumerar(todo)} 🙌`;
   }
 
   if (yaSeSabeCuantas) {
     return pide.length
-      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y te las despacho de una.`
-      : "¿Te las despacho?";
+      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y lo dejo listo.`
+      : invitar;
   }
 
   if (faltaCantidad && !pide.length) return "¿Cuántos quieres?";
-  if (faltaCantidad) return `¿Cuántos quieres? Y para despachártelo me pasas ${enumerar(pide)}.`;
-  if (!pide.length) return "¿Te lo despacho?";
-  return `Para despachártelo me pasas ${enumerar(pide)}.`;
+  if (faltaCantidad) return `¿Cuántos quieres? Y para preparar tu pedido me pasas ${enumerar(pide)}.`;
+  if (!pide.length) return invitar;
+  return `Para preparar tu pedido me pasas ${enumerar(pide)}.`;
 }
 
 // --------------------------------------------------------------------------
@@ -475,6 +492,7 @@ function textoDeterminista({
   datosDeEntrega = null,
   cantidadSinTarifa = null,
   fotosYaEnviadas = false,
+  pideReenvioDeFotos = false,
 }) {
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
 
@@ -592,8 +610,8 @@ function textoDeterminista({
       // la tarea. Es la unica respuesta honesta que no pierde la venta.
       if (cantidadSinTarifa) {
         partes.push(
-          `el precio por ${voz.unidades(cantidadSinTarifa)} te lo confirmo con el equipo en un momento, ` +
-            `no quiero darte una cifra equivocada.`
+          `el precio por ${voz.unidades(cantidadSinTarifa)} no lo tengo aprobado todavía. ` +
+            `Lo dejo anotado para el equipo y te confirman por aquí: no quiero darte una cifra equivocada.`
         );
         return componer(partes, { emoji: null });
       }
@@ -630,7 +648,12 @@ function textoDeterminista({
       // deja al cliente esperando algo que no va a llegar, y es un candado
       // que ya estaba probado: la prueba lo cazo en cuanto añadi la frase.
       const tieneImagenes = Boolean(producto && (producto.imagenes || []).length);
-      if (lectura.temas.includes(preguntas.TEMAS.FOTOS) && tieneImagenes) {
+      if (pideReenvioDeFotos && tieneImagenes) {
+        // Dijo que no le llegaron. Se reenvian de verdad -el cerebro fuerza
+        // la deduplicacion- asi que el texto lo acompaña en vez de volver a
+        // ofrecer lo que ya esta pasando.
+        partes.push("te las mando otra vez ahora mismo.");
+      } else if (lectura.temas.includes(preguntas.TEMAS.FOTOS) && tieneImagenes) {
         partes.push(
           fotosYaEnviadas
             ? "te las mandé aquí arriba; si no te cargaron, dime y te las paso otra vez."
@@ -686,7 +709,10 @@ function textoDeterminista({
       // pregunta por seguridad y recibe un formulario se va.
       // ----------------------------------------------------------------
       if (!lectura.compra && !lectura.temas.length && lectura.pareceUnaPregunta && !lectura.soloSaludo) {
-        partes.push("Esa no te la quiero contestar a medias: se la paso a una persona del equipo y te confirma enseguida.");
+        partes.push(
+          "Esa no te la quiero contestar a medias. La dejo anotada para el equipo: " +
+            "una persona la revisa y te responde por aquí."
+        );
         return componer(partes, { emoji: null });
       }
 
@@ -713,10 +739,10 @@ function textoDeterminista({
         // Cuando conteste que si, el turno siguiente SI tiene señal de
         // compra y ahi se piden los datos.
         // ----------------------------------------------------------------
-        partes.push("¿Te animas y te lo despacho?");
+        partes.push("¿Quieres que te ayude a pedirlo?");
       } else if (!memoria.pasoPropuesto) {
         // Se deja la puerta abierta UNA vez, sin pedir nada.
-        partes.push("Cuando quieras te lo despachamos.");
+        partes.push("Cuando quieras lo preparamos.");
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
@@ -771,7 +797,7 @@ function textoDeterminista({
         ...lineasDeCondiciones(cotizacion),
         ...entrega,
         "",
-        '¿Está todo bien? Respóndeme "sí" y lo despacho ✅',
+        '¿Está todo bien? Respóndeme "sí" y lo dejo listo ✅',
       ].join("\n");
     }
 
@@ -871,30 +897,55 @@ function textoDeterminista({
       // contesta con el precio del pedido que ya tiene.
       if (cantidadSinTarifa) {
         partes.push(
-          `el precio por ${voz.unidades(cantidadSinTarifa)} te lo confirmo con el equipo en un momento, ` +
-            `no quiero darte una cifra equivocada.`
+          `el precio por ${voz.unidades(cantidadSinTarifa)} no lo tengo aprobado todavía. ` +
+            `Lo dejo anotado para el equipo y te confirman por aquí: no quiero darte una cifra equivocada.`
         );
         return componer(partes, { emoji: null });
       }
 
-      const respuesta = contestar.aTemas(
-        lectura.temas,
-        { producto, cotizacion: cotizacionInformativa || cotizacion },
-        { maximo: 2 }
-      );
-      if (respuesta.texto) partes.push(respuesta.texto);
+      // Si pregunta un PRECIO, la linea comercial lo dice todo en una
+      // frase: cuanto, el envio y como paga. Antes salian dos frases
+      // sueltas diciendo lo mismo en dos tiempos.
+      const cotParaResponder = cotizacionInformativa || cotizacion;
+      // SOLO el tema PRECIO, no todos los comerciales. `TEMAS_COMERCIALES`
+      // incluye ENVIO, y "¿qué precio tiene el envío?" es tema ENVIO: con
+      // la condicion ancha volvia a soltar el precio del producto, que es
+      // exactamente el defecto que ya se habia corregido.
+      const preguntoPrecio = lectura.temas.includes(preguntas.TEMAS.PRECIO);
 
-      // El pedido se nombra cuando el cliente pregunta por el -entrega,
-      // envio- o cuando no pregunto nada. Repetir el numero de pedido en
-      // cada mensaje es lo que producia el eco.
-      const preguntaPorSuPedido =
-        lectura.temas.includes(preguntas.TEMAS.ENTREGA) || lectura.temas.includes(preguntas.TEMAS.ENVIO);
+      let respuesta = { texto: "" };
+      if (preguntoPrecio && cotParaResponder) {
+        partes.push(lineaComercial(cotParaResponder, producto));
+        respuesta = { texto: "ya respondido" };
+        // Y las dudas que NO sean comerciales, detras.
+        const otras = lectura.temas.filter((t) => !TEMAS_COMERCIALES.includes(t));
+        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder }, { maximo: 1 });
+        if (extra.texto) partes.push(extra.texto);
+      } else {
+        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder }, { maximo: 2 });
+        if (respuesta.texto) partes.push(respuesta.texto);
+      }
 
-      if (!respuesta.texto || preguntaPorSuPedido) {
+      // ------------------------------------------------------------------
+      // EL NUMERO DE PEDIDO, SOLO SI PREGUNTA POR SU PEDIDO
+      //
+      // La condicion era "pregunta por entrega o envio", y eso incluye
+      // "¿cuánto cuestan 2 con envío?", que no pregunta nada de su compra:
+      //
+      //   clienta: "y cuánto cuestan 2 con envío"
+      //   bot:     "...$85.000. El envío va incluido... Tu pedido NOV-...
+      //             ya está confirmado y te avisamos en cuanto salga."
+      //
+      // Esa ultima frase no la pidio nadie. Mezcla una consulta NUEVA -que
+      // es una venta- con el estado de una compra vieja, y entierra lo que
+      // si importa. Ahora hace falta una señal explicita: "¿ya salió?",
+      // "mi pedido", "mi guía".
+      // ------------------------------------------------------------------
+      if (!respuesta.texto || lectura.porSuPedido) {
         partes.push(
           pedido
-            ? `Tu pedido ${pedido.id} ya está confirmado y te avisamos en cuanto salga.`
-            : "Tu pedido ya está confirmado."
+            ? `Tu pedido ${pedido.id} está confirmado y te avisamos en cuanto salga.`
+            : "Tu pedido está confirmado."
         );
       }
 
@@ -987,7 +1038,7 @@ function textoDeterminista({
 const PEDIR_CONCRETAR =
   "Perdón, no quiero repetirme. Dime concretamente qué necesitas y lo reviso con el equipo.";
 const PASAR_A_PERSONA =
-  "Déjame pasarte con una persona del equipo para no darte vueltas. Te escribe en un momento.";
+  "Déjame pasarte con una persona del equipo para no darte vueltas. Queda anotado y te responden por aquí.";
 
 /**
  * Evita el texto repetido.
@@ -1065,6 +1116,7 @@ function preparar({
   datosDeEntrega = null,
   cantidadSinTarifa = null,
   fotosYaEnviadas = false,
+  pideReenvioDeFotos = false,
 }) {
   const determinista = textoDeterminista({
     situacion,
@@ -1082,6 +1134,7 @@ function preparar({
     datosDeEntrega,
     cantidadSinTarifa,
     fotosYaEnviadas,
+    pideReenvioDeFotos,
   });
   const bloqueos = [];
 
