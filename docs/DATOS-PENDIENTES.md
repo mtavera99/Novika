@@ -49,13 +49,13 @@ Queda una duda menor, por si la quieres cerrar:
 - ¿Quién paga el envío del cambio? \_\_\_\_
 - ¿Hace falta foto o video del defecto? \_\_\_\_
 
-### 3. ¿Cuánto cuestan 2 o más unidades? — 🔴 BLOQUEADO POR AMBIGÜEDAD
+### 3. ¿Cuánto cuestan 2 o más unidades? — ✅ RESUELTO (08-oct)
 
-**Respondiste (08-oct):** *«te las puedo dejar en promoción de 2 U por 80.000 85.000 pesos con el envío incluido»*.
+**$85.000 por dos, con envío incluido.** El bot ya cierra la venta de dos solo.
 
-**No lo guardé porque hay dos cifras y es un precio.** ¿Son **$80.000** o **$85.000** por las dos?
+Dos sueltos costarían $99.800, así que el combo ahorra **$14.800**. Eso es un argumento de venta fuerte y ahora mismo **el bot NO lo usa por iniciativa propia**: solo dice el precio de dos cuando se lo preguntan. Si quieres que lo ofrezca, dime cuándo (ver el punto 12).
 
-No puedo elegir: si pongo 80.000 y era 85.000 pierdes $5.000 en cada venta de dos; si pongo 85.000 y era 80.000 le cobras de más a la clienta. Dime el número y lo guardo en un minuto — el envío incluido ya lo entendí.
+**3 o más unidades siguen sin precio** y se derivan a una persona. Con dos escalones ya hay una escala de descuento, y extrapolar el tercero sería inventarme el siguiente. Si quieres cerrarlo: 3 unidades = $\_\_\_\_
 
 **Hoy:** el bot **no cotiza** 2 unidades. Se niega y lo pasa a una persona, porque no hay precio aprobado y multiplicar sería inventarme tu política.
 
@@ -140,7 +140,7 @@ Hoy: el bot no rebaja ni se justifica; sigue con la venta.
 ¿Qué prefieres? (marca una)
 - [ ] Reforzar el valor del producto (dime con qué argumento: \_\_\_\_)
 - [ ] Recordar que el envío va incluido y que paga al recibir
-- [ ] Ofrecer 2 unidades, si me das ese precio (punto 3)
+- [ ] Ofrecer el combo de 2 por $85.000 (ya está el precio; dime si lo ofrece ante la objeción, o siempre, o nunca)
 - [ ] Pasar a una persona
 - [ ] Dejarlo como está
 

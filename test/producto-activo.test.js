@@ -393,15 +393,17 @@ describe("5 · la conversacion completa", () => {
     assert.equal((await repos.pedidos.porContacto("573001234567")).length, 1);
   });
 
-  test("pedir 2 unidades no inventa precio ni crea pedido", async () => {
+  test("pedir 3 unidades no inventa precio ni crea pedido", async () => {
+    // ERA DE 2 UNIDADES. Marco confirmo el combo el 2026-10-08, asi que dos
+    // ya se venden a 85.000. El caso sin precio aprobado es ahora tres.
     const { hablar, repos } = await montar();
-    await hablar("quiero 2 cinturones térmicos");
+    await hablar("quiero 3 cinturones térmicos");
     const r = await hablar("Ana Pérez, Medellín, Calle 45 # 23-10");
 
     assert.notEqual(r.traza.respuesta.situacion, "resumen");
     assert.equal((await repos.pedidos.porContacto("573001234567")).length, 0);
     for (const t of textos(r.salidas)) {
-      assert.equal(/\$|\d{4,}/.test(t), false, `insinuo un importe por 2 unidades: ${t}`);
+      assert.equal(/\$|\d{4,}/.test(t), false, `insinuó un importe por 3 unidades: ${t}`);
     }
   });
 
@@ -410,8 +412,12 @@ describe("5 · la conversacion completa", () => {
     // escala. A partir de ahi el bot contestaba "Tu pedido ya está
     // confirmado" a cualquier cosa que escribiera, sin que existiera pedido.
     const { hablar, repos } = await montar();
-    await hablar("quiero 2 cinturones térmicos");
-    await hablar("quiero 2"); // fuerza el escalado por cantidad sin precio
+    // SE CAMBIO DE 2 A 3 UNIDADES. Esta prueba usaba 2 para forzar el
+    // escalado por "cantidad sin precio aprobado"; desde que el combo de dos
+    // existe, 2 se cotiza y ya no escala. Tres sigue sin precio, asi que el
+    // escenario -escalado SIN pedido- se reproduce igual.
+    await hablar("quiero 3 cinturones térmicos");
+    await hablar("quiero 3"); // fuerza el escalado por cantidad sin precio
 
     const despues = await hablar("mejor 1 entonces");
     assert.notEqual(despues.traza.respuesta.situacion, "ya_confirmado");

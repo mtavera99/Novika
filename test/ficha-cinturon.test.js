@@ -106,9 +106,15 @@ test("el pago contraentrega esta en el catalogo, no en el prompt", () => {
 // LO QUE MARCO PROHIBIO INVENTAR
 // --------------------------------------------------------------------------
 
-test("NO hay descuento por cantidad: la tabla cubre solo 1 unidad", () => {
+test("los precios son EXACTAMENTE los que aprobo Marco, y ninguno mas", () => {
+  // ANTES ESTA PRUEBA EXIGIA UNA SOLA CLAVE ("1"), y era correcto mientras
+  // no habia precio por volumen. Marco confirmo el combo el 2026-10-08:
+  // 85.000 por dos. Mantener la asercion obligaria a borrar un dato real.
+  //
+  // Lo que se vigila sigue siendo lo mismo: que no aparezca un precio que
+  // nadie aprobo. Solo que ahora la lista aprobada tiene dos entradas.
   const p = elCinturon();
-  assert.deepEqual(Object.keys(p.precios), ["1"], "aparecio un precio por volumen que nadie aprobo");
+  assert.deepEqual(p.precios, { 1: 49900, 2: 85000 });
   assert.deepEqual(p.promociones, [], "aparecio una promocion que nadie aprobo");
 });
 
@@ -265,14 +271,32 @@ test("1 unidad cotiza 49.900 con envio en 0 y sin descuento", () => {
   assert.match(linea.porQue, /incluido/);
 });
 
-test("2 o mas unidades NO se cotizan: se escala, no se multiplica", () => {
-  for (const cantidad of [2, 3, 5, 10, 100]) {
+test("EL PRECIO NO SE MULTIPLICA: 2 unidades valen 85.000, no 99.800", () => {
+  // LA GARANTIA DE FONDO NO CAMBIO, solo el dato. Antes se comprobaba
+  // negandose a cotizar 2; ahora que hay precio aprobado se comprueba de
+  // forma mas directa y mas fuerte: que el total sea EL DE LA TABLA y no el
+  // unitario por la cantidad.
+  //
+  // Es la misma proteccion: el cotizador no inventa la escala de volumen.
+  const r = cotizador.cotizar({ producto: activadoEnMemoria(), cantidad: 2 });
+  assert.equal(r.ok, true, r.motivo);
+  assert.equal(r.cotizacion.total, 85000);
+  assert.notEqual(r.cotizacion.total, 49900 * 2, "multiplicó el precio unitario en vez de leer la tabla");
+});
+
+test("3 o mas unidades NO se cotizan: se escala, no se extrapola", () => {
+  // Con DOS escalones ya existe una escala de descuento por volumen, y
+  // extrapolarla al tercero es la misma clase de error que multiplicar
+  // cuando solo habia uno.
+  for (const cantidad of [3, 5, 10, 100]) {
     const r = cotizador.cotizar({ producto: activadoEnMemoria(), cantidad });
     assert.equal(r.ok, false, `se cotizaron ${cantidad} unidades sin precio aprobado`);
     assert.equal(r.escalar, true, "tiene que pasar a una persona, no quedarse callado");
     assert.equal(r.cotizacion, undefined, "no puede salir ninguna cifra de aqui");
 
-    // Y el motivo no puede contener un total calculado "por si acaso".
+    // Y el motivo no puede contener un total calculado "por si acaso". Las
+    // cifras de 4+ digitos serian importes; "1, 2" son las claves de la
+    // tabla y son informacion util para quien lea el panel.
     const cifras = String(r.motivo).match(/\d{4,}/g) || [];
     assert.deepEqual(cifras, [], `el motivo insinua un importe: ${r.motivo}`);
   }
@@ -447,18 +471,113 @@ test("confirmar dos veces deja UN pedido y no recotiza", async () => {
   assert.equal(guardados.length, 1, "se duplico el pedido");
 });
 
-test("pedir 2 unidades no crea pedido ni dice ninguna cifra", async () => {
+test("pedir 3 unidades no crea pedido ni dice ninguna cifra", async () => {
+  // ESTA PRUEBA ERA DE 2 UNIDADES. Marco confirmo el combo el 2026-10-08,
+  // asi que dos ya se venden. El caso sin precio aprobado es ahora TRES, y
+  // la garantia es la misma: donde no hay precio, no sale ninguna cifra.
   const { cerebro, repos } = await montarConElCinturon();
 
-  await cerebro.procesar(msg("quiero 2 cinturones termicos"));
+  await cerebro.procesar(msg("quiero 3 cinturones termicos"));
   const traza = await cerebro.procesar(msg("vivo en Medellin, Calle 45 # 23-10"));
 
   assert.notEqual(traza.respuesta.situacion, "resumen", "se armo un resumen con un precio que no existe");
   assert.equal((await repos.pedidos.porContacto("573001234567")).length, 0);
 
   // Ni un importe en el texto: es el momento exacto en el que un precio
-  // plausible por dos unidades se cuela.
+  // plausible por tres unidades se cuela.
   assert.equal(/\$|\d{4,}/.test(traza.respuesta.texto), false, `el texto insinua un importe: ${traza.respuesta.texto}`);
 });
 
 void DIR;
+
+// --------------------------------------------------------------------------
+// EL PRECIO DE DOS UNIDADES (Marco, 2026-10-08)
+//
+// Hasta ahora la tabla cubria solo 1 unidad y pedir dos se escalaba a una
+// persona. Con el combo confirmado -85.000 por las dos, envio incluido- el
+// bot cierra la venta de dos solo.
+//
+// Y al añadirlo aparecio un defecto de conversacion que no se veia antes:
+// con un unico precio no habia forma de preguntar "¿cuánto me salen dos?".
+// --------------------------------------------------------------------------
+
+const textoDominio = require("../src/dominio/texto");
+
+test("la tabla cubre 1 y 2 unidades, con los precios confirmados", () => {
+  const p = elCinturon();
+  assert.equal(p.precios["1"], 49900);
+  assert.equal(p.precios["2"], 85000);
+  assert.deepEqual(Object.keys(p.precios), ["1", "2"], "apareció un precio que nadie aprobó");
+});
+
+test("el combo es mas barato que dos sueltos, y por eso es una promocion", () => {
+  // Si el combo costara lo mismo o mas que dos unidades sueltas, no seria
+  // una promocion: seria un error de tecleo. 49.900 x 2 = 99.800 contra
+  // 85.000 son 14.800 de diferencia.
+  const p = elCinturon();
+  const dosSueltos = p.precios["1"] * 2;
+  assert.ok(p.precios["2"] < dosSueltos, "el combo no puede costar mas que dos unidades sueltas");
+  assert.equal(dosSueltos - p.precios["2"], 14800);
+});
+
+test("2 unidades cotizan 85.000 con el envio incluido", () => {
+  const r = cotizador.cotizar({ producto: activadoEnMemoria(), cantidad: 2 });
+  assert.equal(r.ok, true, r.motivo);
+  assert.equal(r.cotizacion.total, 85000);
+  assert.equal(r.cotizacion.envio, 0);
+  assert.equal(r.cotizacion.condiciones.pagoMetodo, "contraentrega");
+});
+
+test("3 o mas unidades SIGUEN escalando: la tabla no se extrapola", () => {
+  // Ahora hay dos escalones (49.900 y 85.000), asi que ya existe una escala
+  // de descuento por volumen. Extrapolarla a 3 seria inventar el siguiente
+  // escalon, que es la misma clase de error que multiplicar por 2 cuando
+  // solo habia un precio.
+  for (const cantidad of [3, 4, 6, 12]) {
+    const r = cotizador.cotizar({ producto: activadoEnMemoria(), cantidad });
+    assert.equal(r.ok, false, `se cotizaron ${cantidad} unidades sin precio aprobado`);
+    assert.equal(r.escalar, true);
+    // Y el motivo dice que cubre 1 y 2, para que quien lea el panel sepa
+    // exactamente que falta.
+    assert.match(r.motivo, /la tabla cubre 1, 2/);
+  }
+});
+
+test("añadir el precio de 2 cambia la huella del catalogo", () => {
+  // Efecto conocido y aceptado: `versionDeCatalogo` incluye `precios`
+  // completo, asi que una oferta abierta en el momento del despliegue no se
+  // confirmara — se escalara a una persona. Es el lado seguro: nunca se
+  // cobra un precio viejo. Afinar la huella por cantidad debilitaria el
+  // candado que impide cobrar mal.
+  const conDos = activadoEnMemoria();
+  const soloUna = { ...conDos, precios: { 1: 49900 } };
+  assert.notEqual(
+    cotizador.versionDeCatalogo(conDos),
+    cotizador.versionDeCatalogo(soloUna),
+    "un cambio de precios tiene que cambiar la huella"
+  );
+});
+
+test('"¿cuánto me salen dos?" informa el precio de DOS, no de una', () => {
+  // EL DEFECTO: la clienta preguntaba por dos y recibia el precio de una,
+  // mas un "¿cuántos quieres?" sobre algo que acababa de decir.
+  //
+  // `extraer` no toma la cantidad de una pregunta de precio -y hace bien,
+  // preguntar no es comprar- asi que la cantidad para INFORMAR se lee
+  // aparte, acotada a la tabla de precios.
+  const p = elCinturon();
+  const mencionadas = textoDominio.cantidadesEn("¿cuánto me salen dos?").map((c) => c.valor);
+  assert.deepEqual(mencionadas, [2]);
+  assert.ok(p.precios["2"] !== undefined, "2 tiene que estar en la tabla para poder informarlo");
+});
+
+test("una direccion NO se lee como cantidad para informar el precio", () => {
+  // La tabla de precios acota el riesgo sola: "Calle 45 # 23-10" menciona
+  // 45, 23 y 10, y ninguno existe en `precios`, asi que se descartan sin
+  // volver a escribir la heuristica que ya confundio una direccion con una
+  // cantidad.
+  const p = elCinturon();
+  const mencionadas = textoDominio.cantidadesEn("Ana Perez, Medellin, Calle 45 # 23-10").map((c) => c.valor);
+  const enTabla = mencionadas.filter((n) => p.precios[String(n)] !== undefined);
+  assert.deepEqual(enTabla, [], `se tomó un número de la dirección como cantidad: ${JSON.stringify(mencionadas)}`);
+});

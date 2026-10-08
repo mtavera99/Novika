@@ -896,15 +896,50 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       let cotizacionInformativa = null;
       if (faltan.includes("cantidad") && (!conversacion.precioInformado || vuelveAPreguntar)) {
         const datos = campos.soloConfirmado(conversacion.ficha);
-        const una = cotizador.cotizar({
+
+        // ----------------------------------------------------------------
+        // SE INFORMA EL PRECIO DE LA CANTIDAD QUE PREGUNTO
+        //
+        // Salio al añadir el precio de 2 unidades:
+        //
+        //   clienta: "¿cuánto me salen dos?"
+        //   bot:     "Una unidad te queda en $49.900... ¿Cuántos quieres?"
+        //
+        // Dos errores en una frase: contesta por una cuando preguntaron por
+        // dos, y pregunta algo que la clienta acababa de decir.
+        //
+        // La causa es correcta en su sitio: `extraer` NO toma la cantidad de
+        // una PREGUNTA de precio, solo de una peticion ("quiero 2"), porque
+        // preguntar cuanto cuestan dos no significa que vaya a comprar dos.
+        // Eso esta bien para el PEDIDO. Para INFORMAR el precio, no.
+        //
+        // EL RIESGO ACOTADO POR LA TABLA: solo se usa la cantidad mencionada
+        // si existe en `precios`. "Calle 45 # 23-10" menciona 45, 23 y 10 y
+        // ninguno esta en la tabla, asi que se ignoran solos — sin volver a
+        // escribir la heuristica que ya confundio una direccion con una
+        // cantidad.
+        //
+        // Y NO se toca la ficha: informar no es confirmar. Si se confirmara
+        // la cantidad desde una pregunta, quien pregunta por dos y luego
+        // quiere una se quedaria con dos fijadas.
+        // ----------------------------------------------------------------
+        const enLaTabla = texto
+          .cantidadesEn(evento.texto || "")
+          .map((c) => c.valor)
+          .filter((n) => producto.precios && producto.precios[String(n)] !== undefined);
+        // Con varias mencionadas no se elige: "¿uno o dos?" se informa por
+        // una y la clienta concreta.
+        const cantidadAInformar = new Set(enLaTabla).size === 1 ? enLaTabla[0] : 1;
+
+        const estimada = cotizador.cotizar({
           producto,
-          cantidad: 1,
+          cantidad: cantidadAInformar,
           destino: datos.ciudad ? { ciudad: datos.ciudad, departamento: datos.departamento || null } : null,
           variante: datos.variante || null,
         });
         // Si no sale, no se informa nada. Un producto cuyo envio depende del
         // destino no puede dar un precio antes de saber la ciudad.
-        if (una.ok) cotizacionInformativa = una.cotizacion;
+        if (estimada.ok) cotizacionInformativa = estimada.cotizacion;
       }
 
       return {

@@ -285,3 +285,102 @@ describe("3 · no repetir palabra por palabra", () => {
 });
 
 void DIR;
+
+// --------------------------------------------------------------------------
+// 4 · EL NUMERO DE PEDIDO NO ES UN IMPORTE
+//
+// DE DONDE SALE: un fallo INTERMITENTE de la bateria de arriba. Una vez cada
+// tantas corridas, "ninguna respuesta de posventa trae una cifra sin
+// calcular" fallaba con esto:
+//
+//   cifra no autorizada ante "¿y el envio?": [{"texto":"5558"}]
+//
+// 5558 no era un importe: era parte del numero de pedido
+// NOV-MUYR5558-508BAE67. El filtro leia los digitos del identificador como
+// dinero y DESCARTABA el mensaje.
+//
+// Y era intermitente porque los ids se generan al azar: el mismo texto
+// pasaba o se bloqueaba segun si al id le tocaban cuatro digitos seguidos.
+// Un filtro que falla una vez de cada tantas es peor que uno que falla
+// siempre: el fallo se atribuye a cualquier otra cosa.
+//
+// EN PRODUCCION esto bloqueaba el borrador del modelo cada vez que
+// mencionaba el numero de pedido -o sea, en toda la posventa- y el cliente
+// recibia el texto seco de respaldo sin que nadie se enterara.
+//
+// Estas pruebas usan ids FIJOS a proposito: el defecto se cubre siempre, no
+// cuando toca.
+// --------------------------------------------------------------------------
+
+describe("4 · el número de pedido no se confunde con dinero", () => {
+  const cotizador = require("../src/dominio/cotizador");
+  const AUTORIZADOS = [49900, 1];
+
+  test("un id con cuatro dígitos seguidos NO bloquea el mensaje", () => {
+    const r = cotizador.revisarImportes(
+      "Tu pedido NOV-MUYR5558-508BAE67 ya está confirmado.",
+      AUTORIZADOS
+    );
+    assert.equal(r.ok, true, `bloqueó por el id: ${JSON.stringify(r.sospechosos)}`);
+  });
+
+  test("y uno sin dígitos seguidos tampoco, como antes", () => {
+    const r = cotizador.revisarImportes("Tu pedido NOV-MUYP34SM-E9FC86A6 ya está confirmado.", AUTORIZADOS);
+    assert.equal(r.ok, true);
+  });
+
+  // ------------------------------------------------------------------------
+  // LO QUE NO SE PUEDE HABER ROTO AL ARREGLARLO
+  //
+  // La tentacion era pedir que la cifra no estuviera pegada a letras, y eso
+  // habria abierto un agujero: "49900pesos" dejaria de revisarse. Se eximio
+  // el identificador COMPLETO, con su prefijo, y nada mas.
+  // ------------------------------------------------------------------------
+  test("un importe no autorizado SIGUE bloqueando", () => {
+    const r = cotizador.revisarImportes("Te lo dejo en $35.000.", AUTORIZADOS);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.sospechosos.map((s) => s.valor), [35000]);
+  });
+
+  test("un importe pegado a una palabra SIGUE bloqueando", () => {
+    const r = cotizador.revisarImportes("te queda en 35000pesos", AUTORIZADOS);
+    assert.equal(r.ok, false, "el agujero que habría abierto relajar los límites");
+  });
+
+  test("el id se exime, pero un importe a su lado SÍ se revisa", () => {
+    const r = cotizador.revisarImportes("Tu pedido NOV-AAAA-BBBB cuesta 77000.", AUTORIZADOS);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.sospechosos.map((s) => s.valor), [77000]);
+  });
+
+  test("algo que solo PARECE un id no se exime", () => {
+    // "NOV-1234" no tiene la forma completa del identificador, asi que se
+    // revisa como cualquier cifra.
+    const r = cotizador.revisarImportes("NOV-1234", AUTORIZADOS);
+    assert.equal(r.ok, false);
+  });
+
+  test("con el id REAL que genera el código, sea cual sea", () => {
+    // Se prueban 200 ids generados de verdad: el defecto aparecia en una
+    // fraccion de ellos, asi que una sola muestra no lo habria cazado.
+    const { nuevoIdDePedido } = require("../src/dominio/pedido");
+    for (let i = 0; i < 200; i++) {
+      const id = nuevoIdDePedido("573001234567", new Date(Date.now() + i * 1000));
+      const r = cotizador.revisarImportes(`Tu pedido ${id} ya está confirmado.`, AUTORIZADOS);
+      assert.equal(r.ok, true, `el id ${id} se leyó como importe: ${JSON.stringify(r.sospechosos)}`);
+    }
+  });
+
+  test("y en una conversación de verdad, la posventa no se bloquea nunca", async () => {
+    const c = await conversacion();
+    const pedido = await c.conPedidoConfirmado();
+    const cotizador2 = require("../src/dominio/cotizador");
+
+    for (const m of ["¿y el envio?", "¿cuando llega?", "gracias", "¿tiene garantia?"]) {
+      const r = await c.dice(m);
+      assert.match(r.texto.length ? "ok" : "", /ok/, "tiene que responder algo");
+      const rev = cotizador2.revisarImportes(r.texto, [49900, 1]);
+      assert.equal(rev.ok, true, `bloqueado ante "${m}" (pedido ${pedido.id}): ${JSON.stringify(rev.sospechosos)}`);
+    }
+  });
+});
