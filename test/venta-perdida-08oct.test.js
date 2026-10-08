@@ -244,3 +244,94 @@ describe("4 · preguntar por el cargador recibe la respuesta honesta", () => {
     }
   });
 });
+
+// --------------------------------------------------------------------------
+// 5 · NO SE PROMETE CUÁNDO SE CONTESTA · el bucle del chat de Marco
+//
+// Esto le llegó a Marco desde su propio número, DESPUÉS de que se hubieran
+// prohibido las frases de tiempo:
+//
+//   Marco  · "Buenas"
+//   NOVIKA · "Déjame confirmarlo bien con el equipo y te escribo en un
+//             momentico."
+//   Marco  · "Confirmar que?"
+//   NOVIKA · "Perdón, no quiero repetirme. Dime concretamente qué necesitas"
+//   Marco  · "Empecemos de nuevo"
+//   NOVIKA · "Déjame confirmarlo bien con el equipo…"
+//
+// «momentico» no estaba en `claimsProhibidos`, y «te escribo» tampoco casaba
+// con «te escribe». La lista tapaba las cuatro frases vistas, no el ERROR:
+// compara TEXTO EXACTO, y en castellano colombiano hay infinitas formas de
+// decir lo mismo — momentico, ratico, minuticos, ahorita, ya mismo—.
+//
+// El propio documento de traspaso lo avisaba: «estas dos últimas se
+// escaparon una vez por buscar la palabra exacta». Se arregló el síntoma.
+//
+// Importa porque NO HAY NADIE DE GUARDIA: a una clienta que escribe un
+// domingo a las 11 de la noche, «en un momentico» es mentira.
+// --------------------------------------------------------------------------
+
+describe("5 · las promesas de tiempo se cazan por patrón, no por frase exacta", () => {
+  const PROMESAS = [
+    "Déjame confirmarlo bien con el equipo y te escribo en un momentico.",
+    "te escribo en un momentico",
+    "te confirmo en un momento",
+    "te aviso en un ratico",
+    "en unos minuticos te cuento",
+    "ya mismo te confirmo",
+    "ahorita te escribo",
+    "te respondo enseguida",
+    "te contestamos de inmediato",
+    "Dame un momento y te confirmo.",
+  ];
+
+  test("ninguna variante se escapa", () => {
+    const producto = elCinturon();
+    for (const frase of PROMESAS) {
+      const r = responder.revisarClaims(frase, producto);
+      assert.equal(r.ok, false, `se escapó una promesa de tiempo: ${frase}`);
+    }
+  });
+
+  test("pero el PLAZO DE ENTREGA sí se puede decir: es un dato del catálogo", () => {
+    // La diferencia no es cosmetica: "1 a 3 dias habiles" lo aprobo Marco y
+    // sale de la ficha. Lo prohibido es prometer cuando CONTESTAMOS.
+    const producto = elCinturon();
+    for (const frase of [
+      "Te llega en 1 a 3 días hábiles según tu ciudad.",
+      "A Bogotá te llega en 1 a 3 días hábiles.",
+      "Lo dejo anotado para el equipo y te responden por aquí.",
+      "Esto lo reviso con una persona del equipo y te responde por aquí.",
+      "Pagas cuando lo recibes, en la puerta de tu casa. Nada por adelantado.",
+    ]) {
+      const r = responder.revisarClaims(frase, producto);
+      assert.equal(r.ok, true, `bloqueó algo legítimo: ${frase} -> ${JSON.stringify(r.encontrados)}`);
+    }
+  });
+
+  test("y el texto determinista tampoco promete un plazo", () => {
+    // El candado vigilaba al modelo mientras el codigo decia lo mismo:
+    // "Dame un momento y te confirmo" era texto nuestro, no de la IA.
+    const producto = elCinturon();
+    const SITUACIONES = ["resumen", "faltan_datos", "confirmado", "ya_confirmado", "escalado", "cancelado"];
+    for (const situacion of SITUACIONES) {
+      for (const cotizacion of [null, cotizador.cotizar({ producto, cantidad: 1 }).cotizacion]) {
+        const texto = responder.textoDeterminista({
+          situacion,
+          cotizacion,
+          faltan: ["nombre", "direccion"],
+          pedido: { id: "NOV-X" },
+          producto,
+          mensajeCliente: "Buenas",
+          memoria: { saludado: true },
+        });
+        const r = responder.revisarClaims(texto, producto);
+        assert.equal(
+          r.ok,
+          true,
+          `el texto determinista promete un plazo en ${situacion}: ${JSON.stringify(r.encontrados)} -> ${texto}`
+        );
+      }
+    }
+  });
+});
