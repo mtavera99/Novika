@@ -285,10 +285,34 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
       return loConfirmo("El material", "lo");
     }
 
+    // ----------------------------------------------------------------------
+    // "¿PARA QUE SIRVE?" — LA PREGUNTA QUE NO TENEMOS APROBADA
+    //
+    // En la captura de Marco: "Para que sirve?" recibio "Cinturón térmico
+    // con correa ajustable y panel de control. Se entrega con su empaque."
+    // Eso describe el OBJETO, no responde PARA QUE sirve.
+    //
+    // Y no se puede completar sin inventar: lo unico aprobado es la
+    // descripcion fisica. El proposito -para que lo usan las clientas- es
+    // justo lo que esta prohibido afirmar sin respaldo, porque este
+    // producto se compra por dolor y cualquier frase de alivio es una
+    // promesa medica.
+    //
+    // Asi que se dice lo que SI se sabe, se ofrecen las fotos -que
+    // muestran el producto mejor que cualquier frase- y se admite el
+    // resto. Es lo honesto, y es lo unico que se puede hacer hasta que
+    // Marco apruebe que decir: esta pedido en docs/DATOS-PENDIENTES.md.
+    // ----------------------------------------------------------------------
     case TEMAS.USO: {
-      // Lo que se puede decir es la descripcion aprobada, tal cual.
-      if (producto && producto.descripcionAutorizada) return String(producto.descripcionAutorizada);
-      return loConfirmo("Eso", "lo");
+      const descripcion = producto && producto.descripcionAutorizada;
+      if (!descripcion) return loConfirmo("Para qué sirve", "lo");
+
+      const partes = [String(descripcion)];
+      if (producto && (producto.imagenes || []).length) {
+        partes.push("Te paso las fotos para que lo veas bien.");
+      }
+      partes.push("Si quieres que te cuente más de cómo se usa, te lo explica una persona del equipo.");
+      return partes.join(" ");
     }
 
     // ----------------------------------------------------------------------
