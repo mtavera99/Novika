@@ -44,7 +44,57 @@ const BLOQUEOS = {
    * No es un bloqueo por riesgo: es que ya habia una respuesta mejor.
    */
   CUBIERTO_POR_EL_CATALOGO: "cubierto_por_el_catalogo",
+  /** Dice que el pedido salio y el pedido no ha salido. */
+  DESPACHO_SIN_RESPALDO: "despacho_sin_respaldo",
 };
+
+// ==========================================================================
+// DECIR QUE SALIO, SOLO SI SALIO
+//
+// La primera version metio "tu pedido ya salio" en `claimsProhibidos`, y
+// eso prohibe LA FRASE — tambien cuando es verdad. Marco lo corrigio: el
+// control debe impedir promesas SIN RESPALDO, no prohibir la palabra. Si un
+// pedido salio de verdad, el bot tiene que poder decirlo, porque es la
+// pregunta en la que mas se desconfia de una tienda por WhatsApp.
+//
+// Asi que esto no mira el vocabulario: compara lo que el texto AFIRMA con
+// el estado real del pedido. Un dato con respaldo pasa; el mismo dato sin
+// respaldo se bloquea. La diferencia no esta en las palabras, esta en los
+// hechos.
+//
+// El respaldo es fuerte: `despacho.guia` solo se escribe cuando una persona
+// despacha desde el panel, y el dominio no deja marcar despachado sin guia.
+// ==========================================================================
+const AFIRMA_QUE_SALIO = [
+  /\b(ya|fue)\s+(salio|despachado|despachamos|enviado|enviamos)\b/,
+  /\bya\s+(va|viene)\s+en\s+camino\b/,
+  /\bya\s+(esta|quedo)\s+despachad[oa]\b/,
+  /\bse\s+despacho\s+ya\b/,
+  /\bya\s+te\s+lo\s+(mandamos|enviamos|despachamos)\b/,
+];
+
+/**
+ * ¿El texto dice que el pedido salio sin que haya salido?
+ *
+ * @param {string} texto
+ * @param {object|null} pedido  con `estado` y, si salio, `guia`
+ */
+function revisarDespacho(texto, pedido) {
+  const plano = aplanar(texto);
+  if (!plano) return { ok: true };
+  if (!AFIRMA_QUE_SALIO.some((re) => re.test(plano))) return { ok: true };
+
+  // Lo afirma. Solo vale si de verdad salio.
+  const salio = pedido && pedido.estado === "despachado";
+  if (salio) return { ok: true };
+
+  return {
+    ok: false,
+    motivo: pedido
+      ? `dice que el pedido salio y su estado es "${pedido.estado}"`
+      : "dice que un pedido salio y no hay ningun pedido",
+  };
+}
 
 /**
  * Interruptor de vuelta atras: con IA_REDACTA_SIEMPRE=1, el borrador del
@@ -941,12 +991,41 @@ function textoDeterminista({
       // si importa. Ahora hace falta una señal explicita: "¿ya salió?",
       // "mi pedido", "mi guía".
       // ------------------------------------------------------------------
+      // ------------------------------------------------------------------
+      // SI YA SALIO, SE DICE QUE YA SALIO
+      //
+      // Decia "te avisamos en cuanto salga" SIEMPRE, incluso con el pedido
+      // ya despachado y con guia. A quien pregunta "¿ya salió mi pedido?"
+      // dos dias despues del despacho se le contestaba que le avisaremos
+      // cuando salga: es falso, y encima es la pregunta en la que mas se
+      // desconfia de una tienda por WhatsApp.
+      //
+      // El dato existe y esta respaldado -`despacho.guia` solo se escribe
+      // cuando una persona despacha de verdad desde el panel, y el dominio
+      // no deja marcar despachado sin guia- asi que decirlo no es una
+      // promesa: es un hecho con su numero de rastreo.
+      //
+      // ES LA DISTINCION QUE PEDIA MARCO: lo que no se puede es PROMETER un
+      // despacho que no ha pasado. Contar uno que ya paso es justo lo
+      // contrario, y callarlo era otra forma de dejar al cliente a ciegas.
+      // ------------------------------------------------------------------
       if (!respuesta.texto || lectura.porSuPedido) {
-        partes.push(
-          pedido
-            ? `Tu pedido ${pedido.id} está confirmado y te avisamos en cuanto salga.`
-            : "Tu pedido está confirmado."
-        );
+        const salio = pedido && pedido.estado === "despachado";
+        const guia = (pedido && pedido.guia) || null;
+        const transportadora = (pedido && pedido.transportadora) || null;
+
+        if (salio && guia) {
+          partes.push(
+            `Tu pedido ${pedido.id} ya salió${transportadora ? ` por ${transportadora}` : ""}, ` +
+              `con la guía ${guia}.`
+          );
+        } else if (salio) {
+          partes.push(`Tu pedido ${pedido.id} ya salió.`);
+        } else if (pedido) {
+          partes.push(`Tu pedido ${pedido.id} está confirmado y te avisamos en cuanto salga.`);
+        } else {
+          partes.push("Tu pedido está confirmado.");
+        }
       }
 
       // Si pidio otro, se le dice que lo gestiona una persona. NO se abre un
@@ -1177,6 +1256,13 @@ function preparar({
     bloqueos.push({ tipo: BLOQUEOS.CLAIM_PROHIBIDO, detalle: claims.encontrados });
   }
 
+  // Afirmar que el pedido salio se comprueba CONTRA EL ESTADO, no contra una
+  // lista de frases: el mismo texto es correcto si salio y mentira si no.
+  const despacho = revisarDespacho(borradorIA, pedido);
+  if (!despacho.ok) {
+    bloqueos.push({ tipo: BLOQUEOS.DESPACHO_SIN_RESPALDO, detalle: despacho.motivo });
+  }
+
   if (bloqueos.length) {
     // Borrador descartado completo. El cliente recibe el texto determinista.
     return { texto: determinista, origen: "determinista", bloqueos };
@@ -1276,6 +1362,7 @@ module.exports = {
   PEDIR_CONCRETAR,
   PASAR_A_PERSONA,
   revisarClaims,
+  revisarDespacho,
   lineaComercial,
   pedirLoQueFalta,
   enumerar,

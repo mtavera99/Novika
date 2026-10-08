@@ -680,14 +680,78 @@ describe("8 · ni despacho hoy, ni respuesta inmediata", () => {
       "cinturon-termico-colicos"
     );
     const responder = require("../src/cerebro/responder");
-    for (const frase of [
-      "Para despachártelo hoy me pasas la dirección",
-      "Te confirmo enseguida con el equipo",
-      "Tu pedido ya salió",
-    ]) {
+    // PROMESAS de futuro: prohibidas siempre, sin contexto que las salve.
+    for (const frase of ["Para despachártelo hoy me pasas la dirección", "Te confirmo enseguida con el equipo"]) {
       const v = responder.revisarClaims(frase, prod);
       assert.equal(v.ok, false, `el filtro deja pasar la promesa: "${frase}"`);
     }
+  });
+
+  // ------------------------------------------------------------------------
+  // PERO NO SE PROHIBE LA PALABRA, SE COMPRUEBA EL HECHO
+  //
+  // Correccion de Marco: "el control de despacho debe impedir promesas sin
+  // respaldo, no prohibir la palabra despacho. Si un pedido realmente salio,
+  // el bot debe poder decirlo".
+  //
+  // La primera version metio "tu pedido ya salio" en claimsProhibidos, y eso
+  // prohibe la frase TAMBIEN cuando es verdad. Y es la pregunta en la que
+  // mas se desconfia de una tienda por WhatsApp: callarla deja al cliente a
+  // ciegas justo cuando mas quiere saber.
+  //
+  // El mismo texto, dos veredictos, segun el ESTADO del pedido.
+  // ------------------------------------------------------------------------
+  test("si el pedido SALIÓ de verdad, el bot puede decirlo", () => {
+    const responder = require("../src/cerebro/responder");
+    const despachado = { id: "NOV-A", estado: "despachado", guia: "998877" };
+
+    for (const frase of [
+      "Tu pedido NOV-A ya salió por Interrapidísimo, con la guía 998877.",
+      "Tu pedido ya salió.",
+      "ya te lo despachamos",
+    ]) {
+      assert.equal(responder.revisarDespacho(frase, despachado).ok, true, `bloqueó un hecho verdadero: "${frase}"`);
+    }
+  });
+
+  test("y si NO salió, la misma frase se bloquea", () => {
+    const responder = require("../src/cerebro/responder");
+    const confirmado = { id: "NOV-A", estado: "confirmado" };
+
+    for (const frase of ["Tu pedido ya salió.", "ya te lo despachamos", "ya va en camino"]) {
+      const v = responder.revisarDespacho(frase, confirmado);
+      assert.equal(v.ok, false, `dejó pasar un despacho sin respaldo: "${frase}"`);
+      assert.match(v.motivo, /confirmado/, "el motivo no dice el estado real");
+    }
+  });
+
+  test("hablar de despacho sin afirmar que salió no se bloquea", () => {
+    // El control es sobre el HECHO, no sobre el vocabulario.
+    const responder = require("../src/cerebro/responder");
+    const confirmado = { id: "NOV-A", estado: "confirmado" };
+    for (const frase of [
+      "El despacho lo hacemos nosotros.",
+      "Te avisamos en cuanto salga.",
+      "Para preparar tu pedido me pasas la dirección.",
+    ]) {
+      assert.equal(responder.revisarDespacho(frase, confirmado).ok, true, `prohibió la palabra: "${frase}"`);
+    }
+  });
+
+  test("y en posventa se dice la guía cuando existe", async () => {
+    // El dato existe y esta respaldado -el dominio no deja marcar
+    // despachado sin guia- y el bot lo callaba: decia "te avisamos en
+    // cuanto salga" dos dias despues de que saliera.
+    const responder = require("../src/cerebro/responder");
+    const t = responder.textoDeterminista({
+      situacion: "ya_confirmado",
+      cotizacion: null,
+      faltan: [],
+      pedido: { id: "NOV-A", estado: "despachado", guia: "998877", transportadora: "Interrapidísimo" },
+      mensajeCliente: "ya salio mi pedido?",
+    });
+    assert.match(t, /ya salió/i, `no dijo que salió: ${t}`);
+    assert.match(t, /998877/, `no dio la guía para rastrear: ${t}`);
   });
 });
 

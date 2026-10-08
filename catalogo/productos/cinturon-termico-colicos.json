@@ -136,9 +136,7 @@
     "te confirmo en un momento",
     "te respondo enseguida",
     "te escribe en un momento",
-    "te contestamos enseguida",
-    "ya quedo despachado",
-    "tu pedido ya salio"
+    "te contestamos enseguida"
   ],
   "_nota_claims": "Esta lista solo prohibe, nunca afirma, asi que ampliarla no necesita aprobacion; reducirla si. Es un producto de bienestar que se compra por dolor menstrual: el riesgo no es exagerar el precio, es hacer una promesa medica.\n\nLAS DOCE ULTIMAS LINEAS SON DEL 2026-10-07, y las pidio Marco al confirmar la ficha: 'no tenemos medidas del ajuste, no prometas que sirve para cualquier contorno'. El riesgo es concreto y nace de un dato verdadero: 'talla unica con correa ajustable' invita a seguir la frase con 'asi que le sirve a cualquiera', que es exactamente lo que no se sabe. Son frases literales porque revisarClaims las busca en el texto; una instruccion del tipo 'no prometas ajuste universal' no es un candado. Y el dato que falta esta declarado en sinDatoConfirmado como 'hasta que contorno ajusta la correa', para que la pregunta directa se derive a una persona en vez de contestarse por aproximacion.\n\nLAS ONCE ULTIMAS LINEAS SON DEL MISMO CAMBIO QUE HABILITO EL TIEMPO DE ENTREGA (2026-10-07). No son una precaucion generica: son el riesgo que ABRE ese dato. Mientras el bot no podia hablar de plazos, no habia como prometer una fecha; ahora que dice '1 a 3 dias habiles' el paso siguiente -'te llega manana'- es el que da el modelo solo, y ese si es incumplible porque depende de la transportadora y de la hora de corte. BIKERPRO tiene el mismo candado y por el mismo motivo.",
   "motorDePrecio": "tabla",
