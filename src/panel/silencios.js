@@ -119,16 +119,17 @@ const QUE_HACER = {
     gravedad: "baja",
   },
   [MOTIVOS.SIN_TELEFONO]: {
-    titulo: "El cliente no tiene número de teléfono",
+    titulo: "No había a dónde enviar el mensaje",
     porQue:
-      "Escribió con su NOMBRE DE USUARIO de WhatsApp, así que su identificador empieza por «CO.» y no hay " +
-      "número al que escribirle. Meta rechaza los mensajes a ese destino (error 131026). Reintentarlo no " +
-      "cambia nada, y el bot ya no lo intenta para no quemar envíos.",
+      "El destinatario no era ni un teléfono ni un identificador de WhatsApp con la forma que Meta exige, " +
+      "así que no se gastó el intento. " +
+      "Ojo: a los clientes que entran con NOMBRE DE USUARIO (su id empieza por «CO.») SÍ se les puede " +
+      "escribir desde junio de 2026 — el mensaje sale con su identificador—. Lo que no tenemos de ellos es " +
+      "el teléfono.",
     comoSeArregla:
-      "Hoy no se puede responder por WhatsApp a estos clientes. Lo que sí sirve: que vuelvan a escribir " +
-      "dejando un número. Queda pendiente confirmar en la documentación de Meta si su API permite " +
-      "responder a un usuario sin número.",
-    gravedad: "alta",
+      "Si el cliente entró con nombre de usuario, contéstale normal: el bot ya lo hace. Lo que hay que " +
+      "pedirle en el chat es el celular, porque sin él la transportadora no puede entregar.",
+    gravedad: "media",
   },
   [MOTIVOS.FALLO]: {
     titulo: "Meta rechazó el mensaje",

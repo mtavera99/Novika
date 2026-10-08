@@ -49,20 +49,71 @@ const PERMISOS = {
 /**
  * ¿Este destinatario es un telefono al que Meta acepta escribir?
  *
- * VIVE AQUI Y SE EXPORTA, en vez de repetirse donde haga falta. El panel
- * necesita la MISMA respuesta para avisar al operador ANTES de que redacte
- * un mensaje que no va a salir, y dos copias de esta regla se separan: ya
+ * VIVE AQUI Y SE EXPORTA, en vez de repetirse donde haga falta: el panel
+ * necesita la MISMA respuesta. Dos copias de esta regla se separan — ya
  * paso con las dos listas de "pregunta de precio" y con el filtro de pedido
  * activo duplicado en cada backend.
- *
- * Un `CO.…` es un BSUID: el identificador de los clientes que escriben con
- * NOMBRE DE USUARIO de WhatsApp y no tienen numero. Meta los rechaza con
- * 131026.
  */
 function esUnTelefono(destino) {
   const d = String(destino || "");
   const digitos = d.replace(/\D/g, "");
   return digitos.length >= 7 && digitos.length <= 15 && !/[a-z]/i.test(d);
+}
+
+/**
+ * ¿Es un BSUID? `{codigo de pais ISO}.{hasta 128 alfanumericos}`.
+ *
+ * Es el identificador de los clientes que entran con NOMBRE DE USUARIO de
+ * WhatsApp, una funcion de privacidad que Meta empezo a desplegar en 2026:
+ * el cliente oculta su numero y en el webhook llega solo este `CO.…`.
+ *
+ * Se valida la forma COMPLETA -codigo de pais y punto incluidos- porque la
+ * documentacion de Meta avisa de que recortar o modificar cualquier parte
+ * hace fallar la peticion.
+ */
+function esUnBsuid(destino) {
+  return /^[A-Za-z]{2}\.[A-Za-z0-9]{1,128}$/.test(String(destino || ""));
+}
+
+/**
+ * Como se le escribe a este destinatario, en la forma que exige Meta.
+ *
+ * --------------------------------------------------------------------------
+ * A LOS CLIENTES CON NOMBRE DE USUARIO **SI** SE LES PUEDE ESCRIBIR
+ * --------------------------------------------------------------------------
+ *
+ * Esto antes bloqueaba cualquier destino que no fuera un telefono, con el
+ * motivo "no se puede escribir a este cliente". Era lo correcto cuando se
+ * escribio -8 fallos reales con error 131026- pero ERA UNA CONCLUSION SIN
+ * COMPROBAR, y el propio comentario dejaba el pendiente anotado: "hay que
+ * comprobar en la documentacion de Meta si la API admite responder a un
+ * usuario sin numero".
+ *
+ * Marco insistio en que si se podia. Comprobado en la documentacion de Meta
+ * (Business-scoped user IDs, actualizada el 15-sep-2026), y tiene razon:
+ *
+ *   · para enviar con el telefono -> se pone `to` y se OMITE `recipient`
+ *   · para enviar con el BSUID    -> se pone `recipient` y se OMITE `to`
+ *
+ * Y el envio a BSUIDs esta disponible desde junio de 2026.
+ *
+ * ⚠️ OJO CON LA FUENTE: la documentacion de Azure dice que el campo `to`
+ * acepta "un telefono o un BSUID, el servicio detecta el formato". Eso es
+ * cierto para EL WRAPPER DE AZURE, no para la API de Meta, que es la que
+ * usamos aqui. Seguir esa frase habria significado mandar el BSUID en `to`,
+ * y la peticion falla. Por eso se confirmo contra la documentacion de Meta.
+ *
+ * Los 8 fallos originales no fueron porque no se pueda: fue porque se
+ * mandaba el BSUID en `to`, que es justo el error que Meta rechaza.
+ *
+ * @returns {{to:string}|{recipient:string}|null} null si no es ninguna de
+ *   las dos cosas: ahi si no hay nada que intentar.
+ */
+function destinatarioDe(destino) {
+  const d = String(destino || "").trim();
+  if (esUnTelefono(d)) return { to: d };
+  if (esUnBsuid(d)) return { recipient: d };
+  return null;
 }
 
 const MOTIVOS_BLOQUEO = {
@@ -255,13 +306,14 @@ function crearEmisor({
     // envio y que una persona lo vea.
     // ----------------------------------------------------------------------
     const destino = String(para || "");
-    if (!esUnTelefono(destino)) {
-      contar("envio_sin_telefono_valido");
-      registrar("warn", "destinatario_no_es_telefono", {
+    const comoEnviar = destinatarioDe(destino);
+    if (!comoEnviar) {
+      contar("envio_sin_destino_valido");
+      registrar("warn", "destinatario_no_valido", {
         // El identificador NO se recorta: con la mascara puesta parecia un
         // telefono extranjero y me llevo a una conclusion inventada.
         destino,
-        porQue: "parece un BSUID (cliente con nombre de usuario, sin numero)",
+        porQue: "no es un telefono ni un BSUID con la forma que exige Meta",
       });
       return {
         enviado: false,
@@ -274,7 +326,9 @@ function crearEmisor({
     const cuerpo = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      to: String(para),
+      // `to` con un telefono, o `recipient` con un BSUID. NUNCA los dos:
+      // Meta lo exige asi, y `destinatarioDe` devuelve solo uno.
+      ...comoEnviar,
       type: tipo,
       [tipo]: contenido,
     };
@@ -421,6 +475,8 @@ module.exports = {
   PERMISOS,
   MOTIVOS_BLOQUEO,
   esUnTelefono,
+  esUnBsuid,
+  destinatarioDe,
   MAX_PIE_DE_FOTO,
   CODIGOS_TEMPORALES,
   HTTP_TEMPORALES,
