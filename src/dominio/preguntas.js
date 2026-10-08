@@ -448,6 +448,12 @@ const PIDE_INFORMACION = [
   /\bque\s+me\s+(puedes?|podrias?)\s+(decir|contar)\b/,
   /\bme\s+explicas?\b/,
   /\bde\s+que\s+se\s+trata\b/,
+  // "que tal el producto", "como es el cinturon": piden que les cuenten.
+  // Caian en la red de texto vacio y recibian un "¿en qué te puedo
+  // ayudar?" generico, teniendo la ficha entera para contestarles.
+  /\bque\s+tal\s+(el|la|ese|esa|los|las)\b/,
+  /\bcomo\s+es\s+(el|la|ese|esa)\b/,
+  /\bque\s+es\s+(eso|esto|el|la)\b/,
 ];
 
 /** Saludos puros: no preguntan nada. */

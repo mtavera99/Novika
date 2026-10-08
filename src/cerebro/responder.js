@@ -46,6 +46,12 @@ const BLOQUEOS = {
   CUBIERTO_POR_EL_CATALOGO: "cubierto_por_el_catalogo",
   /** Dice que el pedido salio y el pedido no ha salido. */
   DESPACHO_SIN_RESPALDO: "despacho_sin_respaldo",
+  /**
+   * El texto determinista salio VACIO y se sustituyo. Es un aviso, no un
+   * riesgo: si aparece, hay una combinacion de reglas que da cero y el
+   * cliente habria recibido silencio.
+   */
+  TEXTO_VACIO_EVITADO: "texto_vacio_evitado",
 };
 
 // ==========================================================================
@@ -622,6 +628,39 @@ function textoDeterminista({
       // pide nada. Ver `arranque`.
       if (lectura.soloSaludo && !memoria.saludado) {
         return arranque(cot, producto, { asumida: !cotizacion && Boolean(cotizacionInformativa) });
+      }
+
+      // ------------------------------------------------------------------
+      // UN SALUDO EN UN CHAT VIEJO SE CONTESTA. NO SE CALLA.
+      //
+      // EL DEFECTO MAS GRAVE DE TODA LA SESION, y era el que Marco veia en
+      // su chat de pruebas sin poder explicarlo:
+      //
+      //   Marco  · "Hola buenas noches"
+      //   NOVIKA · (NADA)        bloqueo=texto_vacio
+      //
+      // El bot no estaba "plano": estaba MUDO. Y no era que los cambios no
+      // llegaran a su chat —llegaban— sino justo lo contrario: su chat
+      // tiene toda la memoria acumulada, y cada marcador suprime una parte
+      // del mensaje para no repetirse:
+      //
+      //   saludado        -> no se presenta el producto
+      //   precioInformado -> no se dice el precio
+      //   pasoPropuesto   -> no se deja la puerta abierta
+      //
+      // Cada supresion es correcta por separado. Las tres juntas, sobre un
+      // saludo -que no trae temas ni señal de compra- dejan el mensaje sin
+      // UNA SOLA frase, y el emisor lo bloquea por vacio.
+      //
+      // Le pasa a cualquier cliente que vuelva a saludar al dia siguiente,
+      // que es de los momentos mas valiosos que hay: alguien que ya nos
+      // conoce y vuelve. Se le contestaba con silencio.
+      //
+      // La rama `ya_confirmado` SI lo tenia resuelto. Esta no.
+      // ------------------------------------------------------------------
+      if (lectura.soloSaludo) {
+        const quien = voz.nombreDePila(nombreCliente);
+        return componer([quien ? `¡Hola, ${quien}!` : "¡Hola!", "¿En qué te puedo ayudar?"]);
       }
 
       const partes = [];
@@ -1305,6 +1344,32 @@ function preparar({
       tipo: BLOQUEOS.IMPORTE_NO_AUTORIZADO,
       detalle: importes.sospechosos.map((s) => s.valor),
     });
+  }
+
+  // ==========================================================================
+  // NUNCA, POR NINGUN CAMINO, SE DEVUELVE UN TEXTO VACIO
+  //
+  // El saludo en un chat viejo producia una respuesta VACIA: tres marcadores
+  // de memoria, cada uno suprimiendo correctamente su parte, y el mensaje se
+  // quedaba sin una sola frase. El emisor lo bloqueaba por `texto_vacio` y
+  // el cliente recibia silencio.
+  //
+  // Ese caso concreto ya esta arreglado arriba. Esto es la RED, y existe
+  // porque el defecto no fue una rama olvidada: fue la SUMA de tres reglas
+  // correctas. Mientras el texto se componga sumando y restando trozos,
+  // alguna combinacion futura volvera a dar cero — y lo que no puede volver
+  // a pasar es que el cliente se quede sin respuesta.
+  //
+  // Vale mas una frase floja que un silencio: el silencio parece que no
+  // leimos el mensaje, y es lo unico que no se puede arreglar despues.
+  // ==========================================================================
+  if (!String(determinista || "").trim()) {
+    const quien = voz.nombreDePila(nombreCliente);
+    return {
+      texto: quien ? `¡Hola, ${quien}! ¿En qué te puedo ayudar?` : "¡Hola! ¿En qué te puedo ayudar?",
+      origen: "determinista",
+      bloqueos: [{ tipo: BLOQUEOS.TEXTO_VACIO_EVITADO, detalle: `situacion "${situacion}"` }],
+    };
   }
 
   const claims = revisarClaims(borradorIA, producto);
