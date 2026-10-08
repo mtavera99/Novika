@@ -69,10 +69,32 @@ describe("1 · las piezas de la voz", () => {
     assert.equal(voz.unir(["¿Te sirve?", "me pasas la ciudad."]), "¿Te sirve? Me pasas la ciudad.");
   });
 
-  test("un emoji como máximo, y nunca dos", () => {
+  test("hasta dos emojis, y el segundo no se pega al primero", () => {
     assert.equal(voz.cuantosEmojis(voz.conEmoji("Hola", "confirmado")), 1);
-    // Si el texto ya trae uno, no se añade otro.
+
+    // Una sola frase que ya trae emoji NO recibe otro: no hay donde
+    // ponerlo sin pegarlo al lado.
     assert.equal(voz.cuantosEmojis(voz.conEmoji("Hola 🙌", "confirmado")), 1);
+
+    // Con una segunda frase SI cabe, y va al final de la primera.
+    const dos = voz.conEmoji("Te queda en $49.900. ¿Te lo aparto? 🙌", "precio");
+    assert.equal(voz.cuantosEmojis(dos), 2, dos);
+    assert.match(dos, /\$49\.900 📦 ¿Te lo aparto\? 🙌/, dos);
+
+    // El mismo emoji no se repite.
+    assert.equal(voz.cuantosEmojis(voz.conEmoji("Una. ¿Otra? 📦", "precio")), 1);
+
+    // Y nunca un tercero.
+    assert.equal(voz.cuantosEmojis(voz.conEmoji("Una 📦. ¿Otra? 🙌", "garantia")), 2);
+  });
+
+  test("la mayúscula sobrevive a un emoji de en medio", () => {
+    // El emoji no cuenta como letra: si una pieza acaba en signo + emoji,
+    // la siguiente sigue empezando en mayuscula. Es el mismo descuido que
+    // delataba a la maquina cuando salia "¡Claro que sí! tiene garantía",
+    // ahora que un mensaje puede llevar un emoji en medio.
+    assert.equal(voz.unir(["¡Claro! 😊", "tiene 1 mes."]), "¡Claro! 😊 Tiene 1 mes.");
+    assert.equal(voz.unir(["Te queda en $49.900. 📦", "¿te lo aparto?"]), "Te queda en $49.900. 📦 ¿Te lo aparto?");
   });
 
   test("el emoji no va detrás de un punto", () => {
@@ -292,13 +314,40 @@ describe("3 · la calidez no introdujo ninguna promesa", () => {
     }
   });
 
-  test("ningún texto lleva más de un emoji", () => {
-    // Tres emojis en un mensaje se lee peor que ninguno, y pasa solo si
-    // cada pieza trae el suyo.
+  test("ningún texto lleva más de DOS emojis", () => {
+    // Esto exigia UNO, y con uno solo Marco volvio a probar el bot y lo
+    // siguio viendo "muy seco, sin emojis, muy tipo robot".
+    //
+    // DOS es la regla escrita del guion de BIKERPRO -"Emojis con moderación
+    // (1 o 2 por mensaje)"-, que es el bot que Marco pone como ejemplo de
+    // buen tono. El tope sigue siendo duro: TRES se lee peor que ninguno.
     for (const { situacion, mensajeCliente, texto } of todosLosTextos()) {
       assert.ok(
-        voz.cuantosEmojis(texto) <= 1,
+        voz.cuantosEmojis(texto) <= 2,
         `${voz.cuantosEmojis(texto)} emojis en ${situacion} con "${mensajeCliente}": ${texto}`
+      );
+    }
+  });
+
+  test("y los dos emojis nunca van pegados ni repetidos", () => {
+    // Las dos formas de que "dos emojis" se lea a descuido, y las dos
+    // salieron de verdad al subir el tope:
+    //
+    //   · pegados   "...pagas al recibir 🙌 📦"
+    //   · repetidos "¡Claro que sí! 😊 ... ¿Te lo aparto? 😊"
+    for (const { situacion, mensajeCliente, texto } of todosLosTextos()) {
+      const emojis = texto.match(voz.RE_EMOJI) || [];
+      assert.equal(
+        new Set(emojis).size,
+        emojis.length,
+        `emoji repetido en ${situacion} con "${mensajeCliente}": ${texto}`
+      );
+      assert.equal(
+        /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]\s*[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(
+          texto
+        ),
+        false,
+        `dos emojis pegados en ${situacion} con "${mensajeCliente}": ${texto}`
       );
     }
   });

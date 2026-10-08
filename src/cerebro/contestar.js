@@ -220,7 +220,10 @@ function deTema(tema, { producto = null, cotizacion = null, yaDijoLasCondiciones
       // venta en la duda mas frecuente del producto.
       const ajuste = producto && producto.ajuste;
       if (ajuste && ajuste.graduable) {
-        partes.push("La correa es graduable, así que se ajusta a distintas medidas.");
+        // En MINUSCULA, como el resto de las frases de este archivo: va
+        // detras de una apertura y la mayuscula la pone `voz.unir`. Con la
+        // "L" fija salia "Sí, La correa es graduable".
+        partes.push("la correa es graduable, así que se ajusta a distintas medidas.");
       } else {
         const talla = caracteristica(producto, /talla/);
         if (talla) partes.push(`${talla.charAt(0).toUpperCase()}${talla.slice(1)}.`);
