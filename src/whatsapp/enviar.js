@@ -51,6 +51,11 @@ const MOTIVOS_BLOQUEO = {
   SIN_CREDENCIALES: "sin_credenciales",
   SIN_PERMISO: "sin_permiso",
   SIN_DESTINO: "sin_destino",
+  /**
+   * Hay destinatario, pero no es un telefono: es un BSUID de un cliente que
+   * escribe con nombre de usuario de WhatsApp. Meta lo rechaza con 131026.
+   */
+  SIN_TELEFONO: "destinatario_sin_telefono",
   TEXTO_VACIO: "texto_vacio",
   /** El panel puede enviar, pero su interruptor esta apagado. */
   ENVIO_MANUAL_APAGADO: "envio_manual_apagado",
@@ -196,6 +201,56 @@ function crearEmisor({
         registrar("warn", "envio_bloqueado", { motivo: permitido.motivo });
       }
       return { enviado: false, bloqueado: true, motivo: permitido.motivo };
+    }
+
+    // ----------------------------------------------------------------------
+    // UN BSUID NO ES UN DESTINATARIO: NO SE QUEMA EL INTENTO
+    //
+    // SALIO DE LA AUDITORIA REAL, y son 8 fallos de envio con el mismo
+    // error del proveedor:
+    //
+    //   contacto CO.1667873168388823
+    //   error 131026 · Message undeliverable
+    //
+    // Ese `CO.…` no es un telefono: es un BSUID, el identificador de los
+    // clientes que escriben con NOMBRE DE USUARIO de WhatsApp y no tienen
+    // numero. `normalizar.js` ya lo distingue -`idCliente` cae al bsuid
+    // cuando no hay telefono- y su comentario avisaba de esto literalmente:
+    // "la clave de la conversacion y el telefono al que se despacha son
+    // cosas distintas, y confundirlas rompe el despacho".
+    //
+    // Y se confundian: el cerebro envia a `evento.telefono || evento
+    // .idCliente`, asi que sin telefono mandaba al BSUID y Meta lo
+    // rechazaba. El cliente nunca recibia nada, y como el fallo pasaba en
+    // la red, no quedaba a la vista de nadie.
+    //
+    // Aqui NO se intenta. Reintentar contra un destinatario invalido gasta
+    // tres llamadas, llena el diario de ruido y tapa el motivo real. Se
+    // devuelve bloqueado con un motivo que se entiende, y quien llama
+    // decide -el cerebro deja tarea para una persona-.
+    //
+    // LO QUE NO SE RESUELVE AQUI, y es decision de Marco: si a estos
+    // clientes se les puede responder de otra forma. Hay que comprobar en
+    // la documentacion de Meta si la API admite responder a un usuario sin
+    // numero; mientras no se sepa, lo unico honesto es no fingir que se
+    // envio y que una persona lo vea.
+    // ----------------------------------------------------------------------
+    const destino = String(para || "");
+    const soloDigitos = destino.replace(/\D/g, "");
+    const esTelefono = soloDigitos.length >= 7 && soloDigitos.length <= 15 && !/[a-z]/i.test(destino);
+    if (!esTelefono) {
+      contar("envio_sin_telefono_valido");
+      registrar("warn", "destinatario_no_es_telefono", {
+        // El identificador NO se recorta: con la mascara puesta parecia un
+        // telefono extranjero y me llevo a una conclusion inventada.
+        destino,
+        porQue: "parece un BSUID (cliente con nombre de usuario, sin numero)",
+      });
+      return {
+        enviado: false,
+        bloqueado: true,
+        motivo: MOTIVOS_BLOQUEO.SIN_TELEFONO,
+      };
     }
 
     const url = `https://graph.facebook.com/${config.versionGraph}/${config.idNumero}/messages`;

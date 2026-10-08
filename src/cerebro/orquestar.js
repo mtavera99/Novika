@@ -978,6 +978,16 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       });
       traza.enviada = envio.enviado === true;
       traza.bloqueoDeEnvio = envio.bloqueado ? envio.motivo : null;
+      // Si no tiene telefono, el bot NO puede responderle nunca. No es un
+      // fallo que se reintente: es un cliente que hay que atender a mano,
+      // y tiene que verse en el panel.
+      if (envio.motivo === "destinatario_sin_telefono") {
+        atencionDeChat.anotarPendiente(conversacion, {
+          motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_TELEFONO,
+          pregunta: evento.texto || "",
+        });
+        contar("cliente_sin_telefono");
+      }
     }
 
     // ------------------------------------------------------------------

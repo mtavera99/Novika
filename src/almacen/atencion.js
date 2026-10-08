@@ -82,6 +82,11 @@ const MOTIVOS_PENDIENTE = {
   CAMBIO_DE_PEDIDO: "cambio_de_pedido",
   /** El bot no supo y lo dijo. */
   NO_SUPO: "el_bot_no_supo",
+  /**
+   * Escribio con nombre de usuario de WhatsApp y no tiene telefono, asi que
+   * el bot NO le puede responder por la API. Hay que atenderlo a mano.
+   */
+  SIN_TELEFONO: "cliente_sin_telefono",
 };
 
 /**
