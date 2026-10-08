@@ -30,7 +30,11 @@ en **cada** llamada (node v22). Postgres local:
 invocación. Cada comando es un contenedor nuevo: `/tmp` se borra y los
 procesos no sobreviven.
 
-**Pruebas:** `npm test` → 862 sin base (1 omitida), **917 con Postgres**.
+**Pruebas:** `npm test` → **884 sin base** (1 omitida), medidas el 08-oct tras
+el PR #41 (eran 862). Con Postgres deberían ser **939**, pero ese número
+**no está verificado**: el sandbox de esa sesión no traía binarios de
+PostgreSQL ni el `pg-local.sh`, así que las 55 que lo exigen no se corrieron.
+El cambio no toca persistencia.
 
 ---
 
@@ -124,17 +128,56 @@ correa **graduable** · **para qué sirve** (el calor alivia el cólico) ·
 
 ## Lo que falta, en orden de impacto
 
-### A · Las objeciones (lo que pidió Marco y no se hizo)
+### A · ~~Las objeciones~~ · LA DE PRECIO, HECHA (PR #41)
 
-Hoy «está muy caro» **no se reconoce como objeción**: cae en el camino
-genérico. BIKERPRO tiene guion para precio, confianza, envío y descuento.
+`TEMAS.OBJECION_PRECIO` existe y «está muy caro» ya no cae en el camino
+genérico. La **forma** salió de BIKERPRO (su escalera: no saltar al
+descuento, porque las jugadas que no cuestan nada cierran igual o mejor); las
+**condiciones no se copiaron**. La escalera de NOVIKA:
 
-Marco autorizó el enfoque con su ejemplo: *«mira, está en valor promoción, el
-envío está totalmente gratuito»* — y en NOVIKA el envío **sí** va incluido,
-así que es verdad y se puede decir.
+1. el envío ya va incluido → el precio que vio es el final;
+2. paga al recibir → no arriesga plata;
+3. **si lleva dos, la pareja sale mejor que dos sueltas** (el paso más fuerte
+   y el único donde bajarle el costo a la clienta nos deja *más* plata);
+4. y si insiste, **una persona** — no una cifra.
 
-Hay que: añadir `TEMAS.OBJECION_PRECIO` y los patrones, sacar de BIKERPRO el
-guion de cada objeción, y adaptarlo **sin copiar sus condiciones**.
+**🚫 El bot no ofrece ningún descuento, y es a propósito.** NOVIKA no tiene
+política de descuento aprobada y el catálogo declara «si hay descuento por
+cantidad» como dato NO confirmado. El tope de $3.000 de BIKERPRO es **suyo**:
+copiarlo habría sido inventarnos una política. Hay prueba de que, si el
+modelo se inventa un descuento, **no sale**: el turno lo cubre el catálogo y
+se envía el texto determinista. Es el riesgo que BIKERPRO tasó en
+~$482.400/mes cuando su bot ofreció «$55.900 con pago anticipado» en la
+primera objeción.
+
+**Tres cosas que se encontraron por el camino y estaban rotas:**
+
+- **«está muy caro, pero bueno» salía con `compra: true`** y el bot le pedía
+  nombre, ciudad y dirección a quien acababa de quejarse del precio. La culpa
+  era de la señal débil `bueno`, que ahí es una muletilla de resignación.
+- **«y si llevo dos?» no se entendía.** La respuesta ofrece pasar el precio
+  de dos; cuando la clienta decía que sí, recibía *«¡Perfecto, gracias!»* sin
+  una sola cifra — una promesa que el bot no cumplía. Ahora es una pregunta
+  de precio condicional y se cotiza por dos.
+- **A quien se queja del precio ya no se le repite el precio.** «me lo dejas
+  más barato» marcaba también el tema PRECIO y el mensaje encabezaba
+  volviéndole a cantar la cifra. Excepción: si pregunta por una cantidad
+  concreta («está caro, ¿y dos cuánto me salen?»), ahí sí quiere un número.
+
+**Dos trampas que quedaron documentadas en el código, con su motivo:**
+
+- **`caro` suelto NO va en el patrón.** «Caro» es como se presenta media
+  Carolina en Colombia, y el bot **extrae el nombre del texto**: un «soy
+  Caro, vivo en Bogotá» se habría leído como objeción y le habríamos rebatido
+  el precio a quien estaba dando sus datos para comprar.
+- **`mucho` suelto tampoco.** «¿demora mucho?» pregunta por la entrega.
+  BIKERPRO lo tiene documentado como defecto real.
+
+**Lo que falta de la A:** las objeciones de **confianza** y **envío** (la de
+confianza ya tiene tema propio y respuesta; le falta el guion completo), y
+«lo vi más barato en otro lado», que BIKERPRO trata aparte a propósito —
+bajar el precio contra un competidor cuyo número no conoces es una carrera
+perdida, y lo que sí tenemos es el contraentrega.
 
 ### B · Asesorar en todos los temas, no solo en «para qué sirve»
 
@@ -169,6 +212,12 @@ pruebas, o capturas de producción.
   plástico…»*.
 - Los mensajes del bot **no guardan el `wamid`** en la conversación, así que
   cruzarlos con los acuses del diario es parcial.
+- Una pregunta **hipotética** por otra cantidad («y si llevo dos?») sí deja
+  la cantidad en la ficha (`aporto:cantidad`), porque la pone el extractor y
+  no el detector. La **cotización** ya es solo informativa, así que no cambia
+  el total que se confirma; pero la ficha queda en 2 y conviene cerrarlo.
+- «Sí, **L**a correa es graduable»: mayúscula después de coma, el mismo
+  defecto de la mayúscula tras dos puntos.
 
 ---
 
@@ -179,6 +228,11 @@ pruebas, o capturas de producción.
    **no** cubre «no me quedó». Con el número, la respuesta pasa a «ajusta hasta
    X cm», que vende más porque se sostiene.
 2. **Precio de 3 o más.** Hoy se escala a una persona.
+6. **¿Hay descuento, y con qué tope?** Hoy el bot **no ofrece ninguno** y al
+   final de la escalera pasa a una persona, que es lo único honesto sin una
+   política aprobada. Si Marco autoriza un tope, el sitio donde ponerlo es el
+   catálogo —nunca el texto— y la escalera ya está lista para usarlo como
+   último escalón. Lo que **no** se puede es copiar el de BIKERPRO.
 3. **Qué trae exactamente el paquete.**
 4. **Nequi o transferencia**, sí o no.
 5. **Si a los clientes con nombre de usuario** (sin teléfono) se les puede

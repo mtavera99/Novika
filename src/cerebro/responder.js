@@ -730,7 +730,15 @@ function textoDeterminista({
       const otros = lectura.temas.filter(
         (t) => !TEMAS_COMERCIALES.includes(t) && t !== preguntas.TEMAS.FOTOS
       );
-      const resto = contestar.aTemas(otros, { producto, cotizacion: cot }, { maximo: 2 });
+      // `yaDijoLasCondiciones`: si arriba entro la linea comercial, el
+      // mensaje YA dice "con envio incluido y pagas al recibir". La
+      // respuesta a la objecion de precio usa esas dos condiciones como
+      // argumento, y sin este aviso las repetia en el mismo mensaje.
+      const resto = contestar.aTemas(
+        otros,
+        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot) },
+        { maximo: 2 }
+      );
       if (resto.texto) partes.push(resto.texto);
 
       // ---- PIDIO FOTOS ----

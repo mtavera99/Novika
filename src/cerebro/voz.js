@@ -60,6 +60,10 @@ const APERTURAS = {
   // de defenderse.
   [TEMAS.CONFIANZA]: "Te entiendo perfectamente.",
   [TEMAS.FOTOS]: "¡Claro!",
+  // Quien dice "esta muy caro" no quiere un "¡Claro que si!": quiere que
+  // alguien le reconozca que es plata. Se valida y se explica, sin ponerse
+  // a la defensiva y sin pedir disculpas por el precio.
+  [TEMAS.OBJECION_PRECIO]: "Te entiendo, y te explico:",
 };
 
 /** La apertura del tema principal del turno. */
@@ -86,6 +90,7 @@ const EMOJIS = {
   [TEMAS.COLOR]: "💗",
   [TEMAS.MEDIDAS]: "🙌",
   [TEMAS.CONFIANZA]: "🙌",
+  [TEMAS.OBJECION_PRECIO]: "💡",
   confirmado: "🎉",
   resumen: "✅",
   compra: "🙌",

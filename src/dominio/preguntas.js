@@ -59,6 +59,15 @@ const TEMAS = {
   USO: "uso",
   CONFIANZA: "confianza",
   FOTOS: "fotos",
+  /**
+   * "Esta muy caro", "hay descuento?", "me lo dejas mas barato".
+   *
+   * NO es una pregunta de precio: quien objeta YA sabe el precio. Es la
+   * objecion que mas plata mueve y hasta ahora caia en el camino generico,
+   * donde el bot contestaba "dime que necesitas" a quien estaba a un paso
+   * de comprar.
+   */
+  OBJECION_PRECIO: "objecion_precio",
 };
 
 /**
@@ -70,6 +79,42 @@ const TEMAS = {
  * una vez en los alias del catalogo.
  */
 const PATRONES = [
+  // ---- Objecion de precio ----
+  //
+  // VA ANTES QUE PRECIO a proposito: el orden de esta tabla es el orden de
+  // los temas, y de ahi sale la apertura del mensaje. A quien dice "esta muy
+  // caro" no se le abre con "Claro que si,".
+  //
+  // ⚠️ NO VA UN `caro` SUELTO, y el motivo es de esta casa: "Caro" es como
+  // se llama media Carolina en Colombia, y el bot EXTRAE EL NOMBRE del
+  // texto. Con `\bcaro\b`, un "soy Caro, vivo en Bogota" se leeria como una
+  // objecion de precio y le rebatiriamos el precio a quien estaba dando sus
+  // datos para comprar. Siempre con el modificador delante ("muy caro",
+  // "esta caro") o en superlativo ("carisimo").
+  //
+  // ⚠️ Y NO VA UN `mucho` SUELTO: "demora mucho?" pregunta por el tiempo de
+  // entrega. BIKERPRO lo tiene documentado como defecto real -clasificarlo
+  // como objecion hacia que el bot le rebatiera el precio a quien pregunto
+  // cuando le llega- y aqui `demora` ya marca ENTREGA. Por eso `es mucho`
+  // lleva el lookahead que descarta el tiempo.
+  [TEMAS.OBJECION_PRECIO, /\b(muy|tan|que|bien|super|demasiado)\s+car[oa]s?\b/],
+  [TEMAS.OBJECION_PRECIO, /\bestan?\s+(muy\s+|bien\s+|algo\s+)?car[oa]s?\b/],
+  [TEMAS.OBJECION_PRECIO, /\bes\s+(muy\s+|algo\s+)?car[oa]\b/],
+  [TEMAS.OBJECION_PRECIO, /\bcar[ií]sim[oa]s?\b/],
+  [TEMAS.OBJECION_PRECIO, /\bcostos[oa]s?\b/],
+  [TEMAS.OBJECION_PRECIO, /\bno\s+me\s+alcanza\b/],
+  [TEMAS.OBJECION_PRECIO, /\bno\s+tengo\s+(tanto|esa\s+plata)\b/],
+  [TEMAS.OBJECION_PRECIO, /\bes\s+mucha\s+plata\b/],
+  [TEMAS.OBJECION_PRECIO, /\bes\s+mucho\b(?!\s+(tiempo|rato))/],
+  [TEMAS.OBJECION_PRECIO, /\b(descuento|rebaja|rebajas)\b/],
+  [TEMAS.OBJECION_PRECIO, /\bmas\s+(barat[oa]s?|economic[oa]s?)\b/],
+  [TEMAS.OBJECION_PRECIO, /\b(ultimo|mejor)\s+precio\b/],
+  [TEMAS.OBJECION_PRECIO, /\bprecio\s+especial\b/],
+  [TEMAS.OBJECION_PRECIO, /\bme\s+lo\s+dej(as|a|arias)\s+en\b/],
+  [TEMAS.OBJECION_PRECIO, /\b(me\s+)?(baja|bajas|rebaja|rebajas)\s+(algo|el\s+precio)\b/],
+  [TEMAS.OBJECION_PRECIO, /\bpresupuesto\b/],
+  [TEMAS.OBJECION_PRECIO, /\besta\s+en\s+promocion\b/],
+
   // ---- Precio ----
   //
   // La lista vive en `texto.js` porque el cerebro tambien la necesita para
@@ -267,6 +312,11 @@ const UNIDADES_CONSULTADAS = [
   /\bel\s+(par)\b/,
   // "dos unidades", "2 cinturones"
   /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?)\b/,
+  // LA CANTIDAD DE LA PREGUNTA CONDICIONAL: "y si llevo dos?", "llevando
+  // tres". El patron que la reconoce como pregunta de precio vive en
+  // `texto.js`; aqui hay que sacarle el numero, o se cotizaria por la
+  // cantidad de la ficha en vez de por la que pregunto.
+  /\b(?:y\s+si\s+(?:me\s+)?(?:llevo|pido|compro)|si\s+(?:me\s+)?(?:llevara|llevaria|pidiera|comprara)|llevando)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\b/,
   // EL NUMERO DELANTE DEL VERBO: "y tres cuánto valen?", "2 cuánto cuestan".
   // Faltaba, y el hueco se colaba justo donde mas duele: con un pedido ya
   // confirmado, "y tres cuanto valen?" contestaba el precio de SU pedido.
@@ -506,6 +556,24 @@ function leer(texto) {
     if (!temas.includes(TEMAS.ENVIO)) temas.unshift(TEMAS.ENVIO);
   }
 
+  // ----------------------------------------------------------------------
+  // A QUIEN SE QUEJA DEL PRECIO NO SE LE REPITE EL PRECIO
+  //
+  // "me lo dejas mas barato" marca las dos cosas: la objecion y -por la
+  // palabra "precio" o el verbo- el tema PRECIO. Y PRECIO es un tema
+  // comercial, asi que el cerebro encabezaba el mensaje volviendo a
+  // cantarle la cifra a quien acababa de decir que le parecia alta. Eso no
+  // es contestar: es insistir.
+  //
+  // EXCEPCION: si pregunta por una CANTIDAD concreta ("esta caro, y dos
+  // cuanto me salen?") ahi si quiere una cifra, y se le da. Por eso la
+  // cantidad se calcula ANTES de quitar el tema.
+  // ----------------------------------------------------------------------
+  const cantidadEnLaPregunta = temas.includes(TEMAS.PRECIO) ? cantidadPreguntadaEn(plano) : null;
+  if (temas.includes(TEMAS.OBJECION_PRECIO) && temas.includes(TEMAS.PRECIO) && !cantidadEnLaPregunta) {
+    temas.splice(temas.indexOf(TEMAS.PRECIO), 1);
+  }
+
   const saludo = SALUDOS.some((re) => re.test(plano));
   const interrogacion = /\?/.test(crudo);
   // PEDIR INFORMACION GANA A LAS SEÑALES DE COMPRA.
@@ -526,11 +594,22 @@ function leer(texto) {
     /\b(dale|de\s+una|hagale)\b/,
   ];
 
+  // OBJETAR EL PRECIO NO ES COMPRAR, y una señal DEBIL no lo convierte.
+  //
+  // Defecto real medido antes de este cambio: "esta muy caro, pero bueno"
+  // salia con `compra: true`. La culpa era de la señal debil `bueno` -que
+  // ahi no significa "de acuerdo", es una muletilla de resignacion- y el
+  // efecto era el peor posible: el bot le pedia nombre, ciudad y direccion
+  // a quien acababa de decir que el precio le parecia alto.
+  //
+  // Las señales FUERTES siguen valiendo: "esta caro pero me lo llevo" es
+  // una compra, y una objecion no puede bloquear un "me lo llevo".
+  const objetaElPrecio = temas.includes(TEMAS.OBJECION_PRECIO);
   const compra = pideInfo
     ? COMPRA_INEQUIVOCA.some((re) => re.test(plano))
     : SENALES_DE_COMPRA.some((re) => re.test(plano)) ||
-      // Las debiles solo valen si el cliente NO esta preguntando.
-      (!interrogacion && SENALES_DEBILES.some((re) => re.test(plano)));
+      // Las debiles solo valen si el cliente NO esta preguntando ni objetando.
+      (!interrogacion && !objetaElPrecio && SENALES_DEBILES.some((re) => re.test(plano)));
 
   // Un signo de interrogacion es una señal fuerte, pero no la unica: mucha
   // gente pregunta sin escribirlo ("cuanto vale").
@@ -564,7 +643,9 @@ function leer(texto) {
     saludo,
     // Por cuantas pregunta. Solo interesa si pregunta el precio: en
     // cualquier otro sitio la cantidad la decide la ficha, no el detector.
-    cantidadPreguntada: temas.includes(TEMAS.PRECIO) ? cantidadPreguntadaEn(plano) : null,
+    // Ya calculada arriba: se necesitaba ANTES de decidir si el tema PRECIO
+    // sobra por venir junto a una objecion.
+    cantidadPreguntada: cantidadEnLaPregunta,
     // ¿Habla de UNO MAS? Es lo que distingue una venta adicional de una
     // simple consulta de precio cuando ya hay un pedido confirmado.
     quiereOtro: QUIERE_OTRO.some((re) => re.test(plano)),
