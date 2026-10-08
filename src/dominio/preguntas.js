@@ -149,6 +149,17 @@ const PATRONES = [
   // ---- Como funciona / para que sirve ----
   [TEMAS.USO, /\bcomo\s+(funciona|se\s+usa|se\s+pone|lo\s+uso)\b/],
   [TEMAS.USO, /\bpara\s+que\s+sirve\b/],
+  // "¿esto sirve para los cólicos?" es EL EJEMPLO que dio Marco, y no se
+  // reconocia: no casa con "para que sirve". Caia en el camino de la duda
+  // no catalogada y recibia "esa no te la quiero contestar a medias",
+  // teniendo la respuesta autorizada en la ficha.
+  //
+  // De un producto que se llama "cinturón térmico para cólicos", no
+  // entender esa pregunta es el colmo.
+  [TEMAS.USO, /\bsirve\s+(para|contra|de\s+verdad|realmente)\b/],
+  [TEMAS.USO, /\b(funciona|ayuda)\s+(para|con|contra)\b/],
+  [TEMAS.USO, /\bes\s+(para|bueno\s+para)\s+(los\s+)?(colicos|dolor|menstrual)/],
+  [TEMAS.USO, /\bquita\s+(el\s+)?dolor\b/],
   [TEMAS.USO, /\bes\s+recargable\b/],
   [TEMAS.USO, /\b(bateria|pila|cable|usb|enchuf)\w*/],
   [TEMAS.USO, /\bniveles?\s+de\s+(calor|temperatura|intensidad)\b/],
