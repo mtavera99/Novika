@@ -794,6 +794,31 @@ function textoDeterminista({
         });
       }
 
+      // ------------------------------------------------------------------
+      // A QUIEN DA LAS GRACIAS NO SE LE PIDE LA DIRECCION
+      //
+      // Estaba en la lista de defectos conocidos y sin arreglar, y Marco lo
+      // volvio a ver probando desde su numero el 08-oct:
+      //
+      //   Marco · "Gracias"
+      //   bot   · "¿Cuántos quieres? Y para preparar tu pedido me pasas la
+      //            dirección"
+      //
+      // Un "gracias" no es una señal de compra ni una pregunta: es cortesia,
+      // y muchas veces un cierre de conversacion. Se responde con cortesia y
+      // se deja la puerta abierta UNA vez, sin pedir nada.
+      // ------------------------------------------------------------------
+      if (lectura.soloAgradece) {
+        const quien = voz.nombreDePila(nombreCliente);
+        return componer(
+          [
+            quien ? `¡Con gusto, ${quien}!` : "¡Con gusto!",
+            memoria.pasoPropuesto ? "Cualquier cosa me escribes por aquí." : "¿Te lo aparto?",
+          ],
+          { emoji: "saludo" }
+        );
+      }
+
       const partes = [];
       if (saludo) partes.push(saludo);
 

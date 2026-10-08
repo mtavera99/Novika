@@ -189,10 +189,25 @@ const PATRONES = [
   [TEMAS.GARANTIA, /\bdevoluci(on|ones)\b/],
 
   // ---- Tiempo de entrega ----
-  [TEMAS.ENTREGA, /\bcuando\s+(llega|lo\s+recibo|me\s+llega)\b/],
-  [TEMAS.ENTREGA, /\bcuanto\s+(tarda|demora|se\s+demora)\b/],
+  //
+  // ⚠️ EL CONDICIONAL TAMBIEN CUENTA, y es la forma MAS natural de
+  // preguntarlo en castellano: "¿cuándo me llegaría?".
+  //
+  // Esto solo conocia el presente -"cuando me llega"- y Marco lo cazo
+  // probando desde su numero el 08-oct:
+  //
+  //   Marco · "Cuando me llegaría"
+  //   bot   · "Esa no te la quiero contestar a medias..."
+  //
+  // El plazo esta en la ficha, aprobado. Negarse a decirlo por una "r" y
+  // dos letras mas es el mismo error que "costó" frente a "cuesta".
+  [TEMAS.ENTREGA, /\bcuando\s+(?:me\s+|lo\s+|la\s+|le\s+|nos\s+)?(?:llega|llegaria|llegara|llegarian)\b/],
+  [TEMAS.ENTREGA, /\bcuando\s+(?:lo\s+|la\s+|los\s+|las\s+)?(?:recibo|recibiria|recibiera|recibimos)\b/],
+  [TEMAS.ENTREGA, /\bcuant[oa]s?\s+(?:se\s+)?(?:tarda|tardaria|tardan|demora|demoraria|demoran)\b/],
   [TEMAS.ENTREGA, /\bcuantos\s+dias\b/],
-  [TEMAS.ENTREGA, /\bdemora\b/],
+  [TEMAS.ENTREGA, /\bdemora\w*/],
+  [TEMAS.ENTREGA, /\bpara\s+cuando\b/],
+  [TEMAS.ENTREGA, /\ben\s+cuanto\s+(?:me\s+|lo\s+|la\s+)?(?:llega|llegaria|lleg\w+|recib\w+)\b/],
 
   // ---- Material ----
   [TEMAS.MATERIAL, /\bmaterial\b/],
@@ -565,6 +580,40 @@ const PIDE_INFORMACION = [
   /\bque\s+tal\s+(el|la|ese|esa|los|las)\b/,
   /\bcomo\s+es\s+(el|la|ese|esa)\b/,
   /\bque\s+es\s+(eso|esto|el|la)\b/,
+  // "TIENES CINTURONES", "¿hay disponible?", "¿todavía los tiene?".
+  //
+  // Es preguntar si HAY, y la respuesta es presentar el producto. No se
+  // reconocia: `PALABRA_DE_PREGUNTA` conocia "tienen" pero no "tienes", asi
+  // que el mensaje no era ni una pregunta y Marco recibio esto probando el
+  // 08-oct:
+  //
+  //   Marco · "Tienes cinturones"
+  //   bot   · "Perdón, no quiero repetirme. Dime concretamente qué
+  //            necesitas y lo reviso con el equipo."
+  //
+  // A quien pregunta si hay producto no se le pide que se explique mejor.
+  /\b(tienes|tiene|tienen|hay|queda|quedan|manejas|manejan|venden|vendes)\s+(\w+\s+)?(cinturon|cinturones|faja|fajas|disponible|disponibles|existencia|stock|unidades)\b/,
+  /\b(hay|tienes|tienen)\s+disponib/,
+];
+
+/**
+ * Un "gracias" pelado: ni pregunta ni compra.
+ *
+ * DEFECTO MEDIDO, y estaba anotado como conocido sin arreglar: a "gracias"
+ * el bot respondia "¿cuántos quieres? y para preparar tu pedido me pasas la
+ * ciudad y la dirección". Le pedia los datos a quien estaba despidiendose o
+ * dando las gracias por una respuesta.
+ *
+ * Marco lo volvio a ver probando desde su numero el 08-oct.
+ *
+ * Va con `^` y con tope de palabras: "gracias, pero cuanto vale?" SI es una
+ * pregunta, y "gracias, me lo llevo" SI es una compra. Lo que se quiere
+ * cazar es el mensaje que SOLO agradece.
+ */
+const SOLO_AGRADECE = [
+  /^(muchas\s+|mil\s+|muy\s+)?gracias\b/,
+  /^(ok|oka|okey|listo|vale|bueno)\s*,?\s*(muchas\s+|mil\s+)?gracias\b/,
+  /^(te\s+|le\s+)?agradezco\b/,
 ];
 
 /** Saludos puros: no preguntan nada. */
@@ -684,7 +733,7 @@ function leer(texto) {
   // contestar con un formulario.
   // ----------------------------------------------------------------------
   const PALABRA_DE_PREGUNTA =
-    /\b(que|qué|cual|cuales|como|cuando|donde|cuanto|cuanta|cuantos|cuantas|quien|por\s+que|se\s+puede|puedo|podria|hay|tienen|sirve|funciona|es\s+seguro)\b/;
+    /\b(que|qué|cual|cuales|como|cuando|donde|cuanto|cuanta|cuantos|cuantas|quien|por\s+que|se\s+puede|puedo|podria|hay|tienes|tiene|tienen|manejas|manejan|venden|vendes|queda|quedan|sirve|funciona|es\s+seguro)\b/;
 
   return {
     temas,
@@ -710,6 +759,13 @@ function leer(texto) {
     // Un "hola" pelado: ni pregunta ni compra. Merece un arranque, no un
     // interrogatorio.
     soloSaludo: saludo && temas.length === 0 && !compra && plano.split(/\s+/).length <= 4,
+    // Un "gracias" pelado. A quien agradece no se le pide la direccion.
+    soloAgradece:
+      SOLO_AGRADECE.some((re) => re.test(plano)) &&
+      temas.length === 0 &&
+      !compra &&
+      !interrogacion &&
+      plano.split(/\s+/).length <= 4,
   };
 }
 

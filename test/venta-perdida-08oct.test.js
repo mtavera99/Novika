@@ -335,3 +335,90 @@ describe("5 · las promesas de tiempo se cazan por patrón, no por frase exacta"
     }
   });
 });
+
+// --------------------------------------------------------------------------
+// 6 · LO QUE MARCO CAZÓ PROBANDO DESDE SU NÚMERO · 08-oct 16:14
+//
+// Cuatro fallos más, los cuatro leídos del panel de producción:
+//
+//   "Cuando me llegaría"  -> "Esa no te la quiero contestar a medias"
+//   "Tienes cinturones"   -> "Perdón, no quiero repetirme"
+//   "Gracias"             -> "¿Cuántos quieres? ...me pasas la dirección"
+//   "en cuánto me llegaría" -> le contestaba el PRECIO
+//
+// Los tres primeros son el mismo error de fondo que «costó» frente a
+// «cuesta»: el detector conocía UNA forma de la palabra y la clienta usó
+// otra. Y la cuarta es una colisión: «en cuánto» era un patrón de precio.
+// --------------------------------------------------------------------------
+
+describe("6 · las formas naturales de preguntar, reconocidas", () => {
+  test("el CONDICIONAL también pregunta por la entrega", () => {
+    // Es la forma más natural en castellano: "¿cuándo me llegaría?".
+    for (const frase of [
+      "Cuando me llegaria",
+      "cuando me llegaría",
+      "cuando llegaria",
+      "cuanto se demoraria",
+      "cuanto tardaria",
+      "cuando lo recibiria",
+      "para cuando llega",
+    ]) {
+      const r = preguntas.leer(frase);
+      assert.ok(
+        r.temas.includes(TEMAS.ENTREGA),
+        `no reconoció la pregunta por el plazo: ${frase}`
+      );
+    }
+  });
+
+  test("y recibe el plazo, que está en la ficha", () => {
+    const t = responde("Cuando me llegaria");
+    assert.match(t, /1 a 3 días hábiles/i, `no dio el plazo: ${t}`);
+    assert.equal(/no te la quiero contestar/i.test(t), false, t);
+  });
+
+  test("«en cuánto me llegaría» es el plazo; «en cuánto me lo deja» es el precio", () => {
+    // La colisión costaba una respuesta equivocada: le soltaba el PRECIO a
+    // quien preguntaba cuándo le llega.
+    const plazo = preguntas.leer("en cuanto me llegaria");
+    assert.ok(plazo.temas.includes(TEMAS.ENTREGA), "no vio que pregunta por el plazo");
+    assert.equal(plazo.temas.includes(TEMAS.PRECIO), false, "le contestaría el precio");
+
+    const precio = preguntas.leer("en cuanto me lo deja");
+    assert.ok(precio.temas.includes(TEMAS.PRECIO), "se perdió la pregunta de precio");
+  });
+
+  test("«tienes cinturones» es preguntar si hay, y se presenta el producto", () => {
+    const r = preguntas.leer("Tienes cinturones");
+    assert.equal(r.pideInformacion, true, "no lo leyó como pedir información");
+
+    const t = responde("Tienes cinturones");
+    assert.match(t, /49\.900/, `no presentó el producto: ${t}`);
+    assert.equal(/no quiero repetirme/i.test(t), false, t);
+    assert.equal(/me pasas/i.test(t), false, `le pidió datos a quien preguntó si hay: ${t}`);
+  });
+
+  test("a un «gracias» NO se le piden los datos de entrega", () => {
+    // Estaba en la lista de defectos conocidos sin arreglar.
+    const r = preguntas.leer("Gracias");
+    assert.equal(r.soloAgradece, true);
+    assert.equal(r.compra, false);
+
+    const t = responde("Gracias");
+    assert.equal(/me pasas|dirección/i.test(t), false, `le pidió la dirección a quien agradeció: ${t}`);
+    assert.match(t, /con gusto/i, t);
+  });
+
+  test("pero «gracias, cuánto vale?» SÍ es una pregunta de precio", () => {
+    // El atajo del "gracias" no puede comerse una pregunta de verdad.
+    const r = preguntas.leer("gracias, cuanto vale?");
+    assert.equal(r.soloAgradece, false);
+    assert.ok(r.temas.includes(TEMAS.PRECIO));
+  });
+
+  test("y «gracias, me lo llevo» sigue siendo una compra", () => {
+    const r = preguntas.leer("gracias, me lo llevo");
+    assert.equal(r.soloAgradece, false);
+    assert.equal(r.compra, true);
+  });
+});
