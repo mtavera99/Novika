@@ -142,6 +142,10 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // Si ya se le dijo el precio de una unidad. Evita repetir la misma
       // frase en cada turno. Sin columna propia: viaja en `extra`.
       precioInformado: false,
+      // La cantidad que se le informo en el ultimo precio, para entender un
+      // "las quiero" sin volver a preguntar. Sin columna propia: viaja en
+      // `extra`.
+      cantidadInformada: null,
       // Lo que ya se le dijo, para no repetirlo. Sin columna propia: viajan
       // en `extra`, igual que precioInformado.
       saludado: false,
@@ -485,6 +489,37 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     }
     conversacion.ficha = aplicarCandidatos(conversacion.ficha, candidatosHeuristicos(evento), campos.ORIGENES.CLIENTE);
 
+    // ------------------------------------------------------------------
+    // "LAS QUIERO" DESPUES DE UN PRECIO DE DOS SIGNIFICA DOS
+    //
+    // Se propone la cantidad que se le informo, y SOLO con las tres
+    // condiciones juntas:
+    //
+    //   1. el turno trae una señal de compra explicita,
+    //   2. el bot le informo una cantidad mayor que una,
+    //   3. el mensaje NO menciona ninguna cantidad propia.
+    //
+    // La tercera es la que evita el error caro: si dice "mejor una", eso
+    // manda sobre lo que se informo antes. Y se PROPONE -no se confirma-,
+    // asi que pasa por la misma validacion que cualquier dato del cliente.
+    // ------------------------------------------------------------------
+    const turnoDeCompra = responder.analizarTurno(evento.texto || "");
+    if (
+      turnoDeCompra.lectura.compra &&
+      Number(conversacion.cantidadInformada) > 1 &&
+      !texto.cantidadesEn(evento.texto || "").length &&
+      !campos.valorConfirmado(conversacion.ficha.cantidad)
+    ) {
+      conversacion.ficha = aplicarCandidatos(
+        conversacion.ficha,
+        { cantidad: conversacion.cantidadInformada },
+        campos.ORIGENES.CODIGO
+      );
+      traza.avisos.push(
+        `"${evento.texto}" tras informar ${conversacion.cantidadInformada} unidades: se toma esa cantidad`
+      );
+    }
+
     const validacion = validarYConfirmar(conversacion.ficha);
     conversacion.ficha = validacion.ficha;
     traza.revisiones = validacion.revisiones;
@@ -596,6 +631,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // responder lo que pregunto ni evitar repetir el saludo y la pedida de
       // datos en cada mensaje.
       mensajeCliente: evento.texto || "",
+      // El nombre SOLO si esta confirmado: llamar a alguien por un nombre
+      // que propuso el modelo y nadie valido es peor que no nombrarlo.
+      nombreCliente: campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre),
       memoria: {
         saludado: conversacion.saludado === true,
         datosPedidos: conversacion.datosPedidos === true,
@@ -773,9 +811,26 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       const turno = responder.analizarTurno(evento.texto || "");
       conversacion.saludado = true;
       if (traza.cotizacionInformativa || traza.cotizacion) conversacion.precioInformado = true;
+      // ----------------------------------------------------------------
+      // QUE CANTIDAD SE LE INFORMO
+      //
+      // Sin esto se perdia la venta del combo, y asi:
+      //
+      //   clienta: "¿cuánto me salen dos?"
+      //   bot:     "2 unidades te quedan en $85.000..."
+      //   clienta: "las quiero"
+      //   bot:     "¿Cuántos quieres?"        <- acaba de decirlo
+      //
+      // "las quiero" no trae ningun numero, asi que el extractor no saca
+      // cantidad — y hace bien, no la hay. La cantidad estaba en el TURNO
+      // ANTERIOR, en lo que el bot informo. Guardarla es lo que permite
+      // entender un "las quiero" sin volver a preguntar.
+      // ----------------------------------------------------------------
+      const informada = traza.cotizacionInformativa || traza.cotizacion;
+      if (informada && informada.cantidad > 1) conversacion.cantidadInformada = informada.cantidad;
+    }
       if (situacion === "faltan_datos" && !turno.soloAveriguando) conversacion.datosPedidos = true;
       conversacion.pasoPropuesto = true;
-    }
 
     conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
     conversacion.ultimoWamid = evento.wamid;
