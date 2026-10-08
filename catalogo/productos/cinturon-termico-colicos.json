@@ -197,5 +197,10 @@
     "graduable": true,
     "contornoMaximoCm": null,
     "_porQue": "graduable=true lo confirmo Marco el 2026-10-08 y se ve en la foto 04-correa. contornoMaximoCm sigue en null a proposito: Marco dijo que 'no importa si la cintura es muy pequena o muy ancha porque es ajustable y le va a poder quedar sin problema', y eso es una CONCLUSION, no una medida. Mientras el numero sea null, el bot dice que es graduable -que es verdad y ya desatasca la pregunta- y ofrece confirmar el maximo. En cuanto haya un numero, la respuesta pasa a 'ajusta hasta X cm', que vende mas porque es concreto y ademas se puede sostener. El riesgo de poner la promesa sin el numero no es teorico: la garantia cubre defecto de fabrica y NO cubre 'no me quedo', asi que a quien le prometimos que le quedaria y no le queda, se le dice que no hay garantia. Esa queja seria justa."
+  },
+  "paraQueSirve": {
+    "texto": "Sí, es justo para eso: el calor en la zona baja del abdomen ayuda a relajar y alivia el cólico.",
+    "fuente": "Marco lo autorizo expresamente el 2026-10-08: \"si una persona le pregunta como esto sirve para los colicos, si claro eso sirve para los colicos porque el calor\".",
+    "_porQue": "ES EL USO PREVISTO DEL PRODUCTO, no una promesa medica, y la distincion es la que permite decirlo. 'Sirve para los colicos' describe para que esta hecho; 'cura los colicos' promete un resultado clinico y sigue en claimsProhibidos. El producto se llama cinturon termico para colicos: negarse a decir para que sirve era la peor respuesta que daba el bot, y ademas la mas absurda.\n\nNO SE AMPLIA SIN AUTORIZACION. Nada de endometriosis, quistes, embarazo ni medicacion: esos siguen prohibidos uno por uno."
   }
 }

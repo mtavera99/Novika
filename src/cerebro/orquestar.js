@@ -949,6 +949,44 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
         pregunta: evento.texto || "",
       });
+    }
+
+    // ------------------------------------------------------------------
+    // TRAS ESCALAR, EL BOT SE CALLA. ASI LO HACE BIKERPRO.
+    //
+    // Leido del panel de produccion, en el chat de Marco: la rama de
+    // escalado tenia UNA frase, la repetia siempre, la guarda anti-eco la
+    // cambiaba por "no quiero repetirme", y al turno siguiente volvia la
+    // primera. Dos protecciones peleandose, un bucle infinito, y un
+    // cliente convencido de que el bot esta roto.
+    //
+    // BIKERPRO lo resuelve con `##HANDOFF##`: avisa UNA vez y deja de
+    // responder. Un bot que insiste sin aportar nada es peor que uno
+    // callado — el silencio se lee como "me estan mirando el caso", el
+    // bucle como "esto no funciona".
+    //
+    // La pausa es lo que produce el silencio de verdad: el emisor la
+    // comprueba justo antes de escribir a la red, asi que no se puede
+    // colar otro mensaje. Y caduca a las 12 h, asi que si nadie lo
+    // atiende el bot retoma en vez de quedarse mudo para siempre.
+    //
+    // NO se pausa por `preguntoAlgoNoCatalogado`: ahi el bot SI puede
+    // seguir vendiendo, solo le falta un dato. Pausar por una duda suelta
+    // dejaria el chat sin bot por una pregunta sobre el material.
+    // ------------------------------------------------------------------
+    // ¿Estaba YA pausado al llegar este mensaje? Es lo que separa el primer
+    // aviso -que SI se manda- del bucle -que no-.
+    const estabaPausadoAlEmpezar = atencionDeChat.leer(conversacion).pausado === true;
+
+    if (situacion === "escalado" && !estabaPausadoAlEmpezar) {
+      conversacion.atencion = {
+        ...atencionDeChat.leer(conversacion),
+        pausado: true,
+        por: "escalado",
+        desde: new Date().toISOString(),
+      };
+      traza.avisos.push("escalado: se avisa una vez y el bot deja de responder hasta que lo atienda una persona");
+      contar("escalado_pausa_el_bot");
     } else if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro)) {
       // Quiere otro teniendo uno confirmado. El bot NO abre el pedido -eso
       // es lo que casi despacho un paquete que nadie pidio en BIKERPRO-
@@ -967,7 +1005,27 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     traza.respuesta = { texto: preparada.texto, origen: preparada.origen, situacion };
     traza.bloqueos = preparada.bloqueos;
 
-    if (emisor && config.respuestaAutomatica) {
+    // ------------------------------------------------------------------
+    // SI YA SE ESCALO, NO SE MANDA NADA MAS
+    //
+    // El emisor comprueba la pausa leyendola del almacen, y la pausa de
+    // ESTE turno todavia no esta guardada -se guarda al final-, asi que
+    // por ahi no se corta el bucle. Se corta aqui, con el estado en la
+    // mano: ya se le aviso una vez, el chat esta en la bandeja de una
+    // persona, y cualquier mensaje mas es el bucle que Marco vio.
+    //
+    // La pausa caduca a las 12 h, asi que si nadie lo atiende el bot
+    // retoma en vez de quedarse mudo para siempre.
+    // ------------------------------------------------------------------
+    const yaEscalado = estabaPausadoAlEmpezar && situacion === "escalado";
+    if (yaEscalado) {
+      traza.avisos.push("ya escalado y pausado: el bot no responde, espera a una persona");
+      traza.enviada = false;
+      traza.bloqueoDeEnvio = "escalado_esperando_persona";
+      contar("silencio_por_escalado");
+    }
+
+    if (emisor && config.respuestaAutomatica && !yaEscalado) {
       const envio = await emisor.enviarTexto({
         para: evento.telefono || evento.idCliente,
         texto: preparada.texto,
