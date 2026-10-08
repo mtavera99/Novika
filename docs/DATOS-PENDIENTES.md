@@ -16,9 +16,19 @@ Su duda número 1 era la **talla** (17,8%) y la número 2 el **color** (10,3%) �
 
 ## 🔴 Bloque 1 — Las que te van a preguntar en la primera venta
 
-### 1. ¿Hasta qué contorno ajusta la correa?
+### 1. ¿Hasta qué contorno ajusta la correa? — ⚠️ A MEDIAS
 
-**Hoy el bot dice:** «Es talla única, con correa ajustable. No tengo las medidas exactas del ajuste, así que no te quiero decir que sí sin estar segura: te lo confirmo con el equipo y te escribo.»
+**Respondiste (08-oct):** *«es graduable, entonces no importa si la persona tiene una cintura muy pequeña o muy ancha, porque es ajustable y le va a poder quedar sin problema»*.
+
+**Guardé la mitad verificable.** Hoy el bot dice: «La correa es graduable, así que se ajusta a distintas medidas. Si quieres, te confirmo el contorno máximo antes de que lo pidas.»
+
+**Lo que falta es un número**, y por un motivo que empeoró con tu respuesta del punto 2:
+
+> La garantía cubre **defecto de fábrica** y **no** cubre «no me quedó». Si le prometemos a una clienta que le va a quedar y no le queda, **no tiene garantía** — y la queja sería justa, porque se lo dijimos nosotros.
+
+Con una cinta métrica sobre la correa estirada: **ajusta hasta \_\_\_\_ cm**. Con eso el bot dice «ajusta hasta X cm», que vende más porque es concreto, y además se sostiene.
+
+Si prefieres que diga la promesa completa sin la medida, dímelo explícitamente y lo pongo — pero quería que supieras lo que arriesgas.
 
 **Por qué es la primera de la lista.** Es el equivalente de la duda #1 de BIKERPRO, y es la que más ventas frena en un producto que se pone en el cuerpo. Hoy cada una de estas preguntas acaba en una persona.
 
@@ -29,15 +39,23 @@ Su duda número 1 era la **talla** (17,8%) y la número 2 el **color** (10,3%) �
 
 > Con una medida puedo hacer que el bot responda «la correa ajusta hasta X cm» en vez de derivar. **Sin medida no toco nada**, porque prometer que le queda a cualquiera es lo que me pediste no hacer.
 
-### 2. ¿Cómo se hace efectiva la garantía de 1 mes?
+### 2. ¿Cómo se hace efectiva la garantía de 1 mes? — ✅ RESUELTO (08-oct)
 
-**Hoy el bot dice:** «Tiene garantía de 1 mes. Cómo se tramita te lo explica una persona del equipo.»
+Cubre **defecto de fábrica**. Se tramita escribiendo por el WhatsApp y se hace el cambio del producto. **No cubre** mal uso, manipulación indebida ni mojarlo.
 
-- ¿Qué cubre? (¿solo defecto de fábrica? ¿también si no le sirve?)
-- ¿Quién paga el envío de la devolución o el cambio? \_\_\_\_
-- ¿Qué tiene que hacer la clienta? (¿escribir al WhatsApp? ¿mandar foto o video del defecto?)
+Las exclusiones **no** salen en la primera respuesta —abrir con «no cubre si lo mojas» enfría una venta que iba bien— pero sí cuando preguntan por el alcance o el trámite.
 
-### 3. ¿Cuánto cuestan 2 o más unidades?
+Queda una duda menor, por si la quieres cerrar:
+- ¿Quién paga el envío del cambio? \_\_\_\_
+- ¿Hace falta foto o video del defecto? \_\_\_\_
+
+### 3. ¿Cuánto cuestan 2 o más unidades? — 🔴 BLOQUEADO POR AMBIGÜEDAD
+
+**Respondiste (08-oct):** *«te las puedo dejar en promoción de 2 U por 80.000 85.000 pesos con el envío incluido»*.
+
+**No lo guardé porque hay dos cifras y es un precio.** ¿Son **$80.000** o **$85.000** por las dos?
+
+No puedo elegir: si pongo 80.000 y era 85.000 pierdes $5.000 en cada venta de dos; si pongo 85.000 y era 80.000 le cobras de más a la clienta. Dime el número y lo guardo en un minuto — el envío incluido ya lo entendí.
 
 **Hoy:** el bot **no cotiza** 2 unidades. Se niega y lo pasa a una persona, porque no hay precio aprobado y multiplicar sería inventarme tu política.
 

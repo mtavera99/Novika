@@ -323,8 +323,48 @@ describe("4 · sin inventar", () => {
     // definidos.
     assert.equal(/te lo cambiamos|reembols|devolvemos el dinero/i.test(r.texto), false, "prometió un alcance");
 
+    // ANTES ESTA ASERCION PEDIA QUE DERIVARA A UNA PERSONA, y era lo
+    // correcto mientras el tramite no estaba definido. Marco lo confirmo el
+    // 2026-10-08, asi que ahora se responde.
     const tramite = await dice("¿y cómo la hago efectiva?");
-    assert.match(tramite.texto, /persona del equipo/i, `no derivó el trámite: ${tramite.texto}`);
+    assert.match(tramite.texto, /escribes por este mismo WhatsApp/i, `no dijo el trámite: ${tramite.texto}`);
+    assert.match(tramite.texto, /cambio del producto/i);
+
+    // Y LAS EXCLUSIONES SE DICEN. Quien pregunta "¿cómo la hago efectiva?"
+    // esta pidiendo el limite; ocultarlo hasta el dia del reclamo convierte
+    // la garantia en una discusion.
+    assert.match(tramite.texto, /no cubre/i, "no dijo lo que NO cubre");
+    assert.match(tramite.texto, /mojarlo/i, "la exclusión más probable de un producto con panel de control");
+  });
+
+  test("las exclusiones NO salen en la primera respuesta", async () => {
+    // Abrir con "no cubre si lo mojas" suena a que esperamos que el cliente
+    // haga algo mal, y enfria una venta que iba bien. Se dicen cuando
+    // preguntan por el alcance.
+    const { dice } = await conversacion();
+    const r = await dice("¿tiene garantía?");
+    assert.match(r.texto, /1 mes/);
+    assert.equal(/no cubre|mojarlo|mal uso/i.test(r.texto), false, `abrió con las exclusiones: ${r.texto}`);
+  });
+
+  test("«¿me sirve?» dice que es graduable, sin prometer que le queda a cualquiera", async () => {
+    // Marco confirmo que la correa es graduable. Lo que NO hay es la medida
+    // maxima, asi que "le queda a cualquiera" sigue sin respaldo.
+    //
+    // Importa por como quedo la garantia: cubre defecto de fabrica, NO "no
+    // me quedó". Prometer el ajuste y no cumplirlo deja a la clienta sin
+    // garantia y con razon para quejarse.
+    const { dice } = await conversacion();
+    const r = await dice("¿me sirve? tengo la cintura ancha");
+
+    assert.match(r.texto, /graduable|se ajusta/i, `no dijo lo que sí sabemos: ${r.texto}`);
+    assert.equal(
+      /le queda a cualquiera|sin problema|no importa|a todas/i.test(r.texto),
+      false,
+      `prometió ajuste universal sin medida: ${r.texto}`
+    );
+    const claims = responder.revisarClaims(r.texto, elCinturon());
+    assert.equal(claims.ok, true, JSON.stringify(claims.encontrados));
   });
 
   test("ante «¿me sirve?» NO promete que sirva para cualquier contorno", async () => {
