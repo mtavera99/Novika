@@ -401,7 +401,19 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
 function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false } = {}) {
   const nombres = {
     nombre: "tu nombre completo",
-    telefono: "un número de contacto",
+    // "TU NUMERO DE CELULAR", no "un numero de contacto".
+    //
+    // Marco lo pidio asi -"siempre requerir el numero de celular para los
+    // pedidos"- y la palabra importa: "un numero de contacto" admite un
+    // fijo, y la transportadora llama al celular. Ademas es la palabra que
+    // usa el cliente.
+    //
+    // El dato NO es opcional: `REQUERIDOS_PARA_DESPACHAR` lo exige, asi que
+    // un pedido sin celular no se construye. Normalmente llega solo desde
+    // WhatsApp; se PREGUNTA cuando no hay, que es el caso de los clientes
+    // con nombre de usuario (BSUID `CO.…`) — tres de los quince chats del
+    // 07-oct eran de esos.
+    telefono: "tu número de celular",
     ciudad: "la ciudad",
     departamento: "el departamento",
     direccion: "la dirección",

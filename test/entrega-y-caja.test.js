@@ -334,3 +334,108 @@ describe("4 · cuántos chats resolvió el bot", () => {
     assert.equal(a.total, 0);
   });
 });
+
+// --------------------------------------------------------------------------
+// 5 · EL CELULAR SIEMPRE SE EXIGE
+//
+// Marco: "no se te olvide SIEMPRE requerir el numero de celular para los
+// pedidos".
+//
+// No es un capricho: la transportadora llama al celular, y sin el un pedido
+// contraentrega se convierte en un paquete que vuelve. Y hay un caso donde
+// el numero NO llega solo: los clientes con NOMBRE DE USUARIO de WhatsApp
+// (BSUID `CO.…`), que no traen telefono. El 07-oct, TRES de los quince
+// chats del dia eran de esos.
+//
+// Esta bateria existe para que esa exigencia no se caiga en silencio: es un
+// requisito de negocio, no un detalle de implementacion.
+// --------------------------------------------------------------------------
+
+describe("5 · nunca un pedido sin número de celular", () => {
+  test("el celular está entre los datos requeridos para despachar", () => {
+    assert.ok(
+      dominioPedido.REQUERIDOS_PARA_DESPACHAR.includes("telefono"),
+      "se cayó la exigencia del celular: un pedido sin él es un paquete que vuelve"
+    );
+  });
+
+  test("un pedido SIN celular no se construye", () => {
+    const cot = cotizador.cotizar({
+      producto: PRODUCTO,
+      cantidad: 1,
+      destino: { ciudad: "Palmira", departamento: "Valle del Cauca" },
+    });
+    const r = dominioPedido.construir({
+      cotizacion: cot.cotizacion,
+      datos: {
+        nombre: "Luz Marina",
+        ciudad: "Palmira",
+        departamento: "Valle del Cauca",
+        direccion: "Calle 20 # 15-30",
+      },
+      // Un cliente con nombre de usuario de WhatsApp: no trae telefono.
+      contactoId: "CO.1667873168388823",
+      conversacionId: "conv-sin-tel",
+      ofertaId: "of-sin-tel",
+      wamidConfirmacion: "wamid.sin-tel",
+    });
+
+    assert.equal(r.ok, false, "dejó crear un pedido sin celular");
+    assert.ok(r.falta.includes("telefono"), JSON.stringify(r.falta));
+  });
+
+  test("y tampoco se despacha, aunque alguien lo fuerce", () => {
+    // La segunda red: si un pedido llegara sin celular por otro camino, el
+    // despacho tiene que negarse igual.
+    const cot = cotizador.cotizar({
+      producto: PRODUCTO,
+      cantidad: 1,
+      destino: { ciudad: "Palmira", departamento: "Valle del Cauca" },
+    });
+    const armado = dominioPedido.construir({
+      cotizacion: cot.cotizacion,
+      datos: {
+        nombre: "Luz Marina",
+        telefono: "3001110001",
+        ciudad: "Palmira",
+        departamento: "Valle del Cauca",
+        direccion: "Calle 20 # 15-30",
+      },
+      contactoId: "573001110099",
+      conversacionId: "conv-f",
+      ofertaId: "of-f",
+      wamidConfirmacion: "wamid.f",
+    });
+    assert.equal(armado.ok, true);
+
+    const sinTelefono = JSON.parse(JSON.stringify(armado.pedido));
+    delete sinTelefono.destinatario.telefono;
+
+    const listo = dominioPedido.listoParaDespachar(sinTelefono);
+    assert.equal(listo.ok, false, "habría despachado un pedido sin celular");
+    assert.match(listo.motivo, /telefono/i, listo.motivo);
+  });
+
+  test("y cuando no lo tenemos, el bot LO PIDE con esa palabra", () => {
+    // El caso real: cliente con nombre de usuario, sin telefono. Si el bot
+    // no lo pide, el pedido se queda a medias y nadie sabe por que.
+    const responder = require("../src/cerebro/responder");
+    const path = require("node:path");
+    const { cargarCatalogo } = require("../src/catalogo");
+    const producto = cargarCatalogo({
+      carpeta: path.join(__dirname, "..", "catalogo", "productos"),
+      refrescar: true,
+    }).porId.get("cinturon-termico-colicos");
+
+    const texto = responder.textoDeterminista({
+      situacion: "faltan_datos",
+      cotizacion: cotizador.cotizar({ producto, cantidad: 1 }).cotizacion,
+      faltan: ["nombre", "telefono", "ciudad", "direccion"],
+      producto,
+      mensajeCliente: "lo quiero",
+      memoria: { saludado: true },
+    });
+
+    assert.match(texto, /n[úu]mero de celular/i, `no pidió el celular: ${texto}`);
+  });
+});
