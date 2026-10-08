@@ -108,7 +108,7 @@ describe("1 · enviarImagen", () => {
   test("sin pie, no manda `caption` vacio", async () => {
     const fetchImpl = espia();
     const emisor = crearEmisor({ config: CONFIG, fetchImpl });
-    await emisor.enviarImagen({ para: "x", archivo: PRODUCTO.imagenes[1].archivo, permiso: PERMISOS.CONVERSACION });
+    await emisor.enviarImagen({ para: "573001112233", archivo: PRODUCTO.imagenes[1].archivo, permiso: PERMISOS.CONVERSACION });
     assert.equal(fetchImpl.llamadas[0].image.caption, undefined);
   });
 
@@ -118,7 +118,7 @@ describe("1 · enviarImagen", () => {
     const fetchImpl = espia();
     const emisor = crearEmisor({ config: CONFIG, fetchImpl });
     await emisor.enviarImagen({
-      para: "x",
+      para: "573001112233",
       archivo: PRODUCTO.imagenes[0].archivo,
       pie: "a".repeat(MAX_PIE_DE_FOTO + 500),
       permiso: PERMISOS.CONVERSACION,
@@ -138,7 +138,7 @@ describe("1 · enviarImagen", () => {
       ["catalogo/imagenes/cinturon-termico/originales/01frente..heic", /no es jpeg ni png/],
     ];
     for (const [archivo, esperado] of casos) {
-      const r = await emisor.enviarImagen({ para: "x", archivo, permiso: PERMISOS.CONVERSACION });
+      const r = await emisor.enviarImagen({ para: "573001112233", archivo, permiso: PERMISOS.CONVERSACION });
       assert.equal(r.enviado, false, `acepto ${archivo}`);
       assert.equal(r.motivo, MOTIVOS_BLOQUEO.IMAGEN_NO_ENVIABLE);
       assert.match(r.detalle, esperado);
@@ -149,7 +149,7 @@ describe("1 · enviarImagen", () => {
   test("sin URL publica no se manda nada", async () => {
     const fetchImpl = espia();
     const emisor = crearEmisor({ config: { ...CONFIG, urlPublica: "" }, fetchImpl });
-    const r = await emisor.enviarImagen({ para: "x", archivo: PRODUCTO.imagenes[0].archivo, permiso: PERMISOS.CONVERSACION });
+    const r = await emisor.enviarImagen({ para: "573001112233", archivo: PRODUCTO.imagenes[0].archivo, permiso: PERMISOS.CONVERSACION });
     assert.equal(r.enviado, false);
     assert.match(r.detalle, /URL publica/);
     assert.equal(fetchImpl.llamadas.length, 0);
@@ -165,7 +165,7 @@ describe("2 · interruptores y pausa valen igual para las fotos", () => {
     const fetchImpl = espia();
     const emisor = crearEmisor({ config: { ...CONFIG, respuestaAutomatica: false }, fetchImpl });
     const r = await emisor.enviarImagen({
-      para: "x", archivo: PRODUCTO.imagenes[0].archivo, permiso: PERMISOS.CONVERSACION,
+      para: "573001112233", archivo: PRODUCTO.imagenes[0].archivo, permiso: PERMISOS.CONVERSACION,
     });
     assert.equal(r.enviado, false);
     assert.equal(r.motivo, MOTIVOS_BLOQUEO.INTERRUPTOR);
@@ -176,7 +176,7 @@ describe("2 · interruptores y pausa valen igual para las fotos", () => {
     const fetchImpl = espia();
     const emisor = crearEmisor({ config: { ...CONFIG, panelEnvioManual: false }, fetchImpl });
     const r = await emisor.enviarImagen({
-      para: "x", archivo: PRODUCTO.imagenes[0].archivo, permiso: PERMISOS.ATENCION_MANUAL,
+      para: "573001112233", archivo: PRODUCTO.imagenes[0].archivo, permiso: PERMISOS.ATENCION_MANUAL,
     });
     assert.equal(r.enviado, false);
     assert.equal(r.motivo, MOTIVOS_BLOQUEO.ENVIO_MANUAL_APAGADO);
@@ -531,3 +531,68 @@ describe("5 · la ruta del panel", () => {
 });
 
 module.exports = {};
+
+// --------------------------------------------------------------------------
+// UN BSUID NO ES UN DESTINATARIO
+//
+// SALIO DE LA AUDITORIA REAL: 8 fallos de envio, todos con el mismo error
+// del proveedor y el mismo tipo de destinatario:
+//
+//   contacto CO.1667873168388823
+//   error 131026 · Message undeliverable
+//
+// No es un telefono: es un BSUID, el identificador de los clientes que
+// escriben con NOMBRE DE USUARIO de WhatsApp y no tienen numero.
+// `normalizar.js` ya los distingue, y su comentario avisaba de esto
+// literalmente: "la clave de la conversacion y el telefono al que se
+// despacha son cosas distintas, y confundirlas rompe el despacho".
+//
+// Se confundian: el cerebro envia a `telefono || idCliente`, asi que sin
+// telefono mandaba al BSUID. El cliente no recibia nada y el fallo pasaba
+// en la red, donde no lo veia nadie.
+// --------------------------------------------------------------------------
+test("no se intenta enviar a un BSUID: se bloquea con un motivo que se entiende", async () => {
+  const llamadas = [];
+  const emisor = crearEmisor({
+    config: { ...require("../src/config").config, respuestaAutomatica: true, whatsappToken: "t", idNumero: "000" },
+    repos: null,
+    fetchImpl: async (url, opc) => {
+      llamadas.push(opc);
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: "w1" }] }) };
+    },
+  });
+
+  const r = await emisor.enviarTexto({
+    para: "CO.1667873168388823",
+    texto: "Hola, con gusto te cuento…",
+    permiso: PERMISOS.CONVERSACION,
+  });
+
+  assert.equal(r.enviado, false, "intentó enviar a un identificador que Meta rechaza");
+  assert.equal(r.bloqueado, true);
+  assert.match(r.motivo, /telefono/i, `el motivo no explica la causa: ${r.motivo}`);
+  // Y NO se gasta ni una llamada a la red: reintentar contra un
+  // destinatario invalido llena el diario y tapa el motivo real.
+  assert.equal(llamadas.length, 0, "gastó llamadas a la API contra un destinatario inválido");
+});
+
+test("pero un teléfono normal sigue saliendo", async () => {
+  const llamadas = [];
+  const emisor = crearEmisor({
+    config: { ...require("../src/config").config, respuestaAutomatica: true, whatsappToken: "t", idNumero: "000" },
+    repos: null,
+    fetchImpl: async (url, opc) => {
+      llamadas.push(JSON.parse(opc.body));
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: "w1" }] }) };
+    },
+  });
+
+  const r = await emisor.enviarTexto({
+    para: "573058742138",
+    texto: "Hola",
+    permiso: PERMISOS.CONVERSACION,
+  });
+
+  assert.equal(r.enviado, true, `no salió un envío normal: ${JSON.stringify(r)}`);
+  assert.equal(llamadas[0].to, "573058742138");
+});

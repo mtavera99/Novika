@@ -49,6 +49,8 @@ const MOTIVOS_EN_CLARO = {
   [atencion.MOTIVOS_PENDIENTE.OTRA_COMPRA]: "quiere otra compra y ya tiene un pedido",
   [atencion.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO]: "quiere cambiar algo de un pedido confirmado",
   [atencion.MOTIVOS_PENDIENTE.NO_SUPO]: "el bot no supo resolverlo y se detuvo",
+  [atencion.MOTIVOS_PENDIENTE.SIN_TELEFONO]:
+    "escribió con nombre de usuario y no tiene teléfono: el bot no puede responderle",
 };
 
 /** Escape de HTML. Todo lo que venga de un cliente pasa por aqui. */
