@@ -664,10 +664,19 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       .find((m) => m && m.de === atencionDeChat.QUIEN.CLIENTE);
     const temasAhora = responder.analizarTurno(evento.texto || "").lectura.temas;
     const temasAntes = previoDelCliente ? responder.analizarTurno(previoDelCliente.texto).lectura.temas : [];
+    const turnoAhora = responder.analizarTurno(evento.texto || "");
+    const turnoAntes = previoDelCliente ? responder.analizarTurno(previoDelCliente.texto) : null;
+
     const mismaPregunta =
-      temasAhora.length > 0 &&
-      temasAhora.length === temasAntes.length &&
-      temasAhora.every((t) => temasAntes.includes(t));
+      // Los mismos temas: la misma duda escrita de dos formas.
+      (temasAhora.length > 0 &&
+        temasAhora.length === temasAntes.length &&
+        temasAhora.every((t) => temasAntes.includes(t))) ||
+      // O DOS SALUDOS SEGUIDOS. Un saludo no tiene temas, asi que la regla
+      // de arriba no lo cubria: en la captura de Marco, "Hola" y "Buenas
+      // noches" seguidos acababan en "perdón, no quiero repetirme".
+      // Saludar dos veces merece que te saluden dos veces.
+      Boolean(turnoAhora.lectura.soloSaludo && turnoAntes && turnoAntes.lectura.soloSaludo);
 
     const noRepetir = responder.sinRepetir(preparada.texto, ultimoDelNegocio && ultimoDelNegocio.texto, {
       mismaPregunta,
@@ -760,6 +769,22 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // equivocado confunden mas que preguntar.
     // ------------------------------------------------------------------
     const pidioVerlo = texto.pideFotos(evento.texto || "");
+
+    // ------------------------------------------------------------------
+    // SI EL MENSAJE PROMETE FOTOS, LAS FOTOS SALEN
+    //
+    // Esta condicion cierra el defecto de raiz en vez de caso por caso.
+    // Volvio a aparecer al mejorar la respuesta de "¿para qué sirve?": el
+    // texto decia "te paso las fotos para que lo veas bien" y no salia
+    // ninguna, porque esa pregunta no activaba `pideFotos`.
+    //
+    // Es el mismo fallo que ya se habia corregido una vez, reintroducido
+    // por otro camino — señal de que la condicion estaba en el sitio
+    // equivocado. Mirando el TEXTO YA PREPARADO, el mensaje y las fotos no
+    // se pueden desalinear: cualquier frase futura que las prometa las
+    // manda, sin que nadie tenga que acordarse de añadir su caso aqui.
+    // ------------------------------------------------------------------
+    const textoPrometeFotos = /\bfotos?\b/i.test(preparada.texto || "");
     // El arranque las anuncia ("Te muestro las fotos"), asi que tienen que
     // salir. Si no, el primer mensaje promete algo que no llega.
     const turnoDeFotos = responder.analizarTurno(evento.texto || "");
@@ -772,7 +797,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       productoParaFotos &&
       (productoParaFotos.imagenes || []).length &&
       sabemosDeQueProducto &&
-      (situacion === "producto_en_borrador" || pidioVerlo || esArranque)
+      (situacion === "producto_en_borrador" || pidioVerlo || esArranque || textoPrometeFotos)
     ) {
       const informeFotos = await fotos.enviarFotosDeProducto({
         emisor,

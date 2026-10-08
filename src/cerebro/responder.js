@@ -619,8 +619,35 @@ function textoDeterminista({
     // cotizacion ni ningun pedido nuevo.
     // ----------------------------------------------------------------------
     case "ya_confirmado": {
+      const quien = voz.nombreDePila(nombreCliente);
+
+      // ------------------------------------------------------------------
+      // UN SALUDO SE CONTESTA SALUDANDO
+      //
+      // En la captura de Marco: escribio "Hola" y recibio "Tu pedido
+      // NOV-... ya está confirmado y te avisamos cuando salga". Nadie
+      // saluda y recibe el estado de su pedido; eso es un cajero
+      // automatico. Y encima el "Buenas noches" siguiente caia en la
+      // guarda anti-eco -mismo texto- y acababa en "perdón, no quiero
+      // repetirme".
+      //
+      // El numero de pedido se dice cuando pregunta POR EL, no cuando
+      // dice buenas noches.
+      // ------------------------------------------------------------------
+      if (lectura.soloSaludo) {
+        return componer([
+          quien ? `¡Hola, ${quien}!` : "¡Hola!",
+          "¿En qué te puedo ayudar?",
+        ]);
+      }
+
       const partes = [];
       if (saludo) partes.push(saludo);
+
+      // La apertura, igual que en el resto de la conversacion. Esta rama se
+      // habia quedado sin ella: "Tiene garantía de 1 mes..." en vez de
+      // "¡Claro que sí! Tiene 1 mes de garantía...".
+      if (!saludo) partes.push(voz.apertura(lectura.temas));
 
       // Su duda, respondida. El precio se puede decir -es informativo- pero
       // NO crea oferta: el estado sigue blindado.
@@ -629,14 +656,14 @@ function textoDeterminista({
 
       // El pedido se nombra cuando el cliente pregunta por el -entrega,
       // envio- o cuando no pregunto nada. Repetir el numero de pedido en
-      // cada mensaje es justo lo que producia el eco.
+      // cada mensaje es lo que producia el eco.
       const preguntaPorSuPedido =
         lectura.temas.includes(preguntas.TEMAS.ENTREGA) || lectura.temas.includes(preguntas.TEMAS.ENVIO);
 
       if (!respuesta.texto || preguntaPorSuPedido) {
         partes.push(
           pedido
-            ? `Tu pedido ${pedido.id} ya está confirmado y te avisamos cuando salga.`
+            ? `Tu pedido ${pedido.id} ya está confirmado y te avisamos en cuanto salga.`
             : "Tu pedido ya está confirmado."
         );
       }
@@ -644,10 +671,20 @@ function textoDeterminista({
       // Si pidio otro, se le dice que lo gestiona una persona. NO se abre un
       // pedido nuevo por iniciativa del bot: BIKERPRO documento un pedido
       // falso creado asi, y casi se despacho un paquete que nadie pidio.
+      //
+      // ------------------------------------------------------------------
+      // Y SE QUITO EL ESTRIBILLO "Cualquier otra cosa de tu pedido, dime".
+      //
+      // Salia detras de CADA respuesta de posventa. En la captura de Marco
+      // aparece tres veces seguidas, una por mensaje. Amable la primera
+      // vez, robotico a la tercera: es la misma regla de "no fuerces una
+      // pregunta comercial en cada respuesta", aplicada a la posventa.
+      //
+      // Un vendedor responde la duda y se calla. Si el cliente quiere otra
+      // cosa, la pregunta.
+      // ------------------------------------------------------------------
       if (lectura.compra || lectura.temas.includes(preguntas.TEMAS.PRECIO)) {
         partes.push("Si quieres pedir otro, le digo a una persona del equipo que te lo arme.");
-      } else if (!preguntaPorSuPedido && respuesta.texto) {
-        partes.push("Cualquier otra cosa de tu pedido, dime.");
       }
 
       // Por `componer` como todos: unia con join y salia en minuscula

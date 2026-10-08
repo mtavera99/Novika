@@ -51,6 +51,11 @@ const atencion = require("../src/almacen/atencion");
 const RAIZ = path.join(__dirname, "..");
 const CLIENTE = "573001234567";
 
+const elCinturon = () =>
+  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+    "cinturon-termico-colicos"
+  );
+
 // --------------------------------------------------------------------------
 // UN WAMID QUE NO PUEDE COLISIONAR
 //
@@ -111,7 +116,12 @@ async function conversacion() {
       origenTexto: "escrito",
       referral: null,
     });
-    return { traza, texto: salidas.filter((s) => s.type === "text").map((s) => s.text.body).join("\n") };
+    return {
+      traza,
+      texto: salidas.filter((s) => s.type === "text").map((s) => s.text.body).join("\n"),
+      // Las fotos tambien: hay que poder comprobar que lo prometido sale.
+      fotos: salidas.filter((s) => s.type === "image").map((s) => s.image.link),
+    };
   };
 
   /** Deja un pedido confirmado, como el que ya tiene Marco. */
@@ -381,6 +391,161 @@ describe("4 · el número de pedido no se confunde con dinero", () => {
       assert.match(r.texto.length ? "ok" : "", /ok/, "tiene que responder algo");
       const rev = cotizador2.revisarImportes(r.texto, [49900, 1]);
       assert.equal(rev.ok, true, `bloqueado ante "${m}" (pedido ${pedido.id}): ${JSON.stringify(rev.sospechosos)}`);
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
+// 5 · LA POSVENTA TAMBIEN TIENE VOZ
+//
+// DE DONDE SALE: una segunda captura de Marco. La rama `ya_confirmado` se
+// habia quedado FUERA del cambio de tono, y es justo la que mas usa quien
+// ya compro:
+//
+//   Marco: "Hola"
+//   bot:   "Tu pedido NOV-... ya está confirmado y te avisamos cuando salga."
+//   Marco: "Buenas noches"
+//   bot:   "Perdón, no quiero repetirme..."   <- la guarda anti-eco
+//   Marco: "Qué colores tienes?"
+//   bot:   "Viene únicamente en color rosado. Cualquier otra cosa de tu
+//           pedido, dime 💗"
+//   Marco: "Para que sirve?"
+//   bot:   "Cinturón térmico con correa ajustable y panel de control. Se
+//           entrega con su empaque. Cualquier otra cosa de tu pedido, dime."
+//
+// CUATRO DEFECTOS EN CINCO MENSAJES:
+//   · un saludo recibia el estado del pedido, como un cajero automatico;
+//   · dos saludos seguidos acababan en la guarda anti-eco;
+//   · "Cualquier otra cosa de tu pedido, dime" detras de CADA respuesta;
+//   · "¿para qué sirve?" describia el objeto sin responder para que sirve.
+// --------------------------------------------------------------------------
+
+describe("5 · la posventa suena a persona", () => {
+  test("un saludo se contesta saludando, no con el número de pedido", async () => {
+    const c = await conversacion();
+    await c.conPedidoConfirmado();
+
+    const r = await c.dice("Hola");
+    assert.match(r.texto, /¡Hola/, `no saludó: ${r.texto}`);
+    assert.equal(/NOV-/.test(r.texto), false, `soltó el número de pedido a un saludo: ${r.texto}`);
+    assert.match(r.texto, /ayudar/i, "tiene que ofrecer ayuda, no cerrar");
+  });
+
+  test("usa el nombre al saludar, si está confirmado", async () => {
+    const c = await conversacion();
+    await c.conPedidoConfirmado();
+    const r = await c.dice("Hola");
+    assert.match(r.texto, /Marco/, `no usó el nombre que ya tenía: ${r.texto}`);
+  });
+
+  test("dos saludos seguidos NO caen en la guarda anti-eco", async () => {
+    // Saludar dos veces merece que te saluden dos veces. Un saludo no tiene
+    // temas, asi que la regla de "misma pregunta" no lo cubria.
+    const c = await conversacion();
+    await c.conPedidoConfirmado();
+
+    const uno = await c.dice("Hola");
+    const dos = await c.dice("Buenas noches");
+
+    assert.equal(/no quiero repetirme/i.test(dos.texto), false, `se disculpó por saludar: ${dos.texto}`);
+    assert.match(dos.texto, /¡Hola/);
+    assert.equal(uno.texto, dos.texto, "dos saludos, el mismo saludo");
+  });
+
+  test("reconoce la pregunta antes del dato, igual que en el resto", async () => {
+    const c = await conversacion();
+    await c.conPedidoConfirmado();
+
+    const r = await c.dice("Tiene garantía?");
+    assert.match(r.texto, /^¡Claro que sí!/, `sin apertura: ${r.texto}`);
+    assert.match(r.texto, /1 mes/);
+    assert.match(r.texto, /tranquilidad/, "y el beneficio de tener garantía");
+  });
+
+  test('se quitó el estribillo "Cualquier otra cosa de tu pedido, dime"', async () => {
+    // Salia detras de CADA respuesta: amable la primera vez, robotico a la
+    // tercera. Es la regla de "no fuerces una pregunta comercial en cada
+    // respuesta", aplicada a la posventa.
+    const c = await conversacion();
+    await c.conPedidoConfirmado();
+
+    for (const m of ["Tiene garantía?", "Qué colores tienes?", "¿de qué material es?"]) {
+      const r = await c.dice(m);
+      assert.equal(
+        /cualquier otra cosa de tu pedido/i.test(r.texto),
+        false,
+        `repitió el estribillo ante "${m}": ${r.texto}`
+      );
+    }
+  });
+
+  test("tres dudas seguidas dan tres respuestas distintas", async () => {
+    const c = await conversacion();
+    await c.conPedidoConfirmado();
+
+    const uno = await c.dice("Tiene garantía?");
+    const dos = await c.dice("Qué colores tienes?");
+    const tres = await c.dice("¿en cuántos días llega?");
+
+    const textos = [uno.texto, dos.texto, tres.texto];
+    assert.equal(new Set(textos).size, 3, `hay repetidas:\n${textos.join("\n---\n")}`);
+    assert.match(uno.texto, /garantía/i);
+    assert.match(dos.texto, /rosado/i);
+    assert.match(tres.texto, /1 a 3 días/i);
+  });
+});
+
+// --------------------------------------------------------------------------
+// 6 · SI EL MENSAJE PROMETE FOTOS, LAS FOTOS SALEN
+//
+// Este defecto ya se habia corregido una vez y volvio por otro camino: al
+// mejorar la respuesta de "¿para qué sirve?", el texto decia "te paso las
+// fotos para que lo veas bien" y no salia ninguna, porque esa pregunta no
+// activaba el detector de peticion de fotos.
+//
+// Que reaparezca por otra via significa que la condicion estaba en el sitio
+// equivocado: ahora se mira EL TEXTO YA PREPARADO, asi que el mensaje y las
+// fotos no se pueden desalinear. Cualquier frase futura que las prometa las
+// manda, sin que nadie tenga que acordarse de añadir su caso.
+// --------------------------------------------------------------------------
+
+describe("6 · lo prometido se cumple", () => {
+  test('"¿para qué sirve?" promete fotos Y las manda', async () => {
+    const c = await conversacion();
+    const r = await c.dice("Para que sirve?");
+    assert.match(r.texto, /fotos/i, "el texto tiene que ofrecer las fotos");
+    assert.equal(r.fotos.length, 5, `prometió fotos y salieron ${r.fotos.length}`);
+  });
+
+  test("y cuando NO las promete, no las manda", async () => {
+    // La otra mitad: mandar cinco fotos a quien pregunto el color es spam.
+    const c = await conversacion();
+    await c.dice("Para que sirve?"); // consume las fotos
+    const r = await c.dice("¿y de qué color es?");
+    assert.equal(/\bfotos?\b/i.test(r.texto), false);
+    assert.equal(r.fotos.length, 0);
+  });
+
+  test("ningún texto promete fotos de un producto que no las tiene", () => {
+    // Si el producto no tiene imagenes vinculadas, ninguna frase puede
+    // ofrecerlas: el cliente se quedaria esperando algo que no existe.
+    const responder2 = require("../src/cerebro/responder");
+    const sinFotos = { ...elCinturon(), imagenes: [] };
+    for (const mensaje of ["hola", "para qué sirve", "mándame fotos", "¿cómo es?"]) {
+      for (const situacion of ["faltan_datos", "ya_confirmado", "producto_en_borrador", "escalado"]) {
+        const t = responder2.textoDeterminista({
+          situacion,
+          cotizacion: null,
+          faltan: [],
+          producto: sinFotos,
+          mensajeCliente: mensaje,
+        });
+        assert.equal(
+          /\bfotos?\b/i.test(t),
+          false,
+          `prometió fotos sin tenerlas en ${situacion} con "${mensaje}": ${t}`
+        );
+      }
     }
   });
 });
