@@ -664,7 +664,9 @@ describe("8 · ni despacho hoy, ni respuesta inmediata", () => {
     // cumple vale menos que decir "no lo sé".
     const c = await conversacion();
     const dichos = [
-      (await c.dice("de qué material es?")).texto,
+      // El material ya esta confirmado, asi que se contesta. Para esta
+      // prueba sirve un dato que SIGUE sin confirmar.
+      (await c.dice("qué trae exactamente el paquete?")).texto,
       (await c.dice("oye y lo puedo usar dormida?")).texto,
       (await c.dice("cuanto cuestan tres?")).texto,
     ];

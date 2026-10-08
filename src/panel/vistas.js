@@ -672,6 +672,7 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
       : `<button class="primario" onclick="control(true)">Tomar el control</button>`
   }
   <button onclick="atendido(${a.atendidoEn ? "true" : "false"})">${a.atendidoEn ? "Deshacer atendido" : "Marcar atendido"}</button>
+  <button onclick="empezarDeCero()" title="El bot vuelve a tratar este chat como nuevo. NO borra el historial ni los pedidos.">Empezar de cero</button>
   ${
     producto && (producto.imagenes || []).length
       ? `<button onclick="enviarFotos(${fotosYaEnviadas ? "true" : "false"})">
@@ -761,6 +762,13 @@ async function enviarFotos(yaSeEnviaron) {
   var r = await pedir("/panel/fotos", { id: ID, pie: pie, forzar: yaSeEnviaron === true });
   if (r.ok) { avisar(r.aviso, r.enviadas > 0 ? "ok" : "info"); setTimeout(function(){ location.reload(); }, 1200); }
   else avisar(r.error, "mal");
+}
+
+async function empezarDeCero() {
+  if (!confirm("El bot volvera a tratar este chat como nuevo.\n\nNO se borra el historial ni los pedidos: solo la memoria del bot (que ya saludo, que ya dijo el precio, el escalado y la pausa).\n\n¿Seguimos?")) return;
+  var r = await pedir("/panel/empezar-de-cero", { id: ID });
+  if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error || "No se pudo.", "mal");
 }
 
 async function cancelar(codigo) {

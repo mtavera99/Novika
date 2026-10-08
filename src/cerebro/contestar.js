@@ -316,6 +316,9 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     }
 
     case TEMAS.MATERIAL: {
+      // Autorizado por Marco el 2026-10-08. Era una de las preguntas que
+      // mas llegan y el bot no la podia contestar.
+      if (producto && producto.material && producto.material.texto) return producto.material.texto;
       const dato = caracteristica(producto, /material|tela|cuero/);
       if (dato) return `${dato}.`;
       return loConfirmo("El material", "lo");

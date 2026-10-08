@@ -325,11 +325,94 @@ async function estaPausada(repos, contactoId, { ahora = Date.now() } = {}) {
   }
 }
 
+
+// ==========================================================================
+// EMPEZAR DE CERO: QUE EL BOT TRATE ESTE CHAT COMO NUEVO
+//
+// POR QUE: Marco prueba desde su numero, y su chat lleva dias de mensajes.
+// Con el historial acumulado el bot ya no se comporta como con un cliente
+// que llega: tiene `saludado`, `precioInformado`, `pasoPropuesto`, y a
+// veces un escalado con su pausa. Cada marcador suprime una parte de la
+// respuesta -por diseño, para no repetirse- y juntos lo dejan sin nada que
+// decir o atascado.
+//
+// Marco lo dedujo solo: "probablemente esto pasa porque el bot tiene todo
+// el contexto arriba y queda como bloqueado". Exacto. Y sin forma de
+// reiniciarlo, no puede probar NINGUN cambio: su chat le responde como un
+// veterano atascado, no como lo que vera un cliente nuevo.
+//
+// LO QUE SE BORRA: solo la memoria del BOT -los marcadores, el escalado, la
+// pausa, la ficha de datos y la oferta vigente-.
+//
+// LO QUE NO SE BORRA, Y ES DELIBERADO:
+//
+//   · el HISTORIAL de mensajes. Es la unica prueba de lo que se le dijo a
+//     una persona, y borrarlo para "limpiar" es perder la auditoria. Si
+//     manana hay un reclamo, el historial es lo que lo resuelve.
+//   · los PEDIDOS. Un pedido confirmado es un compromiso con un cliente y
+//     con quien despacha. Reiniciar una conversacion no puede deshacer una
+//     venta: para eso esta cancelar, que deja rastro.
+//
+// Asi que esto no es un "borrar el chat": es un "que el bot vuelva a
+// empezar". El rastro queda entero.
+// ==========================================================================
+
+/** Campos de la conversacion que son memoria del bot y se pueden reiniciar. */
+const MEMORIA_DEL_BOT = [
+  "saludado",
+  "precioInformado",
+  "pasoPropuesto",
+  "datosPedidos",
+  "resumenMostrado",
+  "huboSenalDeCompra",
+  "fotosEnviadas",
+  "pendiente",
+];
+
+/**
+ * Deja el chat como si el cliente llegara por primera vez.
+ *
+ * @returns la conversacion guardada, o null si no existe.
+ */
+async function empezarDeCero(repos, contactoId, { por = "operador" } = {}) {
+  const conv = await repos.conversaciones.obtener(contactoId);
+  if (!conv) return null;
+
+  for (const campo of MEMORIA_DEL_BOT) delete conv[campo];
+
+  // El estado vuelve al inicio y la oferta se olvida: una cotizacion vieja
+  // no puede confirmarse con un "si" despues de reiniciar.
+  conv.estado = "nuevo";
+  conv.ficha = {};
+  conv.cotizacion = null;
+  conv.ofertaId = null;
+  conv.productoId = null;
+  conv.ventana = [];
+
+  // Y se devuelve al bot: si estaba pausado por un escalado, seguiria
+  // callado y el reinicio no serviria para nada.
+  conv.atencion = { ...leer(conv), pausado: false, por: null, desde: null };
+
+  // Queda anotado en el propio historial, que NO se borra: quien lea el
+  // chat manana tiene que ver que aqui se reinicio y quien lo hizo.
+  anotarMensaje(conv, {
+    de: QUIEN.OPERADOR,
+    texto: `— conversación reiniciada por ${por}: el bot vuelve a tratar este chat como nuevo —`,
+    por,
+    estado: "nota_interna",
+  });
+
+  await repos.conversaciones.guardar(conv);
+  return conv;
+}
+
 module.exports = {
   QUIEN,
   MAX_MENSAJES,
   MOTIVOS_PENDIENTE,
   anotarPendiente,
+  empezarDeCero,
+  MEMORIA_DEL_BOT,
   pendienteDe,
   leer,
   mensajes,
