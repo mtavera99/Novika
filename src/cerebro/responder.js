@@ -543,6 +543,7 @@ function textoDeterminista({
   cantidadSinTarifa = null,
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
+  huboSenalDeCompra = false,
 }) {
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
 
@@ -645,6 +646,20 @@ function textoDeterminista({
       // palabra para que nadie lo lea como el total de su pedido.
       const asumida = !cotizacion && Boolean(cotizacionInformativa);
 
+      // ---- 1.5 PIDIO INFORMACION: SE LE CUENTA, Y NO SE LE PIDE NADA ----
+      //
+      // El primer mensaje de un cliente de publicidad era exactamente este,
+      // y recibia una peticion de nombre, ciudad y direccion. Lo que pide es
+      // que le cuenten: se presenta el producto con sus condiciones -las del
+      // catalogo, por el cotizador- y se deja la puerta abierta a preguntar.
+      //
+      // Es el mismo texto del arranque, y a proposito: ya esta redactado,
+      // probado, y menciona las fotos (que el cerebro manda al verlo). Un
+      // texto nuevo aqui seria otra frase que mantener en dos sitios.
+      if (lectura.pideInformacion && !lectura.compra) {
+        return arranque(cot, producto, { asumida });
+      }
+
       // ---- 2. RESPONDER LO QUE PREGUNTO ----
       //
       // PREGUNTA POR UNA CANTIDAD QUE NO TIENE TARIFA.
@@ -722,7 +737,46 @@ function textoDeterminista({
       // Va antes que el resto de las ramas porque aportar un dato de entrega
       // es la señal mas fuerte de que la venta avanza: mas que una pregunta
       // y mas que un "me interesa".
+      // ------------------------------------------------------------------
+      // PERO DAR UN DATO NO ES ACEPTAR UNA COMPRA
+      //
+      // EL CASO REAL: un cliente pidio informacion y respondio "Palmira".
+      // El bot lo leyo como que avanzaba la venta y pidio el resto:
+      //
+      //   cliente: "Palmira"
+      //   bot:     "¡Perfecto! A Palmira te llega en 1 a 3 días hábiles.
+      //             Para preparar tu pedido me pasas tu nombre completo, la
+      //             dirección y si quieres uno o dos 🙌"
+      //
+      // Marco: "dar una ciudad no equivale a aceptar una compra". Y tiene
+      // razon: muchas veces la ciudad se da para saber si LLEGA alli, que
+      // es una pregunta, no un paso de la venta.
+      //
+      // ESTO NO DESHACE EL CIERRE, QUE SIGUE SIENDO LO QUE MAS CONVIERTE
+      // (50,7% frente a 24,8% en los datos de BIKERPRO). Lo que cambia es
+      // la condicion: hace falta que el cliente haya mostrado intencion de
+      // comprar ALGUNA VEZ en la conversacion. Quien dijo "lo quiero" y
+      // luego escribe su ciudad esta comprando; quien pidio informacion y
+      // escribe su ciudad esta preguntando si le llega.
+      //
+      // Sin esa señal se acusa recibo del dato y se le da lo UTIL -el plazo
+      // a su ciudad- sin pedirle nada mas. Sigue siendo una buena respuesta,
+      // y la puerta queda abierta.
+      // ------------------------------------------------------------------
       if ((datosAportados || []).length && !lectura.pregunta) {
+        if (!huboSenalDeCompra) {
+          const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
+          const dioLaCiudad = datosAportados.includes("ciudad");
+          if (dioLaCiudad && ciudadConfirmada && t && t.texto) {
+            partes.push(`¡Perfecto! A ${ciudadConfirmada} te llega en ${t.texto}${t.matiz ? ` ${t.matiz}` : ""}.`);
+          } else {
+            partes.push("¡Perfecto, gracias!");
+          }
+          // La puerta abierta, UNA vez, sin pedir ningun dato.
+          if (!memoria.pasoPropuesto) partes.push("¿Quieres que te ayude a pedirlo?");
+          return componer(partes, { emoji: null });
+        }
+
         return componer(
           [
             ...partes,
@@ -1196,6 +1250,7 @@ function preparar({
   cantidadSinTarifa = null,
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
+  huboSenalDeCompra = false,
 }) {
   const determinista = textoDeterminista({
     situacion,
@@ -1214,6 +1269,7 @@ function preparar({
     cantidadSinTarifa,
     fotosYaEnviadas,
     pideReenvioDeFotos,
+    huboSenalDeCompra,
   });
   const bloqueos = [];
 

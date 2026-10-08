@@ -823,6 +823,8 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       cantidadSinTarifa,
       // Para no prometer fotos que la deduplicacion no va a reenviar.
       // El campo lo anota el envio por producto: `fotosEnviadas[productoId]`.
+      // La señal de compra de ESTE turno o de cualquiera anterior.
+      huboSenalDeCompra: conversacion.huboSenalDeCompra === true || loQuePregunta.compra === true,
       pideReenvioDeFotos: preguntas.pideReenvioDeFotos(evento.texto || "", {
         fotosRecientes: preguntas.fotosRecientes(
           ((conversacion.fotosEnviadas || {})[(producto || candidato || {}).id || conversacion.productoId] || {}).cuando || null
@@ -1100,6 +1102,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       const turno = responder.analizarTurno(evento.texto || "");
       conversacion.saludado = true;
       if (traza.cotizacionInformativa || traza.cotizacion) conversacion.precioInformado = true;
+      // ¿Mostro intencion de comprar ALGUNA VEZ? Es lo que distingue a
+      // quien escribe su ciudad porque esta comprando de quien la escribe
+      // para saber si le llega. Se guarda y no se borra: una vez que dijo
+      // que lo quiere, sigue siendo verdad en el turno siguiente.
+      if (loQuePregunta.compra) conversacion.huboSenalDeCompra = true;
       // ----------------------------------------------------------------
       // QUE CANTIDAD SE LE INFORMO
       //
