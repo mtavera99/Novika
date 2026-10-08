@@ -30,8 +30,9 @@ en **cada** llamada (node v22). Postgres local:
 invocación. Cada comando es un contenedor nuevo: `/tmp` se borra y los
 procesos no sobreviven.
 
-**Pruebas:** `npm test` → **884 sin base** (1 omitida), **939 con Postgres**
-(0 omitidas). Medidas el 08-oct tras el PR #41; eran 862 y 917. Las 884 en
+**Pruebas:** `npm test` → **915 sin base** (1 omitida). Medida el 08-oct tras
+el PR #43; eran 862. Con Postgres son más (CI las corre y falla si se saltan):
+el número exacto lo dice CI, y aquí no se escribe a ojo. Las 884 en
 local y las **939 en CI**, que es quien tiene la base: aquel sandbox no traía
 binarios de PostgreSQL ni el `pg-local.sh`.
 
@@ -223,12 +224,62 @@ quedarse seco sin que nadie se entere.
 Cada respuesta debería traer el dato **y por qué le sirve a ella**. Hecho para
 «para qué sirve»; falta ajuste, garantía, entrega, confianza.
 
-### C · El panel, con las secciones de BIKERPRO
+### C · ~~El panel~~ · INDICADORES EN UNA PANTALLA (PR #43)
 
-Faltan: subir el **PDF de guías** y partirlo · **novedades de entrega**
-(NOVIKA tiene una versión, BIKERPRO otra más trabajada) · **revisar pedidos
-duplicados** · **cierre del día por WhatsApp** · indicadores de **% de cierre**
-y **share de 2 unidades**.
+Marco los pidió juntos: *«pedidos entregados, despachados, los que no han
+despachado, el porcentaje de cierre, dónde se escapan los clientes, cuántas
+ventas diarias, cuánto vamos recaudado, cuántos respondió el bot»*.
+
+**Casi todos ya existían, repartidos entre tres pantallas.** Leer el día
+obligaba a recorrer `/panel`, `/guias` y `/auditoria` sumando a mano. Ahora hay
+**`/panel/indicadores`**, que no calcula nada: todo sale de `analitica` y
+`datos`, que son puros y están probados.
+
+**Pero había un hueco de fondo, y no era un indicador: era un estado.**
+
+El sistema no sabía que un pedido se había **ENTREGADO**. Y esto es
+**contraentrega**: el cliente paga en la puerta, así que un pedido confirmado
+—o incluso despachado— no es plata cobrada, es plata en riesgo, y el flete ya
+se gastó. Cuando Marco preguntó *«cuánto vamos recaudado»*, el panel sabía
+contestar cuánto se había **vendido**. Son tres cifras distintas y ahora están
+separadas: **facturado**, **recaudado** (solo lo entregado) y **en riesgo**.
+
+Nuevo: estado `entregado` (migración **004**, con el invariante
+«entregado implica guía» en el motor), transición `dominioPedido.entregar()`
+—idempotente, solo desde despachado— y el botón **«marcar entregado»** en
+Guías. El importe recaudado se **congela** al entregar: si mañana alguien
+modifica la cotización, la caja de ayer no se mueve.
+
+**El fan-out del estado nuevo**, que es el riesgo real de tocar un enum:
+
+- «Por despachar» era `estado !== "despachado"`, así que los **entregados se
+  habrían colado en la pila de trabajo del día**.
+- `activoDeContacto` excluía cancelado y despachado con un literal **en cada
+  backend**. La lista vive ahora en el dominio (`pedido.CERRADOS`): dos copias
+  de la misma regla se separan, como ya pasó con las de «pregunta de precio».
+- El embudo terminaba en «despachado», dando por ganada una venta que todavía
+  puede caerse. Ahora termina en «entregado».
+- `metricas` no tenía ninguno de los nombres `panel_*` que `rutas.js` lleva
+  incrementando desde hace tiempo: **seis acciones distintas sumaban todas en
+  el cajón de «desconocido»**. Se vio al añadir `panel_entregado`.
+
+⚠️ **Lo que NO se puede medir todavía, y es el número que más importa: la tasa
+de rechazo.** Falta un estado para una entrega que **falló**. Hoy un pedido
+despachado no se puede cancelar —se niega a propósito, «la cancelación la
+gestiona una persona»—, así que un paquete que volvió es **indistinguible de
+uno que va en camino**. Por eso el indicador se llama *«de lo que salió,
+entregado»* y **no** *«tasa de entrega»*: sube solo a medida que alguien marca
+entregas y no resta los rechazos, porque no hay dónde anotarlos. La pantalla lo
+dice con un bloque, en vez de dejar que el porcentaje se lea como el rechazo.
+
+**Siguiente paso claro:** un estado `devuelto` con su motivo. Es lo que
+permitiría medir la tasa de rechazo y cuánto cuesta cada una en flete — en
+BIKERPRO ese número es el que separa un canal rentable (5%) de uno que no lo es
+(32%).
+
+**Lo que falta de la C:** subir el **PDF de guías** y partirlo (necesita un PDF
+real de la transportadora), **revisar pedidos duplicados**, **cierre del día por
+WhatsApp**, y el **share de 2 unidades**.
 
 ### D · Paginación completa en el almacén
 

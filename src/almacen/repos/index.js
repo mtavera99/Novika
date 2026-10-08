@@ -47,7 +47,7 @@ const TABLAS_REQUERIDAS = ["contactos", "conversaciones", "pedidos", "pedidos_hi
  */
 const COLUMNAS_REQUERIDAS = {
   conversaciones: ["atencion", "mensajes"], // 002
-  pedidos: ["despacho", "novedades"], // 003
+  pedidos: ["despacho", "novedades", "entrega"], // 003 · 004
 };
 
 /**

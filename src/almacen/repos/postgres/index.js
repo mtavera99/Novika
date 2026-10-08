@@ -39,6 +39,7 @@
 // ==========================================================================
 
 const { MOTIVOS_NO_CREADO } = require("../contrato");
+const { CERRADOS } = require("../../../dominio/pedido");
 
 const TIPO = "postgres";
 
@@ -99,7 +100,7 @@ const CAMPOS_PEDIDO_CONOCIDOS = new Set([
   "id", "version", "estado", "claveDeEvento", "claveDeOferta", "contactoId", "conversacionId",
   "ofertaId", "wamidConfirmacion", "producto", "cantidad", "destinatario", "cotizacion",
   "firmaDeCondiciones", "origen", "revisiones", "historial", "creadoEn", "actualizadoEn",
-  "canceladoEn", "motivoCancelacion", "despacho", "novedades",
+  "canceladoEn", "motivoCancelacion", "despacho", "novedades", "entrega",
 ]);
 
 /**
@@ -177,6 +178,7 @@ function pedidoAFila(p) {
     cancelado_en: p.estado === "cancelado" ? p.canceladoEn || new Date().toISOString() : null,
     motivo_cancelacion: p.estado === "cancelado" ? p.motivoCancelacion || "sin motivo registrado" : null,
     despacho: p.despacho || null,
+    entrega: p.entrega || null,
     novedades: p.novedades || [],
     extra: sobrantes(p, CAMPOS_PEDIDO_CONOCIDOS),
   };
@@ -212,6 +214,7 @@ function filaAPedido(f, historial = []) {
     canceladoEn: aIso(f.cancelado_en),
     motivoCancelacion: f.motivo_cancelacion,
     despacho: f.despacho || null,
+    entrega: f.entrega || null,
     novedades: f.novedades || [],
   };
 }
@@ -265,12 +268,12 @@ const COLUMNAS_PEDIDO = [
   "origen", "revisiones", "creado_en", "actualizado_en", "cancelado_en", "motivo_cancelacion",
   // `guia` NO va aqui: es una columna GENERADA a partir de despacho->>'guia'
   // y PostgreSQL rechaza que se escriba. Existe solo para poder indexarla.
-  "despacho", "novedades",
+  "despacho", "novedades", "entrega",
   "extra",
 ];
 
 const JSONB_PEDIDO = new Set([
-  "variante", "destinatario", "cotizacion", "origen", "revisiones", "despacho", "novedades", "extra",
+  "variante", "destinatario", "cotizacion", "origen", "revisiones", "despacho", "novedades", "entrega", "extra",
 ]);
 
 function valoresDePedido(fila) {
@@ -681,9 +684,14 @@ async function crearReposDePostgres({ dsn, pg = null, maxConexiones = 8, log = n
 
     /** El pedido vivo del contacto. Si hay mas de uno, NO elige. */
     async activoDeContacto(contactoId) {
+      // La lista de estados cerrados sale del DOMINIO, no de un literal
+      // escrito aqui: este mismo filtro existe en el backend de archivos y
+      // dos copias de la misma regla se separan. Cuando se añadio
+      // `entregado`, un literal en cada backend habria dejado uno de los
+      // dos tratando el pedido entregado como el pedido vivo del contacto.
       const { rows } = await pool.query(
-        "SELECT codigo FROM pedidos WHERE contacto_id = $1 AND estado NOT IN ('cancelado','despachado')",
-        [contactoId]
+        "SELECT codigo FROM pedidos WHERE contacto_id = $1 AND NOT (estado = ANY($2))",
+        [contactoId, [...CERRADOS]]
       );
       if (rows.length === 1) return pedidos.obtener(rows[0].codigo);
       // Cero o mas de uno. Mas de uno es una anomalia, y devolver "alguno"

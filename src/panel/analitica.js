@@ -31,6 +31,7 @@
 // ==========================================================================
 
 const fecha = require("./fecha");
+const atencion = require("../almacen/atencion");
 
 /**
  * Etapas del embudo, de la primera a la ultima.
@@ -46,6 +47,10 @@ const ETAPAS = [
   { id: "datos", etiqueta: "Dio sus datos" },
   { id: "confirmado", etiqueta: "Confirmó" },
   { id: "despachado", etiqueta: "Despachado" },
+  // La ultima etapa es ENTREGADO, no despachado. En contraentrega un
+  // despacho todavia puede caerse, y el embudo que termina en "despachado"
+  // da por ganada una venta que aun no se cobro.
+  { id: "entregado", etiqueta: "Entregado" },
 ];
 
 /** Estados de conversacion que acreditan haber llegado a cada etapa. */
@@ -67,6 +72,7 @@ const ESTADOS_POR_ETAPA = {
 function etapaDe(conversacion, pedidosDelContacto = []) {
   const vivos = pedidosDelContacto.filter((p) => p.estado !== "cancelado");
 
+  if (vivos.some((p) => p.estado === "entregado")) return "entregado";
   if (vivos.some((p) => p.estado === "despachado")) return "despachado";
   if (vivos.length) return "confirmado";
 
@@ -224,12 +230,28 @@ function atribucion({ conversaciones = [], pedidos = [] } = {}) {
 function despachos({ pedidos = [] } = {}) {
   const vivos = pedidos.filter((p) => p.estado !== "cancelado");
   const despachados = vivos.filter((p) => p.estado === "despachado");
-  const porDespachar = vivos.filter((p) => p.estado !== "despachado");
+  const entregados = vivos.filter((p) => p.estado === "entregado");
 
-  const conNovedad = despachados.filter((p) => (p.novedades || []).some((n) => !n.resueltaEn));
+  // ⚠️ "POR DESPACHAR" NO ES "TODO LO QUE NO ESTA DESPACHADO".
+  //
+  // Esto era `p.estado !== "despachado"`, y al aparecer el estado
+  // `entregado` ese filtro se habria tragado los pedidos ya ENTREGADOS: la
+  // pila de trabajo del dia habria crecido con paquetes que ya estan en
+  // casa del cliente. Es el fan-out tipico de añadir un valor a un enum, y
+  // el sitio donde mas duele porque es la lista por la que se trabaja.
+  const porDespachar = vivos.filter(
+    (p) => p.estado !== "despachado" && p.estado !== "entregado"
+  );
+
+  // Las novedades se registran sobre un despachado, pero un pedido con
+  // novedad puede acabar entregandose: se miran los dos para no perder una
+  // incidencia abierta que nadie cerro.
+  const conNovedad = [...despachados, ...entregados].filter((p) =>
+    (p.novedades || []).some((n) => !n.resueltaEn)
+  );
 
   const porTipo = {};
-  for (const p of despachados) {
+  for (const p of conNovedad) {
     for (const n of p.novedades || []) {
       if (n.resueltaEn) continue;
       porTipo[n.tipo] = (porTipo[n.tipo] || 0) + 1;
@@ -239,6 +261,10 @@ function despachos({ pedidos = [] } = {}) {
   return {
     porDespachar,
     despachados,
+    entregados,
+    // Lo que SALIO y todavia no consta entregado: es la plata que esta en
+    // la calle. En contraentrega es el riesgo vivo del negocio.
+    enLaCalle: despachados,
     conNovedad,
     porTipo,
     // Cuantos dias lleva despachado cada uno: una entrega que lleva mucho
@@ -254,4 +280,150 @@ function diasDesde(valor) {
   return min === null ? null : Math.floor(min / 1440);
 }
 
-module.exports = { ETAPAS, etapaDe, embudo, atribucion, origenDe, despachos, diasDesde };
+// --------------------------------------------------------------------------
+// LA CAJA: VENDIDO NO ES RECAUDADO
+//
+// EN CONTRAENTREGA LA PLATA SOLO EXISTE CUANDO SE ENTREGA. Hasta ahora el
+// panel sumaba los pedidos vivos del dia y presentaba el resultado como el
+// importe; para una venta anticipada seria correcto, pero aqui el cliente
+// paga en la puerta. Marco pregunto "cuanto vamos recaudado" y el sistema
+// sabia contestar cuanto se habia VENDIDO.
+//
+// Son tres cifras distintas y las tres hacen falta:
+//
+//   · facturado — todo lo que se vendio y no esta cancelado
+//   · recaudado — SOLO lo entregado. Es la unica plata que entro
+//   · enRiesgo  — lo que salio y aun no consta entregado
+//
+// `tasaDeEntrega` es el numero que en la referencia de BIKERPRO decide si
+// el canal es rentable: con el rechazo al 5% lo era y al 32% no.
+//
+// Devuelve `null` -nunca 0- cuando no hay base para el porcentaje. Un 0%
+// inventado se lee como "esto va malisimo", y es la misma regla que ya
+// sigue `embudo`.
+// --------------------------------------------------------------------------
+function caja({ pedidos = [] } = {}) {
+  const total = (lista) => lista.reduce((s, p) => s + importeDe(p), 0);
+
+  const cancelados = pedidos.filter((p) => p.estado === "cancelado");
+  const vivos = pedidos.filter((p) => p.estado !== "cancelado");
+  const entregados = vivos.filter((p) => p.estado === "entregado");
+  const despachados = vivos.filter((p) => p.estado === "despachado");
+  const sinSalir = vivos.filter(
+    (p) => p.estado !== "despachado" && p.estado !== "entregado"
+  );
+
+  const facturado = total(vivos);
+  // El recaudado sale del importe CONGELADO al entregar, no del total
+  // actual del pedido: si alguien modifica la cotizacion manana, la caja de
+  // ayer no se mueve.
+  const recaudado = entregados.reduce(
+    (s, p) => s + ((p.entrega && p.entrega.importeRecaudado) || importeDe(p)),
+    0
+  );
+
+  const salieron = entregados.length + despachados.length;
+
+  return {
+    facturado,
+    recaudado,
+    enRiesgo: total(despachados) + total(sinSalir),
+    // Cuantos pedidos hay en cada sitio, para poder leer el importe.
+    pedidos: {
+      vivos: vivos.length,
+      entregados: entregados.length,
+      despachados: despachados.length,
+      sinSalir: sinSalir.length,
+      cancelados: cancelados.length,
+    },
+    // ------------------------------------------------------------------
+    // DE LO QUE SALIO, CUANTO CONSTA ENTREGADO
+    //
+    // ⚠️ ESTO **NO** ES LA TASA DE RECHAZO, y la diferencia importa porque
+    // la tasa de rechazo es el numero que decide si el canal es rentable.
+    //
+    // Un pedido que sigue despachado puede estar en camino -no es un
+    // fracaso- o puede haberse perdido, y hoy NO HAY FORMA DE DISTINGUIRLO:
+    // `cancelar` se niega sobre un pedido despachado ("el pedido ya salio:
+    // la cancelacion la gestiona una persona"), asi que una entrega
+    // FALLIDA no se puede registrar en el sistema.
+    //
+    // Mientras no exista un estado `devuelto`, esta cifra solo dice cuanto
+    // de lo que salio YA consta entregado, y sube sola a medida que alguien
+    // marca las entregas. Llamarla tasa de entrega seria dar por rechazado
+    // todo lo que va en camino, y por entregado todo lo que nadie marco.
+    // ------------------------------------------------------------------
+    entregadoDeLoQueSalio: salieron > 0 ? Math.round((entregados.length / salieron) * 100) : null,
+    // Para decirlo en la pantalla en vez de que alguien lea el porcentaje
+    // como si fuera el rechazo.
+    faltaEstadoDevuelto: true,
+    hayDatos: pedidos.length > 0,
+    // ⚠️ Si nadie marca las entregas en el panel, `recaudado` sale 0 y NO
+    // significa que no se haya cobrado: significa que no se registro. La
+    // vista tiene que decirlo en vez de mostrar un cero a secas.
+    hayEntregasRegistradas: entregados.length > 0,
+  };
+}
+
+function importeDe(p) {
+  return (p && p.cotizacion && p.cotizacion.total) || 0;
+}
+
+// --------------------------------------------------------------------------
+// QUIEN CONTESTO: EL BOT O UNA PERSONA
+//
+// Marco lo pidio como "la cantidad de chats respondidos por el bot", y es
+// el numero que dice cuanto trabajo esta ahorrando de verdad.
+//
+// ⚠️ LIMITE QUE HAY QUE DECIR: `conversacion.mensajes` guarda los ULTIMOS
+// 60 mensajes (`atencion.MAX_MENSAJES`), asi que esto cuenta CHATS en los
+// que contesto cada uno, no el total historico de mensajes. Para un chat
+// muy largo los primeros mensajes ya no estan. Contar chats -y no mensajes-
+// es lo que ese dato soporta sin exagerar.
+//
+// Y solo cuenta lo que SALIO: un mensaje con `estado` distinto de "enviado"
+// es uno que el emisor bloqueo, y contarlo como respondido diria que
+// atendimos a alguien que nunca recibio nada.
+// --------------------------------------------------------------------------
+function atendidos({ conversaciones = [] } = {}) {
+  let soloBot = 0;
+  let conPersona = 0;
+  let sinRespuesta = 0;
+
+  for (const c of conversaciones) {
+    const mensajes = (c && c.mensajes) || [];
+    const salieron = mensajes.filter((m) => m && m.estado === "enviado");
+    const bot = salieron.some((m) => m.de === atencion.QUIEN.BOT);
+    const persona = salieron.some((m) => m.de === atencion.QUIEN.OPERADOR);
+
+    if (persona) conPersona++;
+    else if (bot) soloBot++;
+    else sinRespuesta++;
+  }
+
+  const contestados = soloBot + conPersona;
+
+  return {
+    soloBot,
+    conPersona,
+    sinRespuesta,
+    contestados,
+    total: conversaciones.length,
+    // Que porcentaje de los chats CONTESTADOS resolvio el bot sin que
+    // tuviera que entrar nadie. Sobre los contestados y no sobre el total,
+    // porque un chat sin responder no es merito ni demerito del bot.
+    porcentajeDelBot: contestados > 0 ? Math.round((soloBot / contestados) * 100) : null,
+  };
+}
+
+module.exports = {
+  ETAPAS,
+  etapaDe,
+  embudo,
+  atribucion,
+  origenDe,
+  despachos,
+  caja,
+  atendidos,
+  diasDesde,
+};
