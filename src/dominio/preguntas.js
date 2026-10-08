@@ -149,6 +149,13 @@ const PATRONES = [
   [TEMAS.PAGO, /\b(acepta|aceptan|reciben|puedo\s+pagar)\b.*\b(nequi|daviplata|transferencia|tarjeta|efectivo)\b/],
   [TEMAS.PAGO, /\b(nequi|daviplata|transferencia)\b/],
   [TEMAS.PAGO, /\bpago\s+anticipado\b/],
+  // "se paga al recibir?", "tengo que pagar antes?". Son LA pregunta del
+  // contraentrega, y caian en el camino generico: el bot admitia no saber
+  // algo que esta aprobado en la ficha.
+  [TEMAS.PAGO, /\bse\s+pag(a|an)\s+(al|cuando|contra|despues)\b/],
+  [TEMAS.PAGO, /\b(tengo|hay|toca)\s+que\s+pagar\b/],
+  [TEMAS.PAGO, /\bpagar\s+(antes|adelantado|anticipado|al\s+recibir)\b/],
+  [TEMAS.PAGO, /\bpago\s+(antes|adelantado|al\s+recibir)\b/],
 
   // ---- Color ----
   [TEMAS.COLOR, /\bcolor(es)?\b/],
@@ -165,7 +172,13 @@ const PATRONES = [
   // Marco fue explicito: no hay medidas del ajuste y no se promete que sirva
   // para cualquier contorno. Se clasifica aparte de TALLA para poder dar la
   // respuesta honesta en vez de la del dato aprobado.
-  [TEMAS.MEDIDAS, /\bme\s+(sirve|queda|servira|quedara)\b/],
+  [TEMAS.MEDIDAS, /\bme\s+(sirve|queda|servira|quedara|serviria|quedaria)\b/],
+  // "¿le sirve a una persona delgada?": pregunta por OTRA persona, o en
+  // tercera persona. Es la misma duda -la mas frecuente del producto- y
+  // solo se reconocia en primera.
+  [TEMAS.MEDIDAS, /\b(le|les)\s+(sirve|queda|servira|quedara|serviria|quedaria)\b/],
+  [TEMAS.MEDIDAS, /\bsirve\s+(a|para)\s+(una|un)\s+(persona|señora|senora|mujer|chica)\b/],
+  [TEMAS.MEDIDAS, /\bpersona\s+(delgada|flaca|gruesa|gorda|grande|robusta)\b/],
   [TEMAS.MEDIDAS, /\b(contorno|cintura|abdomen|barriga|cadera)\b/],
   [TEMAS.MEDIDAS, /\bcuanto\s+(mide|estira|ajusta)\b/],
   [TEMAS.MEDIDAS, /\b(medidas?|centimetros|cm)\b/],
@@ -207,6 +220,14 @@ const PATRONES = [
   [TEMAS.ENTREGA, /\bcuantos\s+dias\b/],
   [TEMAS.ENTREGA, /\bdemora\w*/],
   [TEMAS.ENTREGA, /\bpara\s+cuando\b/],
+  // "¿llega el lunes?", "¿hacen entregas los sábados?". Preguntan por un
+  // DIA CONCRETO, y la respuesta honesta es el plazo de la ficha: el dia
+  // exacto esta declarado como dato NO confirmado y prometerlo esta
+  // prohibido. Pero callarse no: caia en el camino generico.
+  [
+    TEMAS.ENTREGA,
+    /\b(llega|llegaria|entregan|despachan|reparten|hacen\s+(entregas|envios))\b[^?]{0,20}\b(lunes|martes|miercoles|jueves|viernes|sabado|sabados|domingo|domingos|festivo|festivos|fin\s+de\s+semana)\b/,
+  ],
   [TEMAS.ENTREGA, /\ben\s+cuanto\s+(?:me\s+|lo\s+|la\s+)?(?:llega|llegaria|lleg\w+|recib\w+)\b/],
 
   // ---- Material ----
@@ -263,13 +284,25 @@ const PATRONES = [
   //
   // Separarlo permite contestar lo honesto -que ese dato lo confirma una
   // persona- sin tocar la respuesta de "para que sirve", que es correcta.
-  [TEMAS.ENERGIA, /\bes\s+recargable\b/],
+  [TEMAS.ENERGIA, /\bes\s+(recargable|electrico|electrica)\b/],
   [TEMAS.ENERGIA, /\b(bateria|pila|cable|usb|enchuf|cargador|carga)\w*/],
+  [TEMAS.ENERGIA, /\bcuantos\s+niveles\b/],
+  [TEMAS.ENERGIA, /\bniveles?\s+(de|tiene|trae|maneja)\b/],
+  [TEMAS.ENERGIA, /\bcuanto\s+(dura|le\s+dura)\b/],
 
   // ---- Desconfianza ----
   [TEMAS.CONFIANZA, /\bes\s+(real|confiable|seguro|estafa)\b/],
   [TEMAS.CONFIANZA, /\bson\s+(reales|confiables|seguros)\b/],
   [TEMAS.CONFIANZA, /\bno\s+es\s+estafa\b/],
+  // "no sera estafa?", "sera confiable?": el FUTURO y el CONDICIONAL, que
+  // es como se pregunta cuando de verdad hay desconfianza. Solo conocia el
+  // presente, asi que la duda que mas venta mata caia en el camino
+  // generico — y a quien desconfia, un "esa no te la quiero contestar" se
+  // le lee como que escondemos algo.
+  [TEMAS.CONFIANZA, /\b(sera|seria)\s+(estafa|confiable|seguro|real|robo)\b/],
+  [TEMAS.CONFIANZA, /\bno\s+(sera|seria|iran?\s+a)\s+(estafa|robar|estafar)/],
+  [TEMAS.CONFIANZA, /\bson\s+(serios|formales|de\s+fiar)\b/],
+  [TEMAS.CONFIANZA, /\bme\s+(van|iran)\s+a\s+(estafar|robar)\b/],
   [TEMAS.CONFIANZA, /\bdonde\s+(estan|quedan|es)\b/],
   [TEMAS.CONFIANZA, /\btienen\s+(tienda|local|direccion)\b/],
 
@@ -311,6 +344,11 @@ const SENALES_DE_COMPRA = [
   // producto en vez de cerrarle la venta.
   /\bayud(a|ame|arme)\s+(con|a)\s+(el\s+|la\s+|mi\s+)?(pedido|compra|comprar|pedir)/,
   /\bquiero\s+(hacer\s+)?(el\s+|un\s+)?pedido\b/,
+  // "¿cómo hago el pedido?", "¿cómo compro?". Es pedir el siguiente paso
+  // para comprar, y recibia "esa no te la quiero contestar a medias".
+  /\bcomo\s+(hago|hacer|se\s+hace|realizo)\s+(el\s+|un\s+)?(pedido|la\s+compra)\b/,
+  /\bcomo\s+(compro|comprar|lo\s+compro|lo\s+pido|pido)\b/,
+  /\bcomo\s+hago\s+para\s+(comprar|pedir|que\s+me\s+llegue)\b/,
   /\b(quiero|llevo|dame|mandame|enviame)\s+(los|las)\s+dos\b/,
   // El DIGITO tambien: "quiero 2 unidades" no se leia como compra porque
   // esto solo cubria los numeros escritos con letras.
@@ -614,6 +652,32 @@ const SOLO_AGRADECE = [
   /^(muchas\s+|mil\s+|muy\s+)?gracias\b/,
   /^(ok|oka|okey|listo|vale|bueno)\s*,?\s*(muchas\s+|mil\s+)?gracias\b/,
   /^(te\s+|le\s+)?agradezco\b/,
+  // Acuses y cortesia a secas. "ok" y "bendiciones" recibian la peticion de
+  // nombre y direccion, que es pedirle los datos a quien solo esta
+  // acusando recibo.
+  /^(ok|oka|okey|okay|dale|listo|entiendo|ya\s+vi|perfecto)\s*[.!]*$/,
+  /^(bendiciones|feliz\s+(dia|noche|tarde)|que\s+este(s)?\s+bien|amen)\b/,
+  /^(buenas\s+noches|hasta\s+luego|chao|adios|nos\s+hablamos)\b/,
+];
+
+/**
+ * "AHI LE AVISO": el no cortes.
+ *
+ * No es un rechazo ni una compra: es alguien que se lo va a pensar. En
+ * BIKERPRO es una intencion propia -"comparando"- y su regla es explicita:
+ * NO insistir con el mismo mensaje ni meter urgencia inventada. Lo que
+ * funciona es dejar algo concreto y sin costo de decidir.
+ *
+ * Aqui recibia "para preparar tu pedido me pasas tu nombre completo y la
+ * direccion": justo la insistencia que espanta a quien esta dudando.
+ */
+const SE_LO_PIENSA = [
+  /\bahi\s+(le|te)\s+aviso\b/,
+  /\b(luego|despues|mas\s+tarde)\s+(le|te)\s+(aviso|escribo|digo|confirmo)\b/,
+  /\blo\s+(voy\s+a\s+pensar|pienso|consulto)\b/,
+  /\bdejame\s+pensarlo\b/,
+  /\bcuando\s+(pueda|cobre|me\s+paguen|tenga)\b/,
+  /\bmas\s+adelante\b/,
 ];
 
 /** Saludos puros: no preguntan nada. */
@@ -766,6 +830,8 @@ function leer(texto) {
       !compra &&
       !interrogacion &&
       plano.split(/\s+/).length <= 4,
+    // "Ahi le aviso": se lo esta pensando. No se insiste.
+    seLoPiensa: SE_LO_PIENSA.some((re) => re.test(plano)) && !compra,
   };
 }
 
