@@ -42,6 +42,21 @@ const MOTIVOS = {
   SIN_CREDENCIALES: "sin_credenciales",
   FALLO: "fallo_de_envio",
   PREPARADO: "preparado_sin_enviar",
+  // --------------------------------------------------------------------
+  // LOS DOS QUE FALTABAN, Y ERAN LA MAYORIA
+  //
+  // El 08-oct esta pantalla decia "Motivo no catalogado · mira el diario"
+  // en 5 de los 7 mensajes sin salir. Es decir: la pantalla que existe
+  // para explicar por que el bot no contesto, no sabia explicar el caso
+  // mas frecuente. Y "mira el diario" no es algo que Marco pueda hacer.
+  //
+  // Los dos motivos los escribe el cerebro desde siempre; nadie los habia
+  // traido aqui.
+  // --------------------------------------------------------------------
+  ESCALADO: "escalado_esperando_persona",
+  NOTA_INTERNA: "nota_interna",
+  /** Cliente con nombre de usuario de WhatsApp: no hay numero al que escribir. */
+  SIN_TELEFONO: "destinatario_sin_telefono",
 };
 
 /**
@@ -84,6 +99,35 @@ const QUE_HACER = {
     titulo: "Faltan credenciales de WhatsApp",
     porQue: "Sin token o sin id de número, no hay forma de enviar nada.",
     comoSeArregla: "Revisa WHATSAPP_TOKEN y WHATSAPP_PHONE_NUMBER_ID en Render.",
+    gravedad: "alta",
+  },
+  [MOTIVOS.ESCALADO]: {
+    titulo: "El bot escaló y espera a una persona",
+    porQue:
+      "El bot contestó lo que sabía, avisó UNA vez de que lo revisa alguien del equipo, y se calló a " +
+      "propósito. No es un fallo: es la regla de escalado. Pero el cliente SÍ está esperando una respuesta " +
+      "humana, y si nadie entra, esa conversación se queda quieta.",
+    comoSeArregla: 'Entra al chat, contéstale y marca "atendido". La pausa caduca sola a las 12 horas.',
+    gravedad: "alta",
+  },
+  [MOTIVOS.NOTA_INTERNA]: {
+    titulo: "Era una nota interna, no un mensaje",
+    porQue:
+      "El cerebro registró algo para que quede constancia, sin intención de enviarlo al cliente. " +
+      "Cuenta como «mensaje sin salir» porque no salió, pero no falta nada.",
+    comoSeArregla: "Nada que arreglar.",
+    gravedad: "baja",
+  },
+  [MOTIVOS.SIN_TELEFONO]: {
+    titulo: "El cliente no tiene número de teléfono",
+    porQue:
+      "Escribió con su NOMBRE DE USUARIO de WhatsApp, así que su identificador empieza por «CO.» y no hay " +
+      "número al que escribirle. Meta rechaza los mensajes a ese destino (error 131026). Reintentarlo no " +
+      "cambia nada, y el bot ya no lo intenta para no quemar envíos.",
+    comoSeArregla:
+      "Hoy no se puede responder por WhatsApp a estos clientes. Lo que sí sirve: que vuelvan a escribir " +
+      "dejando un número. Queda pendiente confirmar en la documentación de Meta si su API permite " +
+      "responder a un usuario sin número.",
     gravedad: "alta",
   },
   [MOTIVOS.FALLO]: {

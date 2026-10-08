@@ -765,7 +765,37 @@ function textoDeterminista({
       }
 
       if (preguntoComercial) {
-        partes.push(cot ? lineaComercial(cot, producto, { asumida }) : contestar.loConfirmo("El precio", "lo"));
+        if (cot) {
+          partes.push(lineaComercial(cot, producto, { asumida }));
+        } else {
+          // ----------------------------------------------------------------
+          // SIN COTIZACION NO SE SABE EL IMPORTE. EL RESTO SI SE SABE.
+          //
+          // Esto era un `loConfirmo("El precio")` para CUALQUIER pregunta
+          // comercial, y costo una venta el 08-oct:
+          //
+          //   clienta: "Algo contra entrega"
+          //   bot:     "el precio no te lo quiero decir a medias..."
+          //
+          // Ni contesto lo que pregunto -el metodo de pago, que esta
+          // aprobado en la ficha- ni era verdad, porque el bot le habia
+          // dicho el precio dos mensajes antes.
+          //
+          // El envio y el pago son POLITICAS: las contesta el catalogo sin
+          // cotizar. Solo el PRECIO necesita una cifra, y solo el precio
+          // admite no saberse.
+          // ----------------------------------------------------------------
+          const comerciales = lectura.temas.filter((t) => TEMAS_COMERCIALES.includes(t));
+          const politicas = contestar.aTemas(
+            comerciales.filter((t) => t !== preguntas.TEMAS.PRECIO),
+            { producto, cotizacion: null },
+            { maximo: 2 }
+          );
+          if (politicas.texto) partes.push(politicas.texto);
+          if (comerciales.includes(preguntas.TEMAS.PRECIO)) {
+            partes.push(contestar.loConfirmo("El precio", "lo"));
+          }
+        }
       }
 
       // Las demas dudas -garantia, medidas, color, material...- las responde
@@ -855,7 +885,45 @@ function textoDeterminista({
       // y la puerta queda abierta.
       // ------------------------------------------------------------------
       if ((datosAportados || []).length && !lectura.pregunta) {
-        if (!huboSenalDeCompra) {
+        // ------------------------------------------------------------------
+        // CONTESTAR LA PREGUNTA DEL BOT **ES** AVANZAR LA VENTA
+        //
+        // AQUI SE PERDIO LA VENTA DEL 08-OCT, y en el mensaje mas tonto:
+        //
+        //   bot:     "¿Cuántos quieres? Y para preparar tu pedido me pasas
+        //             la ciudad y la dirección"
+        //   clienta: "Solo 1"
+        //   bot:     "¡Perfecto, gracias!"        <- y ahi se murio
+        //
+        // Le faltaba el nombre y la direccion, y no se los pidio. La
+        // clienta contesto LO QUE EL BOT LE HABIA PREGUNTADO y recibio un
+        // acuse de recibo sin siguiente paso. Dos mensajes despues escribio
+        // "Ayuda con pedido" — tuvo que pedir ella que la ayudaran a
+        // comprar.
+        //
+        // Dos señales que valen tanto como un "lo quiero", y ninguna rompe
+        // la regla de PR #9 ("dar una ciudad no es comprar"):
+        //
+        //   · LA CANTIDAD. Nadie dice "solo 1" para informarse. Elegir
+        //     cuantas quiere es decidir, no preguntar — a diferencia de la
+        //     ciudad, que muchas veces es "¿me llega allá?".
+        //   · QUE EL BOT YA HUBIERA PEDIDO LOS DATOS (`datosPedidos`). Si
+        //     se los pidio el bot, contestarlos es responder, y seguir el
+        //     cierre es atender; quedarse en "gracias" es colgarle.
+        // ------------------------------------------------------------------
+        // LA CIUDAD ES EL UNICO DATO AMBIGUO. Los demas comprometen.
+        //
+        // "Palmira" puede ser "¿me llega allá?" -de ahi la regla del PR #9,
+        // que sigue intacta y tiene su prueba-. Pero la CANTIDAD, el NOMBRE
+        // COMPLETO y la DIRECCION no son ambiguos: nadie los da para
+        // informarse. Tratarlos como si lo fueran es lo que dejo a la
+        // clienta del 08-oct con un "¡Perfecto, gracias!" y sin pedirle lo
+        // que faltaba.
+        const NEUTROS = new Set(["ciudad", "departamento", "referencia"]);
+        const dioAlgoQueCompromete = (datosAportados || []).some((d) => !NEUTROS.has(d));
+        const avanzaLaVenta = huboSenalDeCompra || dioAlgoQueCompromete;
+
+        if (!avanzaLaVenta) {
           const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
           const dioLaCiudad = datosAportados.includes("ciudad");
           if (dioLaCiudad && ciudadConfirmada && t && t.texto) {

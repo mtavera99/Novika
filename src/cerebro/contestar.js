@@ -86,6 +86,32 @@ function ofertaDeDos(producto) {
   return dos.cotizacion;
 }
 
+/**
+ * ¿Se paga al recibir? ¿Va incluido el envio?
+ *
+ * SON POLITICAS, NO IMPORTES, y por eso se pueden contestar SIN cotizar.
+ * Se prefiere la cotizacion -es la fuente de la verdad del turno- y si no
+ * hay, se lee la ficha, que es donde el dueño las aprobo.
+ *
+ * Mezclar las dos cosas costo una venta el 08-oct: sin cotizacion, una
+ * pregunta por el contraentrega recibia "el precio no te lo quiero decir a
+ * medias". El importe no se sabia; el metodo de pago, si.
+ */
+function pagaAlRecibir(producto, cotizacion) {
+  const c = cotizacion && cotizacion.condiciones;
+  if (c && c.pagoMetodo) return c.pagoMetodo === "contraentrega";
+  const p = producto && producto.pago;
+  return Boolean(p && p.metodo === "contraentrega");
+}
+
+function envioVaIncluido(producto, cotizacion) {
+  const c = cotizacion && cotizacion.condiciones;
+  if (c && typeof c.envioIncluido === "boolean") return c.envioIncluido;
+  const pol = producto && producto.logistica && producto.logistica.politicaEnvio;
+  const tipo = typeof pol === "string" ? pol : pol && pol.tipo;
+  return tipo === "incluido";
+}
+
 /** ¿El producto declara explicitamente que este tema NO esta confirmado? */
 function declaradoSinConfirmar(producto, re) {
   const lista = (producto && producto.sinDatoConfirmado) || [];
@@ -173,7 +199,9 @@ function deTema(tema, { producto = null, cotizacion = null, yaDijoLasCondiciones
     // ----------------------------------------------------------------------
     case TEMAS.ENVIO: {
       const c = cotizacion && cotizacion.condiciones;
-      if (c && c.envioIncluido) return "el envío va incluido, no pagas nada aparte.";
+      // Igual que el pago: la POLITICA de envio esta en la ficha y no
+      // necesita cotizacion. Lo que necesita cotizacion es el IMPORTE.
+      if (envioVaIncluido(producto, cotizacion)) return "el envío va incluido, no pagas nada aparte.";
       if (cotizacion && cotizacion.envio > 0) return `El envío a tu ciudad son ${pesos(cotizacion.envio)}.`;
       return loConfirmo("El envío", "lo");
     }
@@ -183,10 +211,19 @@ function deTema(tema, { producto = null, cotizacion = null, yaDijoLasCondiciones
     // ----------------------------------------------------------------------
     case TEMAS.PAGO: {
       const c = cotizacion && cotizacion.condiciones;
-      if (c && c.pagoMetodo === "contraentrega") {
+      // LA FORMA DE PAGO NO ES UN IMPORTE: NO HACE FALTA COTIZAR PARA DECIRLA.
+      //
+      // Antes solo se leia de `cotizacion.condiciones`, asi que sin
+      // cotizacion -y sin cotizacion no se esta cuando el cliente todavia
+      // no dijo cuantas quiere- esto devolvia `loConfirmo`. El 08-oct una
+      // clienta pregunto "Algo contra entrega" y recibio "el precio no te
+      // lo quiero decir a medias": ni contesto lo que pregunto, ni era
+      // verdad -el metodo de pago esta en la ficha, aprobado-.
+      if (pagaAlRecibir(producto, cotizacion)) {
         return "pagas cuando lo recibes, en la puerta de tu casa. Nada por adelantado.";
       }
       if (c && c.pagoEtiqueta) return c.pagoEtiqueta;
+      if (producto && producto.pago && producto.pago.etiqueta) return String(producto.pago.etiqueta);
       // Preguntar por Nequi o transferencia cuando el metodo es contraentrega
       // es frecuente, y la respuesta honesta es que eso lo confirma alguien.
       return loConfirmo("La forma de pago", "la");
@@ -507,6 +544,31 @@ function deTema(tema, { producto = null, cotizacion = null, yaDijoLasCondiciones
       // un "esta muy caro" sin respuesta es una venta perdida en silencio.
       // Se admite y se pasa a una persona, que es el final de la escalera.
       return loConfirmo("Un precio especial", "lo");
+    }
+
+    // ----------------------------------------------------------------------
+    // COMO SE ALIMENTA: BATERIA, CARGADOR, ENCHUFE
+    //
+    // La ficha declara "si funciona con bateria o enchufado, y cuanto dura"
+    // como dato NO CONFIRMADO, asi que aqui la respuesta honesta es que lo
+    // confirma una persona. Y la pregunta llega: es un aparato que se
+    // calienta, lo primero que se piensa es como se enciende.
+    //
+    // Estaba dentro de USO, que responde con `paraQueSirve`, y el resultado
+    // era contestar otra cosa:
+    //
+    //   clienta: "Con cables para cargar"
+    //   bot:     "Sí, es justo para eso: el calor... alivia el cólico."
+    //
+    // Se ofrecen las fotos porque el cable y el panel SE VEN en la 03 y la
+    // 04: es lo unico verificable que se puede dar ahora mismo.
+    // ----------------------------------------------------------------------
+    case TEMAS.ENERGIA: {
+      const partes = [loConfirmo("Si funciona con batería o enchufado", "lo")];
+      if (producto && (producto.imagenes || []).length) {
+        partes.unshift("en las fotos se ve el panel de control y la correa.");
+      }
+      return partes.join(" ");
     }
 
     case TEMAS.FOTOS:

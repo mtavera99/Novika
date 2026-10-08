@@ -157,6 +157,36 @@ const ESCENARIOS = {
     },
   },
 
+  esmeralda: {
+    titulo: "LA VENTA PERDIDA DEL 08-OCT 08:10 — los mensajes exactos de la clienta",
+    correr: async () => {
+      // Capturado del panel de produccion. Marco: "un cliente escribio hace
+      // media hora y el bot no cerro venta".
+      //
+      // Lo que recibio de verdad, por si se vuelve a romper:
+      //   "Con cables para cargar" -> le explico para que sirve el producto
+      //   "Trae cargador"          -> le pidio los datos
+      //   "Algo contra entrega"    -> "el precio no te lo quiero decir a medias"
+      //   "Que costó tiene"        -> "esa no te la quiero contestar"
+      //   "Solo 1"                 -> "¡Perfecto, gracias!" y ahi se murio
+      //   "Ayuda con pedido"       -> le explico para que sirve, otra vez
+      const c = await abrirChat();
+      for (const m of [
+        "Hola, quiero información sobre el cinturón térmico de $49.900.",
+        "Con cables para cargar",
+        "Trae cargador",
+        "Para Bogotá",
+        "Y Bogotá cuanto se demora",
+        "Algo contra entrega",
+        "Que costó tiene",
+        "Solo 1",
+        "Ayuda con pedido",
+      ]) {
+        await c.dice(m);
+      }
+    },
+  },
+
   caro: {
     titulo: "«Está muy caro» — la escalera, y que NUNCA salga un descuento",
     correr: async () => {

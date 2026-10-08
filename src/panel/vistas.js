@@ -36,6 +36,7 @@
 const fecha = require("./fecha");
 const { CLASES } = require("./datos");
 const fichaDe = require("./ficha");
+const { esUnTelefono } = require("../whatsapp/enviar");
 const atencion = require("../almacen/atencion");
 
 /**
@@ -559,6 +560,13 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
   const nombre = n.texto;
   const ciudad = fichaDe.leer(conversacion.ficha, "ciudad");
 
+  // ¿Hay un numero al que escribirle? Se calcula EXACTAMENTE como lo
+  // calcula el emisor -misma funcion, importada- y con el mismo destino que
+  // usaria la ruta de responder: el telefono confirmado, y si no, el id de
+  // WhatsApp. Si eso no es un telefono, el mensaje no va a salir.
+  const destinoReal = fichaDe.confirmado(conversacion.ficha, "telefono") || id;
+  const sinNumeroAlQueEscribir = !esUnTelefono(destinoReal);
+
   const burbujas = mensajes.length
     ? mensajes
         .map((m) => {
@@ -687,8 +695,30 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
     `<div class="chat">
   <div class="hilo" id="hilo">${burbujas}</div>
   <div>
+    ${
+      // --------------------------------------------------------------
+      // AVISAR ANTES, NO DESPUES DE ESCRIBIR
+      //
+      // Marco escribio DOS VECES a un cliente con nombre de usuario de
+      // WhatsApp -17:25 y 00:46- y las dos veces el mensaje no salio. No
+      // es un fallo que se arregle reintentando: ese cliente NO TIENE
+      // numero, y Meta rechaza el destino (131026).
+      //
+      // Teniendo el dato antes de que escriba, dejarle redactar y fallar
+      // es hacerle perder el tiempo dos veces. Se le dice aqui.
+      sinNumeroAlQueEscribir
+        ? `<div class="aviso mal" style="margin-bottom:10px">
+             <b>A este cliente no se le puede escribir por WhatsApp.</b>
+             Entró con su <b>nombre de usuario</b>, no con un número, así que no hay teléfono al que
+             enviarle: Meta rechaza ese destino (error 131026) y el mensaje no sale aunque lo escribas.
+             Lo único que funciona hoy es que vuelva a escribir dejando un número.
+           </div>`
+        : ""
+    }
     <label for="texto" style="font-size:13px;color:var(--suave)">Responder como NOVIKA</label>
-    <textarea id="texto" placeholder="Escribe la respuesta..."></textarea>
+    <textarea id="texto" placeholder="${
+      sinNumeroAlQueEscribir ? "Este cliente no tiene número: el mensaje no saldría." : "Escribe la respuesta..."
+    }"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
       <button class="primario" id="enviar" onclick="responder()">Enviar</button>
       <span style="font-size:13px;color:var(--suave);align-self:center">

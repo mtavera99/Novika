@@ -54,6 +54,16 @@ const EXPLICACION = {
   [MOTIVOS_BLOQUEO.CONVERSACION_PAUSADA]:
     "Una persona tiene el control de este chat, asi que el bot no escribe.",
   [MOTIVOS_BLOQUEO.SIN_DESTINO]: "Falta el numero del cliente.",
+  // Sin esta entrada, Marco recibia "Bloqueado: destinatario_sin_telefono"
+  // -jerga- y volvia a intentarlo. Lo hizo dos veces el 07-oct contra el
+  // mismo cliente. No es un fallo que se arregle reintentando.
+  [MOTIVOS_BLOQUEO.SIN_TELEFONO]:
+    "Este cliente escribio con su NOMBRE DE USUARIO de WhatsApp, no con un numero, asi que no tiene " +
+    "telefono al que escribirle: su identificador empieza por `CO.` y Meta rechaza los mensajes a ese " +
+    "destino (error 131026). El mensaje NO salio, y reintentarlo no va a cambiar nada. " +
+    "Lo unico que funciona hoy es que el cliente vuelva a escribir y deje un numero, o contactarlo por " +
+    "otra via. Si Meta admitiera responder a un usuario sin numero habria que confirmarlo en su " +
+    "documentacion: mientras no se sepa, el panel no finge que se envio.",
   [MOTIVOS_BLOQUEO.TEXTO_VACIO]: "El mensaje estaba vacio.",
   [MOTIVOS_BLOQUEO.SIN_PERMISO]: "Ese envio no declaro permiso. Es un fallo interno, no tuyo.",
 };

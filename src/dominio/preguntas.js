@@ -68,6 +68,14 @@ const TEMAS = {
    * de comprar.
    */
   OBJECION_PRECIO: "objecion_precio",
+  /**
+   * Como se alimenta: bateria, cargador, enchufe, cuanto dura.
+   *
+   * Aparte de USO porque la ficha lo declara NO CONFIRMADO. Dentro de USO,
+   * preguntar por el cargador recibia la frase de "para que sirve" -el
+   * calor alivia el colico-, que no contesta nada de lo que pregunto.
+   */
+  ENERGIA: "energia",
 };
 
 /**
@@ -202,13 +210,46 @@ const PATRONES = [
   // De un producto que se llama "cinturón térmico para cólicos", no
   // entender esa pregunta es el colmo.
   [TEMAS.USO, /\bsirve\s+(para|contra|de\s+verdad|realmente)\b/],
-  [TEMAS.USO, /\b(funciona|ayuda)\s+(para|con|contra)\b/],
+  // ⚠️ EL LOOKAHEAD NO ES UN ADORNO: "AYUDA CON PEDIDO" NO ES ESTE TEMA.
+  //
+  // Esto era `\b(funciona|ayuda)\s+(para|con|contra)\b` y casaba con "ayuda
+  // con pedido". El 08-oct una clienta escribio justo eso -pidiendo ayuda
+  // para comprar- y el bot le explico para que sirve el cinturon. Dos veces
+  // en la misma conversacion, y no se cerro la venta.
+  //
+  // Quien pide ayuda CON EL PEDIDO esta comprando, no preguntando que hace
+  // el producto.
+  // Y tampoco es este tema "funciona con bateria": eso es ENERGIA, que se
+  // contesta admitiendo que el dato no esta confirmado. Si cayera aqui,
+  // recibiria la frase de los colicos — el mismo defecto que el cargador.
+  [
+    TEMAS.USO,
+    /\b(funciona|ayuda)\s+(para|con|contra)\s+(?!(?:el\s+|la\s+|mi\s+|un\s+|una\s+)?(?:pedido|compra|orden|pago|envio|comprar|pedir|bateria|pila|cable|cargador|corriente|enchufe|luz)\b)/,
+  ],
   [TEMAS.USO, /\bes\s+(para|bueno\s+para)\s+(los\s+)?(colicos|dolor|menstrual)/],
   [TEMAS.USO, /\bquita\s+(el\s+)?dolor\b/],
-  [TEMAS.USO, /\bes\s+recargable\b/],
-  [TEMAS.USO, /\b(bateria|pila|cable|usb|enchuf)\w*/],
   [TEMAS.USO, /\bniveles?\s+de\s+(calor|temperatura|intensidad)\b/],
   [TEMAS.USO, /\bcalienta\b/],
+
+  // ---- Como se alimenta: bateria, cargador, enchufe ----
+  //
+  // TEMA APARTE, y por un motivo concreto: la ficha declara "si funciona
+  // con bateria o enchufado, y cuanto dura" como dato NO CONFIRMADO. Estaba
+  // dentro de USO, y USO responde con `paraQueSirve`, asi que preguntar por
+  // el cargador recibia la frase de los colicos:
+  //
+  //   clienta: "Con cables para cargar"
+  //   bot:     "Sí, es justo para eso: el calor en la zona baja del
+  //             abdomen ayuda a relajar y alivia el cólico."
+  //
+  // Paso el 08-oct. Y "Trae cargador" no casaba con nada, asi que recibio
+  // una peticion de datos. Dos mensajes seguidos sin respuesta a lo que
+  // pregunto.
+  //
+  // Separarlo permite contestar lo honesto -que ese dato lo confirma una
+  // persona- sin tocar la respuesta de "para que sirve", que es correcta.
+  [TEMAS.ENERGIA, /\bes\s+recargable\b/],
+  [TEMAS.ENERGIA, /\b(bateria|pila|cable|usb|enchuf|cargador|carga)\w*/],
 
   // ---- Desconfianza ----
   [TEMAS.CONFIANZA, /\bes\s+(real|confiable|seguro|estafa)\b/],
@@ -246,6 +287,15 @@ const SENALES_DE_COMPRA = [
   // ----------------------------------------------------------------------
   /\b(lo|la|los|las)\s+(quiero|llevo|compro|necesito)\b/,
   /\bme\s+(lo|la|los|las)\s+(llevo|quedo)\b/,
+  // "AYUDA CON PEDIDO", "ayudame a pedirlo", "quiero hacer el pedido".
+  //
+  // Es alguien pidiendo que le ayuden a COMPRAR, y no se reconocia: casaba
+  // con el tema USO -por "ayuda con"- y recibia una explicacion de para
+  // que sirve el producto. El 08-oct una clienta lo escribio despues de
+  // haber dado ciudad y cantidad, y el bot le volvio a explicar el
+  // producto en vez de cerrarle la venta.
+  /\bayud(a|ame|arme)\s+(con|a)\s+(el\s+|la\s+|mi\s+)?(pedido|compra|comprar|pedir)/,
+  /\bquiero\s+(hacer\s+)?(el\s+|un\s+)?pedido\b/,
   /\b(quiero|llevo|dame|mandame|enviame)\s+(los|las)\s+dos\b/,
   // El DIGITO tambien: "quiero 2 unidades" no se leia como compra porque
   // esto solo cubria los numeros escritos con letras.

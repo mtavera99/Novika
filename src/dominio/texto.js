@@ -195,6 +195,17 @@ const PREGUNTA_PRECIO = [
   /\bque\s+precio\b/,
   /\bprecios?\b/,
   /\bvalor\b/,
+  // "QUE COSTO TIENE". Es preguntar el precio, y NO se reconocia: la lista
+  // solo conocia el verbo ("cuesta", "cuestan"), no el sustantivo.
+  //
+  // Costo medido: el 08-oct una clienta de Bogota lo escribio tal cual y
+  // recibio "esa no te la quiero contestar a medias, la dejo anotada para
+  // el equipo" — el bot se nego a decir el precio que ya habia dicho dos
+  // mensajes antes. Esa venta no se cerro.
+  //
+  // `costo` y no `cost\w*`: "costoso" es una OBJECION de precio, que se
+  // contesta distinto, y tiene su propio patron.
+  /\bcostos?\b/,
   // El plural suelto: "valen mucho?", "cuestan 85?". Se admite sin "cuanto"
   // delante porque "valen"/"cuestan" casi no tienen otro uso — a diferencia
   // de "vale", que en Colombia es "de acuerdo" y por eso NO entra solo.
