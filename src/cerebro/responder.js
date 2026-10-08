@@ -448,7 +448,7 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
   // "Preparar tu pedido" es lo que SI hacemos y no compromete a nadie:
   // tomamos los datos y lo dejamos listo. Cuando salga, se avisa.
   // ----------------------------------------------------------------------
-  const invitar = yaSeSabeCuantas ? "¿Quieres que te ayude a pedirlos?" : "¿Quieres que te ayude a pedirlo?";
+  const invitar = yaSeSabeCuantas ? INVITAR_PLURAL : INVITAR;
 
   if (comoProceso) {
     const todo = [...pide];
@@ -459,14 +459,14 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
 
   if (yaSeSabeCuantas) {
     return pide.length
-      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y lo dejo listo.`
+      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y lo dejo listo 🙌`
       : invitar;
   }
 
   if (faltaCantidad && !pide.length) return "¿Cuántos quieres?";
-  if (faltaCantidad) return `¿Cuántos quieres? Y para preparar tu pedido me pasas ${enumerar(pide)}.`;
+  if (faltaCantidad) return `¿Cuántos quieres? Y para preparar tu pedido me pasas ${enumerar(pide)} 🙌`;
   if (!pide.length) return invitar;
-  return `Para preparar tu pedido me pasas ${enumerar(pide)}.`;
+  return `Para preparar tu pedido me pasas ${enumerar(pide)} 🙌`;
 }
 
 // --------------------------------------------------------------------------
@@ -477,6 +477,21 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
 // mismo en el mismo mensaje.
 // --------------------------------------------------------------------------
 const TEMAS_COMERCIALES = [preguntas.TEMAS.PRECIO, preguntas.TEMAS.ENVIO, preguntas.TEMAS.PAGO];
+
+// --------------------------------------------------------------------------
+// EL CIERRE QUE INVITA SIN PRESIONAR
+//
+// Vive en UNA constante porque estaba escrito a mano en tres sitios, y al
+// ponerle el emoji dos de ellos se quedaron sin el: el mensaje de "¿cuánto
+// vale?" seguia acabando en seco. Es el mismo defecto de las dos listas de
+// "pregunta de precio" separadas, en pequeño.
+//
+// Lleva emoji porque es la frase que CIERRA la mayoria de los mensajes de
+// venta. El segundo emoji -el del tema- lo coloca `voz.conEmoji` al final de
+// la primera frase, nunca pegado a este.
+// --------------------------------------------------------------------------
+const INVITAR = "¿Quieres que te ayude a pedirlo? 🙌";
+const INVITAR_PLURAL = "¿Quieres que te ayude a pedirlos? 🙌";
 
 /**
  * Que esta haciendo el cliente en este turno.
@@ -596,7 +611,7 @@ function textoDeterminista({
       // en minuscula para poder llevar una apertura delante, y este caso la
       // usaba directa. La prueba que recorre todas las situaciones lo cazo.
       return componer([voz.apertura(lectura.temas), lineaComercial(cotizacion, producto)], {
-        emoji: lectura.temas[0] || null,
+        emoji: voz.claveDeEmoji(lectura.temas) || "atencion",
       });
     }
 
@@ -660,7 +675,9 @@ function textoDeterminista({
       // ------------------------------------------------------------------
       if (lectura.soloSaludo) {
         const quien = voz.nombreDePila(nombreCliente);
-        return componer([quien ? `¡Hola, ${quien}!` : "¡Hola!", "¿En qué te puedo ayudar?"]);
+        return componer([quien ? `¡Hola, ${quien}!` : "¡Hola!", "¿En qué te puedo ayudar?"], {
+          emoji: "saludo",
+        });
       }
 
       const partes = [];
@@ -717,7 +734,7 @@ function textoDeterminista({
           `el precio por ${voz.unidades(cantidadSinTarifa)} no lo tengo aprobado todavía. ` +
             `Lo dejo anotado para el equipo y te confirman por aquí: no quiero darte una cifra equivocada.`
         );
-        return componer(partes, { emoji: null });
+        return componer(partes, { emoji: "atencion" });
       }
 
       if (preguntoComercial) {
@@ -820,8 +837,8 @@ function textoDeterminista({
             partes.push("¡Perfecto, gracias!");
           }
           // La puerta abierta, UNA vez, sin pedir ningun dato.
-          if (!memoria.pasoPropuesto) partes.push("¿Quieres que te ayude a pedirlo?");
-          return componer(partes, { emoji: null });
+          if (!memoria.pasoPropuesto) partes.push(INVITAR);
+          return componer(partes, { emoji: "atencion" });
         }
 
         return componer(
@@ -835,7 +852,7 @@ function textoDeterminista({
               cantidadInformada: cot && cot.cantidad,
             }),
           ],
-          { emoji: null }
+          { emoji: "atencion" }
         );
       }
 
@@ -864,7 +881,7 @@ function textoDeterminista({
           "Esa no te la quiero contestar a medias. La dejo anotada para el equipo: " +
             "una persona la revisa y te responde por aquí."
         );
-        return componer(partes, { emoji: null });
+        return componer(partes, { emoji: "atencion" });
       }
 
       if (lectura.compra || (!lectura.pregunta && !lectura.soloSaludo)) {
@@ -890,15 +907,26 @@ function textoDeterminista({
         // Cuando conteste que si, el turno siguiente SI tiene señal de
         // compra y ahi se piden los datos.
         // ----------------------------------------------------------------
-        partes.push("¿Quieres que te ayude a pedirlo?");
+        partes.push(INVITAR);
       } else if (!memoria.pasoPropuesto) {
-        // Se deja la puerta abierta UNA vez, sin pedir nada.
-        partes.push("Cuando quieras lo preparamos.");
+        // ----------------------------------------------------------------
+        // SE CIERRA CON UNA PREGUNTA, NO CON UN AVISO
+        //
+        // Decia "Cuando quieras lo preparamos." y ahi se moria el turno: es
+        // una puerta abierta que no pide nada, pero tampoco invita a nada.
+        // La regla de tono de BIKERPRO es explicita y es la que falta aqui:
+        // "SIEMPRE termina con una pregunta que avanza la venta".
+        //
+        // "¿Te lo aparto?" avanza y no promete despacho ni plazo: apartar
+        // es lo que SI hacemos -queda su ficha con lo que pidio- y es la
+        // misma palabra que ya usa `loConfirmo`.
+        // ----------------------------------------------------------------
+        partes.push("¿Te lo aparto? 🙌");
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
       // el mensaje no trae ya alguno.
-      return componer(partes, { emoji: lectura.temas[0] || (lectura.compra ? "compra" : null) });
+      return componer(partes, { emoji: voz.claveDeEmoji(lectura.temas) || (lectura.compra ? "compra" : "atencion") });
     }
 
     case "resumen": {
@@ -1023,10 +1051,10 @@ function textoDeterminista({
       // dice buenas noches.
       // ------------------------------------------------------------------
       if (lectura.soloSaludo) {
-        return componer([
-          quien ? `¡Hola, ${quien}!` : "¡Hola!",
-          "¿En qué te puedo ayudar?",
-        ]);
+        return componer(
+          [quien ? `¡Hola, ${quien}!` : "¡Hola!", "¿En qué te puedo ayudar?"],
+          { emoji: "saludo" }
+        );
       }
 
       const partes = [];
@@ -1051,7 +1079,7 @@ function textoDeterminista({
           `el precio por ${voz.unidades(cantidadSinTarifa)} no lo tengo aprobado todavía. ` +
             `Lo dejo anotado para el equipo y te confirman por aquí: no quiero darte una cifra equivocada.`
         );
-        return componer(partes, { emoji: null });
+        return componer(partes, { emoji: "atencion" });
       }
 
       // Si pregunta un PRECIO, la linea comercial lo dice todo en una
@@ -1169,7 +1197,7 @@ function textoDeterminista({
       // Por `componer` como todos: unia con join y salia en minuscula
       // ("el cinturón térmico te queda en $49.900. el envío va incluido").
       // Lo cazo la prueba que recorre todas las situaciones.
-      return componer(partes, { emoji: lectura.temas[0] || null });
+      return componer(partes, { emoji: voz.claveDeEmoji(lectura.temas) || "atencion" });
     }
 
     case "cancelado":
@@ -1227,12 +1255,16 @@ function textoDeterminista({
         // las dos de la mañana es mentir. Lo que si es verdad es que queda
         // en la bandeja de una persona.
         "Esto lo reviso con una persona del equipo y te responde por aquí.",
-      ]);
+      ],
+      // Con emoji. Es el ultimo mensaje antes de que el bot se calle, y
+      // salia completamente seco: justo donde el cliente necesita sentir
+      // que lo estan atendiendo y no que el chat se rompio.
+      { emoji: "atencion" });
     }
 
     case "sin_respuesta_automatica":
     default:
-      return "Lo reviso con el equipo y te responden por aquí.";
+      return "Lo reviso con el equipo y te responden por aquí 🙌";
   }
 }
 
@@ -1413,7 +1445,9 @@ function preparar({
   if (!String(determinista || "").trim()) {
     const quien = voz.nombreDePila(nombreCliente);
     return {
-      texto: quien ? `¡Hola, ${quien}! ¿En qué te puedo ayudar?` : "¡Hola! ¿En qué te puedo ayudar?",
+      texto: quien
+        ? `¡Hola, ${quien}! ¿En qué te puedo ayudar? 😊`
+        : "¡Hola! ¿En qué te puedo ayudar? 😊",
       origen: "determinista",
       bloqueos: [{ tipo: BLOQUEOS.TEXTO_VACIO_EVITADO, detalle: `situacion "${situacion}"` }],
     };

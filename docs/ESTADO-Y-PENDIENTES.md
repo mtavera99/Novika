@@ -178,6 +178,46 @@ confianza ya tiene tema propio y respuesta; le falta el guion completo), y
 bajar el precio contra un competidor cuyo número no conoces es una carrera
 perdida, y lo que sí tenemos es el contraentrega.
 
+### A-bis · EL TONO · hecho (PR #42)
+
+Marco volvió a probar el bot **después** del primer trabajo de voz (PR #38) y
+siguió viéndolo *«muy seco, sin emojis y muy tipo robot»*. Tenía razón, y las
+cuatro reglas que faltaban están **escritas en el guion de BIKERPRO**:
+
+| regla de BIKERPRO | cómo estaba NOVIKA |
+|---|---|
+| «Emojis con moderación (**1 o 2** por mensaje)» | tope de **uno**, y mensajes enteros con **ninguno** |
+| «**SIEMPRE** termina con una pregunta que avanza la venta» | cerraba con *«Cuando quieras lo preparamos.»* |
+| mensajes cortos, cercano, de «tú» | ya estaba |
+| reconocer antes de dar el dato | ya estaba (PR #38) |
+
+**Qué cambió:** tope de 2 emojis, y el segundo **no se pega al primero** — va
+al final de la primera frase, como lo pone un vendedor:
+*«…con envío incluido y pagas al recibir 📦 ¿Quieres que te ayude a pedirlo? 🙌»*.
+El cierre pasó a ser siempre una pregunta (**«¿te lo aparto?»**, que no promete
+despacho ni plazo). Y las ramas que componían con `emoji: null` —admitir un
+hueco, escalar, acusar recibo de un dato, el saludo de quien vuelve— eran justo
+las que más frías se leían.
+
+**Tres defectos de verdad que aparecieron al subir el tono:**
+
+- **El mismo emoji dos veces**: *«¡Claro que sí! 😊 … ¿Te lo aparto? 😊»*.
+- **La apertura no correspondía a la respuesta.** *«¿me sirve? uso talla XL»*
+  marcaba TALLA y MEDIDAS: abría con el «Sí,» de TALLA y contestaba con la
+  frase de MEDIDAS → *«Sí, **L**a correa es graduable»*. Y la apertura empática
+  escrita para esa pregunta no se usaba **nunca**. Mismo origen: el emoji salía
+  de `temas[0]`, que era TALLA y **no tiene emoji**, así que la duda más
+  frecuente del producto se contestaba sin uno solo. Ahora hay una única
+  función (`voz.temasQueSeContestan`) que aplica los mismos colapsos que
+  `aTemas`.
+- **La mayúscula tras `¿`**: *«…al recibir 📦 ¿te lo aparto?»*. Ese defecto ya
+  existía antes del emoji —*«¡Claro que sí! ¿te lo aparto?»*— solo que nadie lo
+  había visto.
+
+⚠️ **Lo que estas pruebas NO demuestran:** que el tono venda más. Eso solo se
+ve en la conversión real. Lo que queda fijado es que el bot no vuelva a
+quedarse seco sin que nadie se entere.
+
 ### B · Asesorar en todos los temas, no solo en «para qué sirve»
 
 Cada respuesta debería traer el dato **y por qué le sirve a ella**. Hecho para
