@@ -172,7 +172,23 @@ const PATRONES = [
  * explicita: "lo quiero", "me sirve", "dale". Una duda no entra aqui.
  */
 const SENALES_DE_COMPRA = [
-  /\b(lo|la)\s+(quiero|llevo|compro|necesito)\b/,
+  // ----------------------------------------------------------------------
+  // EL PLURAL TAMBIEN ES UNA SEÑAL DE COMPRA
+  //
+  // Esto solo cubria singular -"lo quiero", "la quiero"- y el combo de dos
+  // era casi imposible de cerrar hablando:
+  //
+  //   clienta: "¿cuánto me salen dos?"
+  //   bot:     "2 unidades te quedan en $85.000..."
+  //   clienta: "las quiero"
+  //   bot:     "¿Cuántos quieres?"     <- no lo leyo como compra
+  //
+  // "las quiero", "me las llevo" y "las dos" son justo lo que dice quien
+  // compra dos. Sin el plural, el precio del combo no servia para nada.
+  // ----------------------------------------------------------------------
+  /\b(lo|la|los|las)\s+(quiero|llevo|compro|necesito)\b/,
+  /\bme\s+(lo|la|los|las)\s+(llevo|quedo)\b/,
+  /\b(quiero|llevo|dame|mandame|enviame)\s+(los|las)\s+dos\b/,
   /\bquiero\s+(uno|una|un|dos|tres|comprarlo|comprarla|pedirlo|pedirla|ese|esa|el|la)\b/,
   /\b(dale|hagale|hagamoslo|de\s+una|despachalo|despachelo)\b/,
   /\b(como\s+)?(hago|hacemos)\s+para\s+(pedir|comprar|que\s+me\s+llegue)\b/,
@@ -202,6 +218,11 @@ const SENALES_DE_COMPRA = [
 // --------------------------------------------------------------------------
 const SENALES_DEBILES = [
   /\b(me\s+)?(sirve|interesa|conviene|parece\s+bien)\b/,
+  // "las dos" suelto es una señal DEBIL, no fuerte: afirmando es aceptar el
+  // combo ("las dos"), pero preguntando es pedir su precio ("¿cuánto
+  // cuestan las dos?"). Aqui solo vale sin interrogacion.
+  // El lookbehind excluye la hora: "a las dos de la tarde".
+  /(?<!\ba\s)\blas\s+dos\b/,
   /\b(listo|perfecto|vale|bueno)\b/,
 ];
 

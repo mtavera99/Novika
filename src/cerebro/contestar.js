@@ -97,8 +97,10 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
       const sujeto = varias ? `${cotizacion.cantidad} unidades` : nombre;
       // Mayuscula: esta frase empieza el mensaje. Salia "el cinturón térmico
       // te queda en $49.900", en minuscula, que se lee como un fragmento.
-      const frase = `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}.`;
-      return frase.charAt(0).toUpperCase() + frase.slice(1);
+      // En minuscula: estas frases ahora van detras de una apertura
+      // ("Claro que sí, el cinturón te queda en..."). Quien compone el
+      // mensaje se encarga de la mayuscula inicial.
+      return `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}.`;
     }
 
     // ----------------------------------------------------------------------
@@ -106,7 +108,7 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     // ----------------------------------------------------------------------
     case TEMAS.ENVIO: {
       const c = cotizacion && cotizacion.condiciones;
-      if (c && c.envioIncluido) return "El envío va incluido, no pagas nada aparte.";
+      if (c && c.envioIncluido) return "el envío va incluido, no pagas nada aparte.";
       if (cotizacion && cotizacion.envio > 0) return `El envío a tu ciudad son ${pesos(cotizacion.envio)}.`;
       return loConfirmo("El envío", "lo");
     }
@@ -117,7 +119,7 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     case TEMAS.PAGO: {
       const c = cotizacion && cotizacion.condiciones;
       if (c && c.pagoMetodo === "contraentrega") {
-        return "Pagas cuando lo recibes, en la puerta de tu casa.";
+        return "pagas cuando lo recibes, en la puerta de tu casa. Nada por adelantado.";
       }
       if (c && c.pagoEtiqueta) return c.pagoEtiqueta;
       // Preguntar por Nequi o transferencia cuando el metodo es contraentrega
@@ -126,14 +128,17 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     }
 
     case TEMAS.COLOR: {
+      // SIN capitalizar: esta frase puede ir detras de una apertura ("Sí,
+      // viene únicamente en color rosado"). Capitalizarla aqui producia
+      // "Sí, Viene únicamente...", con mayuscula en medio de la frase.
       const dato = caracteristica(producto, /color|rosad|negr|blanc|azul/);
-      if (dato) return `${dato.charAt(0).toUpperCase()}${dato.slice(1)}.`;
+      if (dato) return `${dato}.`;
       return loConfirmo("Los colores disponibles", "los");
     }
 
     case TEMAS.TALLA: {
       const dato = caracteristica(producto, /talla/);
-      if (dato) return `${dato.charAt(0).toUpperCase()}${dato.slice(1)}.`;
+      if (dato) return `${dato}.`;
       return loConfirmo("Las tallas", "las");
     }
 
@@ -173,7 +178,10 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
       // clienta que le va a quedar y no le queda, no tiene garantia — y la
       // queja seria justa, porque se lo dijimos nosotros.
       if (!ajuste || !ajuste.contornoMaximoCm) {
-        partes.push("Si quieres, te confirmo el contorno máximo antes de que lo pidas.");
+        // Ofrecer confirmarlo ANTES de que pida es lo que convierte un "no
+        // lo sé" en atencion: la clienta no tiene que arriesgarse ni
+        // esperar a recibirlo para saberlo.
+        partes.push("Si quieres te confirmo el contorno máximo exacto antes de que lo pidas, para que vayas segura.");
       } else {
         partes.push(`Ajusta hasta ${ajuste.contornoMaximoCm} cm de contorno.`);
       }
@@ -196,7 +204,13 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
       // El plazo y QUE cubre. Las exclusiones no van aqui: ver la nota del
       // catalogo. Abrir con "no cubre si lo mojas" enfria una venta que iba
       // bien; cuando preguntan por el alcance, se dicen completas.
-      return cubre ? `Tiene garantía de ${plazo} por ${cubre}.` : `Tiene garantía de ${plazo}.`;
+      //
+      // Y se cierra con el beneficio REAL de tener garantia -comprar
+      // tranquila- en vez de dejar el dato suelto. No promete nada que no
+      // exista: la garantia esta confirmada.
+      return cubre
+        ? `tiene ${plazo} de garantía por ${cubre}, así que compras con tranquilidad.`
+        : `tiene garantía de ${plazo}.`;
     }
 
     // ----------------------------------------------------------------------
@@ -221,10 +235,10 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
 
       const partes = [];
       const cubre = producto.garantiaCubre;
-      partes.push(cubre ? `Tiene garantía de ${plazo} por ${cubre}.` : `Tiene garantía de ${plazo}.`);
+      partes.push(cubre ? `tiene ${plazo} de garantía por ${cubre}.` : `tiene garantía de ${plazo}.`);
 
       const tramite = producto.garantiaComoSeTramita;
-      if (tramite) partes.push(`Si te llega con algún daño, ${tramite}.`);
+      if (tramite) partes.push(`Si te llega con algún daño, ${tramite} sin ningún costo.`);
       else partes.push("Cómo se tramita te lo explica una persona del equipo.");
 
       const noCubre = producto.garantiaNoCubre || [];
@@ -254,13 +268,20 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     case TEMAS.ENTREGA: {
       const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
       if (!t || !t.texto) return loConfirmo("El tiempo de entrega", "lo");
-      const matiz = t.matiz ? ` ${t.matiz}` : "";
-      return `La transportadora normalmente entrega en ${t.texto}${matiz}.`;
+      // ANTES: "La transportadora normalmente entrega en 1 a 3 días hábiles
+      // según la ciudad." Correcto y escrito como un aviso legal: hablaba de
+      // la transportadora en tercera persona cuando la clienta pregunta por
+      // SU pedido. "Te llega en..." dice lo mismo y lo dice alguien.
+      //
+      // Sigue siendo un RANGO con su matiz: lo que esta prohibido es el dia
+      // concreto, no hablar en segunda persona.
+      const matiz = t.matiz ? ` ${t.matiz.replace(/^según la ciudad$/, "según tu ciudad")}` : "";
+      return `te llega en ${t.texto}${matiz}.`;
     }
 
     case TEMAS.MATERIAL: {
       const dato = caracteristica(producto, /material|tela|cuero/);
-      if (dato) return `${dato.charAt(0).toUpperCase()}${dato.slice(1)}.`;
+      if (dato) return `${dato}.`;
       return loConfirmo("El material", "lo");
     }
 
@@ -280,9 +301,9 @@ function deTema(tema, { producto = null, cotizacion = null } = {}) {
     case TEMAS.CONFIANZA: {
       const c = cotizacion && cotizacion.condiciones;
       if (c && c.pagoMetodo === "contraentrega") {
-        return "Te entiendo. Pagas cuando el pedido llega a tus manos, así que no tienes que adelantar nada.";
+        return "Pagas cuando el pedido llega a tus manos, así que no arriesgas nada: si no te llega, no pagas.";
       }
-      return "Te entiendo. Somos NOVIKA, una tienda colombiana, y cualquier duda te la resuelve una persona del equipo.";
+      return "Somos NOVIKA, una tienda colombiana, y cualquier duda te la resuelve una persona del equipo.";
     }
 
     case TEMAS.FOTOS:

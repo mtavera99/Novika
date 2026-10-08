@@ -232,7 +232,12 @@ describe("2 · a quien averigua no se le piden los datos", () => {
     await dice("hola");
     const r = await dice("¿cuánto cuesta?");
     assert.match(r.texto, /49\.900/);
-    assert.match(r.texto, /te sirve/i, `no hizo el microcierre: ${r.texto}`);
+    // Se comprueba EL HECHO -que invite sin pedir los datos- y no la frase
+    // exacta: la redaccion cambio al mejorar el tono ("¿Te animas y te lo
+    // despacho?" en vez de "¿Te sirve?") y una asercion pegada a las
+    // palabras obliga a reescribirla cada vez que se afina la voz.
+    assert.match(r.texto, /\?/, `no hizo ningún microcierre: ${r.texto}`);
+    assert.match(r.texto, /te sirve|te animas|te lo despacho/i, `no invitó a cerrar: ${r.texto}`);
     assert.equal(/tu nombre completo/i.test(r.texto), false, "pidió los datos de golpe");
   });
 });
@@ -317,7 +322,10 @@ describe("4 · sin inventar", () => {
     // confirmar y esos siguen usando "te lo/la confirmo".
     const { dice } = await conversacion();
     const r = await dice("¿tiene garantía?");
-    assert.match(r.texto, /garantía de 1 mes/i, `no dijo el plazo: ${r.texto}`);
+    // El plazo, sin atarse al orden de las palabras: paso de "garantía de 1
+    // mes" a "1 mes de garantía" al darle tono.
+    assert.match(r.texto, /1 mes/i, `no dijo el plazo: ${r.texto}`);
+    assert.match(r.texto, /garantía/i);
 
     // Y el alcance NO se completa: que cubre y como se tramita no estan
     // definidos.
@@ -390,7 +398,10 @@ describe("4 · sin inventar", () => {
     const r = await dice("¿cuándo llega?");
 
     assert.match(r.texto, /1 a 3 días hábiles/, `no dijo el plazo confirmado: ${r.texto}`);
-    assert.match(r.texto, /según la ciudad/, "sin el matiz, el rango se lee como un compromiso");
+    // El matiz, en cualquiera de sus formas: "según la ciudad" paso a
+    // "según tu ciudad" al hablarle de usted a ella y no de la
+    // transportadora.
+    assert.match(r.texto, /según (la|tu) ciudad/, "sin el matiz, el rango se lee como un compromiso");
     assert.equal(
       /mañana|pasado mañana|hoy mismo|el lunes|el martes|al día siguiente/i.test(r.texto),
       false,

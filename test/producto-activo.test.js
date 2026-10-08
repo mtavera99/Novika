@@ -432,6 +432,60 @@ describe("5 · la conversacion completa", () => {
     }
   });
 
+
+  // ------------------------------------------------------------------------
+  // EL PLURAL CIERRA EL COMBO
+  //
+  // Van en ESTE archivo y no en ficha-cinturon.test.js por un motivo que
+  // vale la pena anotar: alli el montaje tiene el envio APAGADO, y los
+  // marcadores de "lo que ya se le dijo" -incluida la cantidad informada-
+  // se anotan SOLO si el mensaje salio de verdad.
+  //
+  // Es coherente y es el comportamiento correcto: si la clienta no leyo el
+  // precio de dos, su "las quiero" no puede referirse a el. Pero significa
+  // que esta conversacion solo se puede probar donde el bot si envia.
+  // ------------------------------------------------------------------------
+  test('"las quiero" tras ver el precio de dos CIERRA la venta de dos', async () => {
+    // La venta del combo se perdia: el bot informaba 85.000 por dos y al
+    // "las quiero" preguntaba "¿cuántos quieres?" en bucle, hasta que la
+    // guarda anti-eco cortaba la conversacion.
+    const { hablar, repos } = await montar();
+
+    await hablar("¿cuánto me salen dos?");
+    await hablar("las quiero");
+    const resumen = await hablar("Ana Pérez, Medellín, Calle 45 # 23-10");
+
+    assert.equal(resumen.traza.respuesta.situacion, "resumen", `situación: ${resumen.traza.respuesta.situacion}`);
+    assert.match(textos(resumen.salidas)[0], /85\.000/, "no usó el precio del combo");
+    assert.match(textos(resumen.salidas)[0], /2 unidades/);
+
+    const conf = await hablar("sí confirmo");
+    assert.equal(conf.traza.respuesta.situacion, "confirmado");
+
+    const pedidos = await repos.pedidos.porContacto("573001234567");
+    assert.equal(pedidos.length, 1);
+    assert.equal(pedidos[0].cotizacion.cantidad, 2);
+    assert.equal(pedidos[0].cotizacion.total, 85000);
+  });
+
+  test('pero "mejor quiero 1" MANDA sobre la cantidad informada', async () => {
+    // El error caro de ese arreglo seria fijar dos porque se informo dos.
+    // Lo que diga el cliente en ESTE turno manda siempre.
+    const { hablar, repos } = await montar();
+
+    await hablar("¿cuánto me salen dos?");
+    await hablar("mejor quiero 1");
+    const resumen = await hablar("Ana Pérez, Medellín, Calle 45 # 23-10");
+
+    assert.equal(resumen.traza.respuesta.situacion, "resumen");
+    assert.match(textos(resumen.salidas)[0], /49\.900/, "le cobró el combo a quien pidió una");
+    assert.equal(/85\.000/.test(textos(resumen.salidas)[0]), false);
+
+    await hablar("sí confirmo");
+    const pedidos = await repos.pedidos.porContacto("573001234567");
+    assert.equal(pedidos[0].cotizacion.cantidad, 1);
+  });
+
   test("con RESPUESTA_AUTOMATICA apagada no sale nada, ni texto ni fotos", async () => {
     const { hablar } = await montar({ respuestaAutomatica: false });
     const { traza, salidas } = await hablar("Muéstrame fotos del cinturón y dime cuánto cuesta");

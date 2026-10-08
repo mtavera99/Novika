@@ -31,6 +31,7 @@ const { revisarImportes } = require("../dominio/cotizador");
 const { aplanar } = require("../dominio/texto");
 const preguntas = require("../dominio/preguntas");
 const contestar = require("./contestar");
+const voz = require("./voz");
 
 const BLOQUEOS = {
   IMPORTE_NO_AUTORIZADO: "importe_no_autorizado",
@@ -184,6 +185,19 @@ function mayuscula(texto) {
 }
 
 /**
+ * Compone el mensaje final: une las piezas, arregla la mayuscula inicial y
+ * pone UN emoji como maximo.
+ *
+ * Las piezas vienen en minuscula a proposito -"el cinturón te queda en..."-
+ * para poder llevar delante una apertura de vendedor ("Claro que sí,"). La
+ * mayuscula se decide aqui, cuando ya se sabe con que empieza el mensaje.
+ */
+function componer(partes, { emoji = null } = {}) {
+  const texto = mayuscula(voz.unir(partes));
+  return emoji ? voz.conEmoji(texto, emoji) : texto;
+}
+
+/**
  * La linea comercial: cuanto vale, con que condiciones.
  *
  * UNA sola frase para precio, envio y pago. Antes cada tema producia su
@@ -210,7 +224,7 @@ function lineaComercial(cotizacion, producto, { asumida = false } = {}) {
   // Cuando la cantidad SI la dijo, se usa el nombre del producto: repetir
   // "una unidad" a quien ya dijo que quiere una suena a formulario.
   // ----------------------------------------------------------------------
-  const sujeto = varias ? `${cotizacion.cantidad} unidades` : asumida ? "una unidad" : nombre;
+  const sujeto = varias ? voz.unidades(cotizacion.cantidad) : asumida ? "una unidad" : nombre;
 
   const condiciones = [];
   const c = cotizacion.condiciones || {};
@@ -219,7 +233,9 @@ function lineaComercial(cotizacion, producto, { asumida = false } = {}) {
   if (c.pagoMetodo === "contraentrega") condiciones.push("pagas al recibir");
 
   const cola = condiciones.length ? `, con ${enumerar(condiciones)}` : "";
-  return mayuscula(`${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}${cola}.`);
+  // Sin mayuscula: esta frase puede ir detras de una apertura ("Claro que
+  // sí, el cinturón te queda en..."). La decide `componer`.
+  return `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}${cola}.`;
 }
 
 /**
@@ -238,7 +254,7 @@ function lineaComercial(cotizacion, producto, { asumida = false } = {}) {
  * Termina sin pedir nada. Deja la puerta abierta y se calla.
  */
 function arranque(cotizacion, producto, { asumida = false } = {}) {
-  const partes = ["¡Hola!"];
+  const partes = ["¡Hola! Con gusto te cuento:"];
 
   if (cotizacion) partes.push(lineaComercial(cotizacion, producto, { asumida }));
 
@@ -247,9 +263,9 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
   const rasgos = ((producto && producto.caracteristicasAutorizadas) || []).slice(0, 2);
   if (rasgos.length) partes.push(`${mayuscula(enumerar(rasgos))}.`);
 
-  if (producto && (producto.imagenes || []).length) partes.push("Te muestro las fotos.");
+  if (producto && (producto.imagenes || []).length) partes.push("Te paso las fotos para que lo veas.");
 
-  return partes.filter(Boolean).join(" ");
+  return componer(partes, { emoji: "compra" });
 }
 
 /**
@@ -277,14 +293,14 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null } = {}) {
 
   if (yaSeSabeCuantas) {
     return pide.length
-      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y te las despacho.`
+      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y te las despacho de una.`
       : "¿Te las despacho?";
   }
 
   if (faltaCantidad && !pide.length) return "¿Cuántos quieres?";
-  if (faltaCantidad) return `¿Cuántos quieres? Y para despacharlo me pasas ${enumerar(pide)}.`;
+  if (faltaCantidad) return `¿Cuántos quieres? Y para despachártelo me pasas ${enumerar(pide)}.`;
   if (!pide.length) return "¿Te lo despacho?";
-  return `Para despacharlo me pasas ${enumerar(pide)}.`;
+  return `Para despachártelo me pasas ${enumerar(pide)}.`;
 }
 
 // --------------------------------------------------------------------------
@@ -360,6 +376,7 @@ function textoDeterminista({
   producto = null,
   mensajeCliente = "",
   memoria = {},
+  nombreCliente = null,
 }) {
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
 
@@ -369,9 +386,7 @@ function textoDeterminista({
 
   switch (situacion) {
     case "producto_desconocido":
-      return [saludo, "Cuéntame qué producto te interesa y te ayudo con el precio y el envío."]
-        .filter(Boolean)
-        .join(" ");
+      return componer([saludo, "Cuéntame qué producto te interesa y te ayudo con el precio y el envío."]);
 
     // ----------------------------------------------------------------------
     // PRODUCTO EN BORRADOR: se sabe cual es, pero no tiene ficha.
@@ -389,14 +404,12 @@ function textoDeterminista({
       const nombre = (producto && (producto.nombreCorto || producto.nombre)) || null;
       const lo = nombre ? nombre : "ese producto";
       const hayFotos = Boolean(producto && (producto.imagenes || []).length);
-      return [
+      return componer([
         saludo,
-        `Sí, ${lo} lo tenemos.`,
-        hayFotos ? "Te muestro las fotos." : "",
-        "El precio y el envío te los confirma una persona del equipo en un momento: todavía no los tengo publicados y no quiero darte un dato equivocado.",
-      ]
-        .filter(Boolean)
-        .join(" ");
+        `¡Claro que sí! ${mayuscula(lo)} lo tenemos.`,
+        hayFotos ? "Te paso las fotos para que lo veas." : "",
+        "El precio y el envío te los confirma una persona del equipo en un momentico: todavía no los tengo publicados y no quiero darte un dato equivocado.",
+      ]);
     }
 
     case "producto_ambiguo":
@@ -406,7 +419,12 @@ function textoDeterminista({
 
     case "cotizacion": {
       if (!cotizacion) return "Dame un momento y te confirmo.";
-      return lineaComercial(cotizacion, producto);
+      // Pasa por `componer` como todos: `lineaComercial` devuelve la frase
+      // en minuscula para poder llevar una apertura delante, y este caso la
+      // usaba directa. La prueba que recorre todas las situaciones lo cazo.
+      return componer([voz.apertura(lectura.temas), lineaComercial(cotizacion, producto)], {
+        emoji: lectura.temas[0] || null,
+      });
     }
 
     // ----------------------------------------------------------------------
@@ -442,6 +460,20 @@ function textoDeterminista({
       const partes = [];
       if (saludo) partes.push(saludo);
 
+      // ------------------------------------------------------------------
+      // RECONOCER ANTES DE RESPONDER
+      //
+      // Marco: "responde como muy plano, muy robot, muy seco". La causa
+      // concreta era que TODA respuesta empezaba con el dato -"Tiene
+      // garantía de 1 mes", "La correa es graduable"- y una persona que
+      // vende empieza reconociendo lo que le preguntaron.
+      //
+      // La apertura sale del TEMA, asi que es estable -la misma pregunta
+      // abre igual- y a la vez distinta entre preguntas distintas, que es
+      // lo que rompe la monotonia sin hacer el bot impredecible.
+      // ------------------------------------------------------------------
+      if (!saludo) partes.push(voz.apertura(lectura.temas));
+
       // La cantidad es ASUMIDA cuando no hay cotizacion real: ahi el precio
       // que se informa es el de una unidad, y hay que decirlo con esa
       // palabra para que nadie lo lea como el total de su pedido.
@@ -475,6 +507,12 @@ function textoDeterminista({
       if (lectura.compra || (!lectura.pregunta && !lectura.soloSaludo)) {
         // Hay señal de compra, o el cliente esta ya en la captura y no
         // pregunto nada: se piden los datos que falten.
+        //
+        // Y si DIJO QUE LO QUIERE, se celebra antes de pedirle nada. Antes
+        // "lo quiero" recibia "Para despacharlo me pasas la ciudad y la
+        // dirección": ni un "perfecto". Es el momento mas importante de la
+        // conversacion y se trataba como un tramite.
+        if (lectura.compra && !preguntoComercial) partes.push("¡Perfecto!");
         partes.push(pedirLoQueFalta(faltan, { cantidadInformada: cot && cot.cantidad }));
       } else if (preguntoComercial) {
         // ----------------------------------------------------------------
@@ -489,13 +527,15 @@ function textoDeterminista({
         // Cuando conteste que si, el turno siguiente SI tiene señal de
         // compra y ahi se piden los datos.
         // ----------------------------------------------------------------
-        partes.push("¿Te sirve? Si quieres, me pasas los datos y lo despachamos.");
+        partes.push("¿Te animas y te lo despacho?");
       } else if (!memoria.pasoPropuesto) {
         // Se deja la puerta abierta UNA vez, sin pedir nada.
         partes.push("Cuando quieras te lo despachamos.");
       }
 
-      return partes.filter(Boolean).join(" ");
+      // El emoji sale del tema que se respondio: uno, al final, y solo si
+      // el mensaje no trae ya alguno.
+      return componer(partes, { emoji: lectura.temas[0] || (lectura.compra ? "compra" : null) });
     }
 
     case "resumen": {
@@ -513,18 +553,40 @@ function textoDeterminista({
       const nombre = cotizacion.productoNombre || (producto && producto.nombre) || "Producto";
       return [
         "Confirmemos tu pedido:",
-        `${nombre} · ${cotizacion.cantidad} unidad(es)`,
+        // "1 unidad(es)" era lo mas robot del cuadro, y estaba justo donde
+        // la clienta decide pagar. BIKERPRO lo tiene documentado como error
+        // propio: no se copian los parentesis de la plantilla.
+        `${nombre} · ${voz.unidades(cotizacion.cantidad)}`,
         `Total: ${pesos(cotizacion.total)}`,
         ...lineasDeCondiciones(cotizacion),
         "",
-        '¿Está todo bien? Respóndeme "sí" y lo despacho.',
+        '¿Está todo bien? Respóndeme "sí" y lo despacho ✅',
       ].join("\n");
     }
 
-    case "confirmado":
-      return pedido
-        ? `¡Listo! Tu pedido quedó registrado con el número ${pedido.id}. Te avisamos cuando salga.`
-        : "¡Listo! Tu pedido quedó registrado.";
+    // ----------------------------------------------------------------------
+    // CONFIRMADO: el mensaje mas importante de toda la conversacion
+    //
+    // Es el que lee alguien que acaba de decidir gastarse su plata. "Tu
+    // pedido quedó registrado con el número X" es un acuse de recibo; una
+    // persona agradece, usa el nombre y deja la puerta abierta.
+    //
+    // El nombre solo si esta CONFIRMADO: llamar a alguien por un nombre que
+    // el modelo propuso y nadie valido es peor que no nombrarlo.
+    // ----------------------------------------------------------------------
+    case "confirmado": {
+      const quien = voz.nombreDePila(nombreCliente);
+      const saluda = quien ? `¡Listo, ${quien}!` : "¡Listo!";
+      return componer(
+        [
+          saluda,
+          "Gracias por tu compra.",
+          pedido ? `Tu pedido quedó con el número ${pedido.id}.` : "Tu pedido quedó registrado.",
+          "Te avisamos en cuanto salga, y cualquier cosa me escribes por aquí.",
+        ],
+        { emoji: "confirmado" }
+      );
+    }
 
     // ----------------------------------------------------------------------
     // YA CONFIRMADO: ES POSVENTA, NO UN ECO
@@ -588,11 +650,14 @@ function textoDeterminista({
         partes.push("Cualquier otra cosa de tu pedido, dime.");
       }
 
-      return partes.filter(Boolean).join(" ");
+      // Por `componer` como todos: unia con join y salia en minuscula
+      // ("el cinturón térmico te queda en $49.900. el envío va incluido").
+      // Lo cazo la prueba que recorre todas las situaciones.
+      return componer(partes, { emoji: lectura.temas[0] || null });
     }
 
     case "cancelado":
-      return "Listo, lo cancelamos. Si cambias de opinión escríbeme y lo armamos de nuevo.";
+      return "Listo, lo cancelamos sin ningún problema. Si cambias de opinión me escribes y lo armamos de nuevo 🙌";
 
     // ----------------------------------------------------------------------
     // ESCALADO: se pasa a una persona. Y SE RESPONDE LO QUE PREGUNTO IGUAL.
@@ -603,9 +668,11 @@ function textoDeterminista({
     // ----------------------------------------------------------------------
     case "escalado": {
       const resto = contestar.aTemas(lectura.temas, { producto, cotizacion }, { maximo: 2 });
-      return [saludo, resto.texto, "Déjame revisarlo con el equipo y te escribo en un momento."]
-        .filter(Boolean)
-        .join(" ");
+      return componer([
+        saludo || voz.apertura(lectura.temas),
+        resto.texto,
+        "Déjame confirmarlo bien con el equipo y te escribo en un momentico.",
+      ]);
     }
 
     case "sin_respuesta_automatica":
@@ -687,6 +754,7 @@ function preparar({
   borradorIA = null,
   mensajeCliente = "",
   memoria = {},
+  nombreCliente = null,
 }) {
   const determinista = textoDeterminista({
     situacion,
@@ -698,6 +766,7 @@ function preparar({
     producto,
     mensajeCliente,
     memoria,
+    nombreCliente,
   });
   const bloqueos = [];
 
