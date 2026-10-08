@@ -27,6 +27,7 @@ const vistas = require("./vistas");
 const fecha = require("./fecha");
 const fichaDe = require("./ficha");
 const analitica = require("./analitica");
+const silencios = require("./silencios");
 const fotos = require("../whatsapp/fotos");
 const dominioPedido = require("../dominio/pedido");
 const campos = require("../dominio/campos");
@@ -205,6 +206,60 @@ function crearRutasDelPanel({ obtenerCerebro }) {
     metricas.incrementar(envio.enviado ? "panel_confirmacion_enviada" : "panel_confirmacion_no_enviada");
     return { envio, estado };
   }
+
+  // ----------------------------------------------------------------------
+  // POR QUE EL BOT NO CONTESTO
+  //
+  // La pantalla que faltaba. Marco encontro mensajes sin responder y no
+  // tenia donde ver el motivo: estaba en el diario y en los logs de Render,
+  // y el panel mostraba un dia normal.
+  // ----------------------------------------------------------------------
+  router.get("/sin-responder", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    const dia = String(req.query.dia || "") || null;
+    try {
+      const { repos } = await piezas();
+      const d = await silencios.diagnostico(repos, { dia });
+      html(res, vistas.sinResponder({ datos: d, config }));
+    } catch (e) {
+      log.error("panel_sin_responder_fallo", { detalle: e.message });
+      html(res, vistas.bloqueada({
+        titulo: "Sin responder",
+        queFalta: "No se pudo leer el diagnostico",
+        porQue: e.message,
+        comoSeDesbloquea: "Reintenta en un momento.",
+      }), 500);
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // Devolver TODOS los chats al bot
+  //
+  // Existe porque el problema se acumula: cada chat atendido a mano quedaba
+  // sin bot, y desatascarlos de uno en uno no es viable cuando ya hay
+  // varios. Es una accion destructiva en un sentido -si alguien esta
+  // atendiendo ahora mismo, el bot vuelve a hablar en ese chat-, asi que va
+  // por POST y dice cuantos solto.
+  // ----------------------------------------------------------------------
+  router.post("/devolver-todos", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    try {
+      const { repos } = await piezas();
+      const convs = await repos.conversaciones.listar({ limite: 2000 });
+      let soltados = 0;
+      for (const conv of convs) {
+        if (atencion.leer(conv).pausado !== true) continue;
+        await atencion.devolverAlBot(repos, conv.contactoId);
+        soltados += 1;
+      }
+      log.info("panel_devolver_todos", { soltados });
+      diario.anotar("panel_devolver_todos", { soltados });
+      return res.redirect("/panel/sin-responder");
+    } catch (e) {
+      log.error("panel_devolver_todos_fallo", { detalle: e.message });
+      return res.redirect("/panel/sin-responder");
+    }
+  });
 
   // ----------------------------------------------------------------------
   // Bandeja: TODOS los chats
