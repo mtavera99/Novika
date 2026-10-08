@@ -256,6 +256,14 @@ const UNIDADES_CONSULTADAS = [
   /\bel\s+(par)\b/,
   // "dos unidades", "2 cinturones"
   /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?)\b/,
+  // EL NUMERO DELANTE DEL VERBO: "y tres cuánto valen?", "2 cuánto cuestan".
+  // Faltaba, y el hueco se colaba justo donde mas duele: con un pedido ya
+  // confirmado, "y tres cuanto valen?" contestaba el precio de SU pedido.
+  //
+  // Va anclado al principio del mensaje -con un "y" opcional- a proposito.
+  // Sin el ancla, "Calle 20 cuanto vale el envio" leeria 20 unidades: el
+  // mismo error de confundir una direccion con una cantidad, otra vez.
+  /^\s*(?:y\s+)?(\d{1,2}|dos|tres|cuatro|cinco|seis|par)\s+(?:cuanto|cuantos|que)\s+(?:vale|valen|cuesta|cuestan|sale|salen)/,
 ];
 
 /**

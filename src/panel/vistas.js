@@ -1151,7 +1151,7 @@ const ETIQUETAS_FILTRO = {
 const QUIEN_CORTO = { cliente: "cliente", bot: "bot", operador: "tú" };
 
 function bandeja({ datos, aviso = null }) {
-  const { filas, total, pagina, paginas, filtro, q, cuentas, recortada, techo } = datos;
+  const { filas, total, pagina, paginas, filtro, q, cuentas, recortada, techo, pedidosRecortados } = datos;
 
   const enlace = (f, p = 1) =>
     `/panel/chats?filtro=${encodeURIComponent(f)}${q ? `&q=${encodeURIComponent(q)}` : ""}${p > 1 ? `&pagina=${p}` : ""}`;
@@ -1221,7 +1221,16 @@ function bandeja({ datos, aviso = null }) {
     // total que no es, y el chat que falta es justo el que nadie atendió.
     (recortada
       ? `<div class="aviso ambar">Se están leyendo las ${esc(techo)} conversaciones más recientes, y hay más.
-           Los totales y las pestañas cuentan solo esas. Usa la búsqueda para llegar a una conversación concreta.</div>`
+           Los totales y las pestañas cuentan solo esas. Usa la búsqueda para llegar a una conversación concreta,
+           o sube <code>PANEL_TECHO_CHATS</code> en Render.</div>`
+      : "") +
+    // Este aviso es mas grave que el de arriba: no falta informacion, hay
+    // informacion equivocada. Un cliente que compro aparece como "sin
+    // pedido", que es justo la pestaña donde se buscan las fugas.
+    (pedidosRecortados
+      ? `<div class="aviso mal">No se leyeron todos los pedidos, así que algunas filas pueden decir
+           «sin pedido» siendo falso. Sube <code>PANEL_TECHO_CHATS</code> en Render antes de sacar
+           conclusiones de esta pantalla.</div>`
       : "") +
     `<div class="nota" style="margin:4px 0 10px">${esc(total)} conversación(es)${
       q ? ` que coinciden con “${esc(q)}”` : ""

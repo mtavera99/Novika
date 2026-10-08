@@ -498,3 +498,128 @@ describe("5 · la respuesta de respaldo es útil, no un formulario", () => {
     );
   });
 });
+
+// --------------------------------------------------------------------------
+// 6 · UNA CANTIDAD SIN TARIFA NO SE CONTESTA CON OTRA CANTIDAD
+//
+// Salio demostrando las cuatro conversaciones, y es el mismo error que el
+// de la captura por la otra punta:
+//
+//   clienta: "y cuánto cuestan tres?"
+//   bot:     "Claro que sí, una unidad te queda en $49.900..."
+//
+// El precio de UNA a una pregunta por TRES. La clienta puede leer que tres
+// le salen a 49.900, y eso es cobrar mal o perder la venta al aclararlo.
+//
+// La tabla cubre 1 y 2 porque es lo que Marco aprobo. No se interpola -el
+// tercer escalon seria un descuento inventado- y tampoco se contesta por
+// otra cantidad: se dice que lo confirma una persona y queda la tarea.
+// --------------------------------------------------------------------------
+
+describe("6 · por una cantidad sin precio aprobado no se improvisa", () => {
+  test("no se contesta con el precio de otra cantidad", async () => {
+    const c = await conversacion();
+    const r = await c.dice("y cuanto cuestan tres?");
+
+    assert.equal(/49\.900/.test(r.texto), false, `dio el precio de UNA por una pregunta de TRES: ${r.texto}`);
+    assert.equal(/85\.000/.test(r.texto), false, `dio el precio de DOS por una pregunta de TRES: ${r.texto}`);
+    // Ni ninguna cifra inventada por multiplicar.
+    assert.equal(/149\.700|127\.500|120\.000/.test(r.texto), false, `inventó el precio: ${r.texto}`);
+    // Y lo dice: nombra la cantidad por la que preguntó.
+    assert.match(r.texto, /3 unidades/, `no reconoció por cuántas preguntaba: ${r.texto}`);
+    assert.match(r.texto, /confirmo|equipo/i, `no ofreció confirmarlo: ${r.texto}`);
+  });
+
+  test("queda la tarea, porque es una venta MAYOR que la aprobada", async () => {
+    // Quien pide tres se lleva mas que quien pide uno. No se puede cotizar,
+    // pero perderla por no anotarla seria tonto.
+    const c = await conversacion();
+    await c.dice("cuanto cuestan tres?");
+
+    const conv = await c.repos.conversaciones.obtener(CLIENTE);
+    const p = atencion.pendienteDe(conv);
+    assert.equal(p.hay, true, "no dejó tarea por una venta de 3 unidades");
+    assert.match(p.pregunta, /3 unidades/, "la tarea no dice por cuántas preguntaba");
+  });
+
+  test("tampoco con un pedido ya confirmado", async () => {
+    const c = await conversacion();
+    const pedido = await c.conPedidoConfirmado();
+    const r = await c.dice("y tres cuanto valen?");
+
+    assert.equal(/49\.900/.test(r.texto), false, `contestó con el precio de su pedido: ${r.texto}`);
+    const pedidos = await c.repos.pedidos.porContacto(CLIENTE);
+    assert.equal(pedidos.length, 1);
+    assert.equal(pedidos[0].id, pedido.id, "cambió el pedido confirmado");
+  });
+
+  test("pero por DOS, que sí tiene tarifa, se contesta de una", async () => {
+    // La guarda no puede volverse una excusa para no vender lo aprobado.
+    const c = await conversacion();
+    const r = await c.dice("cuanto cuestan dos?");
+    assert.match(r.texto, /85\.000/, `no dio el precio aprobado de dos: ${r.texto}`);
+  });
+});
+
+// --------------------------------------------------------------------------
+// 7 · EL CIERRE NO LO IMPROVISA EL MODELO
+//
+// Con el modelo activo, "listo, lo quiero" NO estaba cubierto por el
+// catalogo -no pregunta nada, asi que no tiene temas- y lo redactaba la IA.
+// Es el momento mas importante de la conversacion.
+//
+// Salio en los tres escenarios de venta a la vez:
+//
+//   clienta: "listo, lo quiero"
+//   bot:     "Perfecto, actualizo tu dirección de entrega."
+//
+// No habia direccion que actualizar y, peor, no pide nada: la venta se
+// queda parada ahi. Que falten datos es un hecho del estado, no una
+// opinion, y lo sabe el codigo.
+// --------------------------------------------------------------------------
+
+describe("7 · la intención de compra la contesta el código", () => {
+  test("«lo quiero» pide los datos que faltan, no lo que diga el modelo", async () => {
+    const responder = require("../src/cerebro/responder");
+    const { cargarCatalogo: cargar } = require("../src/catalogo");
+    const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+      "cinturon-termico-colicos"
+    );
+    const cotizador = require("../src/dominio/cotizador");
+    const cot = cotizador.cotizar({ producto: prod, cantidad: 1 }).cotizacion;
+
+    // El modelo manda un borrador inofensivo pero inservible.
+    const r = responder.preparar({
+      situacion: "faltan_datos",
+      cotizacion: cot,
+      faltan: ["nombre", "ciudad", "direccion"],
+      producto: prod,
+      borradorIA: "Perfecto, actualizo tu dirección de entrega.",
+      mensajeCliente: "listo, lo quiero",
+    });
+
+    assert.equal(r.origen, "determinista", `el modelo redactó el cierre: ${r.texto}`);
+    assert.match(r.texto, /me pasas/i, `no pidió los datos que faltan: ${r.texto}`);
+  });
+
+  test("y una duda NO catalogada sí la redacta el modelo", async () => {
+    // El reparto tiene que seguir funcionando en el otro sentido: donde el
+    // determinista no tiene nada bueno que decir, el modelo sí.
+    const responder = require("../src/cerebro/responder");
+    const { cargarCatalogo: cargar } = require("../src/catalogo");
+    const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+      "cinturon-termico-colicos"
+    );
+
+    const r = responder.preparar({
+      situacion: "faltan_datos",
+      cotizacion: null,
+      faltan: [],
+      producto: prod,
+      borradorIA: "Sobre usarlo toda la noche no tengo el dato confirmado, te lo verifico con el equipo.",
+      mensajeCliente: "oye y esto me lo puedo poner dormida toda la noche?",
+    });
+
+    assert.equal(r.origen, "ia", `se descartó un borrador útil: ${r.texto}`);
+  });
+});
