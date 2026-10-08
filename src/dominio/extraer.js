@@ -39,6 +39,24 @@ const { CIUDADES_SEMILLA } = require("./destino");
 // nombre, unas lineas mas abajo.
 const VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal|dg|diag|transversal|tv|trans|manzana|mz|circular|circunvalar|autopista|via|vereda|vda|barrio|brr|corregimiento|sector|km|kilometro|lote|finca|conjunto|urbanizacion)\b/;
 
+/**
+ * Las vias que identifican una ZONA, no una nomenclatura.
+ *
+ * Para estas NO se exige numero: "Barrio Buenos Aires" es una direccion
+ * completa en medio pais, y exigirle un numero rechazaba al cliente que
+ * estaba dando su direccion. Para "calle" o "carrera" el numero sigue
+ * siendo obligatorio: sin el, el mensajero no puede entregar.
+ */
+const VIA_DE_ZONA = /^(vereda|vda|barrio|brr|corregimiento|sector|finca|conjunto|urbanizacion|manzana|mz)$/;
+
+/**
+ * Palabras que NO son el nombre de la zona.
+ *
+ * "barrio el" o "vereda la" no identifican nada; "barrio Buenos Aires" si.
+ * Sin este filtro, un "vivo en el barrio" pasaria como direccion.
+ */
+const PALABRAS_VACIAS_DE_ZONA = new Set(["el", "la", "los", "las", "de", "del", "mi", "en", "un", "una", "es"]);
+
 // ==========================================================================
 // EL NOMBRE, CUANDO EL CLIENTE LO DICE
 //
@@ -93,7 +111,7 @@ const EMPIEZA_OTRA_FRASE = new RegExp(
   "i"
 );
 
-function nombreEn(textoCrudo) {
+function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
   const crudo = String(textoCrudo ?? "");
   for (const re of DICE_SU_NOMBRE) {
     const m = crudo.match(re);
@@ -124,6 +142,56 @@ function nombreEn(textoCrudo) {
     }
     return { valor: palabras.join(" "), porQue: "lo dijo con un marcador explicito" };
   }
+
+  // ----------------------------------------------------------------------
+  // EL NOMBRE A SECAS, PERO SOLO SI SE LE ACABA DE PEDIR
+  //
+  // ⚠️ VENTA PERDIDA MEDIDA (08-oct):
+  //
+  //   bot      · "...me pasas tu nombre completo y la dirección"
+  //   cliente  · "Moisés Humanez"
+  //   bot      · "Perdón, no quiero repetirme. Dime concretamente qué
+  //               necesitas y lo reviso con el equipo."
+  //
+  // Exigir un marcador ("soy X", "me llamo X") es correcto cuando el nombre
+  // llega SIN QUE NADIE LO PIDA: ahi "Buenos Aires" o "Interapidisimo" se
+  // leerian como nombres. Pero cuando el bot ACABA DE PEDIR el nombre, lo
+  // normal es contestar solo el nombre — nadie escribe "me llamo Moisés
+  // Humanez" cuando le preguntan como se llama.
+  //
+  // Y el efecto era doble: ademas de no capturarlo, el texto de salida
+  // quedaba identico al anterior y saltaba la guarda anti-eco, asi que el
+  // cliente que dio su nombre recibia "dime concretamente qué necesitas".
+  //
+  // `seLoPidieron` lo pasa el cerebro, que es el unico que sabe si el turno
+  // anterior pidio el nombre. El dominio sigue siendo puro: recibe el hecho,
+  // no lo consulta.
+  //
+  // Los candados que se mantienen, porque aqui no hay marcador que ayude:
+  //   · entre 1 y 4 palabras, todas de letras (nada de cifras ni signos);
+  //   · ninguna palabra de `NO_ES_NOMBRE` (articulos, verbos, muletillas);
+  //   · no puede ser una ciudad del listado -"Popayán" no es un nombre-;
+  //   · no puede traer un tipo de via: eso es una direccion.
+  // ----------------------------------------------------------------------
+  if (seLoPidieron) {
+    const limpio = crudo.replace(/[.,;:!¡?¿]/g, " ").replace(/\s+/g, " ").trim();
+    const palabras = limpio.split(/\s+/).filter(Boolean);
+    const plano = aplanar(limpio);
+    const todasLetras = palabras.every((p) => /^[\p{L}'’-]{2,}$/u.test(p));
+    const algunaProhibida = palabras.some((p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)));
+
+    if (
+      palabras.length >= 1 &&
+      palabras.length <= 4 &&
+      todasLetras &&
+      !algunaProhibida &&
+      !VIA.test(plano) &&
+      !ciudadEn(limpio).valor
+    ) {
+      return { valor: palabras.join(" "), porQue: "contesto al nombre que se le acababa de pedir" };
+    }
+  }
+
   return { valor: null, porQue: "no dijo su nombre con un marcador" };
 }
 
@@ -176,8 +244,46 @@ function cantidadEn(textoCrudo) {
   // el mensaje entero sea el numero deja fuera esos casos sin volver a la
   // heuristica que leia "calle 45" como 45 unidades.
   // ----------------------------------------------------------------------
-  const CORTESIA = /\b(por\s+favor|porfa|porfavor|gracias|solo|solamente|nada\s+mas|mas|si|sip|ok|listo|dale)\b/g;
-  const pelado = plano.replace(CORTESIA, " ").replace(/\s+/g, " ").trim();
+  // "nada amas" es "nada más" escrito rapido desde el movil, y es literal de
+  // un chat del 08-oct: la clienta contesto "1 nada amas" a "¿cuántos
+  // quieres?" y el bot no leyo la cantidad.
+  const CORTESIA =
+    /\b(por\s+favor|porfa|porfavor|gracias|solo|solamente|unicamente|nada\s+a?mas|nomas|no\s+mas|mas|si|sip|ok|listo|dale|quiero|seria|serian)\b/g;
+  let pelado = plano.replace(CORTESIA, " ").replace(/\s+/g, " ").trim();
+
+  // ----------------------------------------------------------------------
+  // "1 A BOGOTÁ" DICE LA CANTIDAD Y LA CIUDAD. SE PERDIAN LAS DOS.
+  //
+  // ⚠️ VENTA PERDIDA, MEDIDA (chat de Santiago, 08-oct):
+  //
+  //   bot      · "¿Cuántos quieres? Y para preparar tu pedido me pasas la
+  //               ciudad y la dirección."
+  //   cliente  · "1 a Bogotá"
+  //   bot      · "¡Perfecto! A Bogota te llega en 1 a 3 días hábiles."
+  //   cliente  · "Si"
+  //   bot      · "¿Cuántos quieres? Y para preparar tu pedido me pasas la
+  //               dirección."        <- le vuelve a preguntar lo que ya dijo
+  //
+  // Contestar DOS cosas en un mensaje es lo normal cuando se preguntan dos.
+  // El mensaje no era "solo un numero", asi que la cantidad se caia, y el
+  // cliente tuvo que decirla tres veces.
+  //
+  // El arreglo es seguro porque quita algo que NUNCA es una cantidad: el
+  // nombre de una ciudad del listado, y la preposicion que la introduce.
+  // Si lo que queda es exactamente el numero, era una cantidad.
+  //
+  // Y NO AFLOJA EL CANDADO DE LAS DIRECCIONES: un mensaje con tipo de via
+  // ya devolvio null mucho antes de llegar aqui, asi que "calle 45" sigue
+  // sin ser 45 unidades.
+  // ----------------------------------------------------------------------
+  const ciudadMencionada = ciudadEn(textoCrudo);
+  if (ciudadMencionada.valor) {
+    pelado = pelado
+      .replace(new RegExp(`\\b${ciudadMencionada.valor.replace(/\s+/g, "\\s+")}\\b`, "g"), " ")
+      .replace(/\b(a|para|en|hacia|hasta|pa)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
 
   const esSoloUnNumero =
     /^\s*\d{1,2}\s*$/.test(String(textoCrudo)) ||
@@ -234,6 +340,45 @@ function ciudadEn(textoCrudo) {
 
   if (!encontradas.length) return { valor: null, porQue: "no se reconoce ninguna ciudad del listado" };
 
+  // ----------------------------------------------------------------------
+  // "SAN ANDRES DE SOTAVENTO" NO ES "SAN ANDRES"
+  //
+  // ⚠️ DEFECTO REAL, Y DE LOS CAROS: EL BOT IBA A DESPACHAR A OTRO
+  //    DEPARTAMENTO.
+  //
+  // Chat del 08-oct. La clienta escribio "San andres de sotavento Córdoba",
+  // que es un municipio de Córdoba, y la ficha quedo con ciudad "San
+  // Andres" — el archipielago, a 700 km y con flete aereo. El \b de
+  // `\bsan andres\b` cierra en el espacio, asi que casa DENTRO del nombre
+  // largo; y como el nombre largo no estaba en la semilla, la deduplicacion
+  // por longitud no tenia nada mejor que elegir.
+  //
+  // Colombia esta llena de municipios asi -San Vicente de Chucurí, Santa
+  // Cruz de Lorica, San Juan de Urabá, Puerto Libertador...- y la semilla
+  // esta incompleta A PROPOSITO. Asi que no basta con añadir este: hace
+  // falta la regla general.
+  //
+  // Si detras del nombre que caso viene " de <algo>", el toponimo de verdad
+  // es mas largo que lo que reconocimos. Se devuelve el nombre COMPLETO:
+  // `destino.resolverCiudad` no lo encontrara en la semilla y lo aceptara
+  // con `revisar: true`, que es exactamente el comportamiento correcto —la
+  // venta no se pierde y una persona confirma el destino antes de la guia—.
+  //
+  // Devolver null seria peor: volveria a preguntar la ciudad a quien ya la
+  // dio bien, que es el bucle que ya costo una venta ese mismo dia.
+  // ----------------------------------------------------------------------
+  const conCompuesto = encontradas.map((e) => {
+    const resto = plano.slice(e.posicion + e.nombre.length);
+    const m = resto.match(/^\s+de(?:\s+la|\s+los|\s+las|l)?\s+([a-z]+)(?:\s+([a-z]+))?/);
+    if (!m) return e;
+    // Solo se extiende con la primera palabra. "san andres de sotavento
+    // cordoba" tiene el departamento detras, y meterlo en el nombre de la
+    // ciudad lo imprimiria en la guia.
+    return { ...e, nombre: `${e.nombre} de ${m[1]}`, compuesto: true };
+  });
+  encontradas.length = 0;
+  encontradas.push(...conCompuesto);
+
   // Si se mencionan dos ciudades distintas, NO se elige. "soy de Cali pero
   // mandalo a Medellin" tiene dos, y escoger mal es despachar a otra ciudad.
   const distintas = new Set(
@@ -278,7 +423,44 @@ function direccionEn(textoCrudo) {
   const m = plano.match(VIA);
   if (!m) return { valor: null, porQue: "no se reconoce ningun tipo de via" };
   if (!/\d/.test(plano.slice(m.index))) {
-    return { valor: null, porQue: "hay un tipo de via pero sin numero: no sirve para despachar" };
+    // ------------------------------------------------------------------
+    // UNA ZONA CON NOMBRE SI ES UNA DIRECCION. EL BOT LA PEDIA Y LA TIRABA.
+    //
+    // ⚠️ VENTA PERDIDA, MEDIDA, CON RESCATE MANUAL (08-oct).
+    //
+    //   clienta · "San andres de sotavento Córdoba"
+    //   clienta · "Uno"
+    //   clienta · "Barrio buenos aires"
+    //   bot     · "Para preparar tu pedido me pasas la dirección 🙌"
+    //   clienta · "No entiendo"
+    //   bot     · (se callo 12 h)
+    //
+    // Y la contradiccion estaba escrita en nuestro propio texto: cuando
+    // falta la direccion por segunda vez, el bot dice *«dime el barrio y,
+    // si tienes, la calle con el número, o un punto de referencia»*. Le
+    // pedia el barrio y luego no lo aceptaba porque no traia numero.
+    //
+    // En media Colombia -pueblos, veredas, corregimientos- la direccion ES
+    // el barrio mas un punto de referencia; no hay nomenclatura. Exigir un
+    // numero ahi es rechazar al cliente que si esta dando su direccion.
+    //
+    // La exigencia del numero se mantiene donde SI es esencial (calle,
+    // carrera, diagonal: sin numero no se puede entregar). Para las vias de
+    // ZONA basta un nombre propio detras — "barrio" solo, sin nombre, sigue
+    // sin valer, igual que "mi casa".
+    //
+    // Y no deja el pedido a ciegas: `faltan` sigue su curso y el bot pide
+    // el punto de referencia, que es lo que de verdad necesita el mensajero.
+    // ------------------------------------------------------------------
+    const esZona = VIA_DE_ZONA.test(m[0]);
+    const nombreDeLaZona = plano
+      .slice(m.index + m[0].length)
+      .trim()
+      .split(/\s+/)
+      .filter((p) => p && !PALABRAS_VACIAS_DE_ZONA.has(p));
+    if (!esZona || nombreDeLaZona.length === 0) {
+      return { valor: null, porQue: "hay un tipo de via pero sin numero: no sirve para despachar" };
+    }
   }
 
   // Se recorta sobre el texto CRUDO para conservar tildes y signos: la guia
@@ -319,7 +501,7 @@ function direccionEn(textoCrudo) {
  *
  * @returns {{candidatos: object, porQue: object}}
  */
-function deTexto(textoCrudo) {
+function deTexto(textoCrudo, { seLoPidieron = false } = {}) {
   const candidatos = {};
   const porQue = {};
 
@@ -337,7 +519,7 @@ function deTexto(textoCrudo) {
   if (direccion.valor !== null) candidatos.direccion = direccion.valor;
   porQue.direccion = direccion.porQue;
 
-  const nombre = nombreEn(textoCrudo);
+  const nombre = nombreEn(textoCrudo, { seLoPidieron });
   if (nombre.valor !== null) candidatos.nombre = nombre.valor;
   porQue.nombre = nombre.porQue;
 

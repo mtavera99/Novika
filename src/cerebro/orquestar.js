@@ -194,7 +194,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
    * Heuristicas que no necesitan modelo. Son las mas fiables que hay:
    * el telefono del chat es un hecho, no una inferencia.
    */
-  function candidatosHeuristicos(evento) {
+  function candidatosHeuristicos(evento, { seLePidioElNombre = false } = {}) {
     const propuestas = {};
 
     // El telefono con el que escribe es el mejor candidato que existe: es un
@@ -205,7 +205,10 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     // Cantidad, ciudad y direccion salen del texto con reglas, no con
     // modelo. Ver dominio/extraer.js: ante la duda, no propone.
-    const { candidatos } = extraer.deTexto(evento.texto || "");
+    // `seLoPidieron` abre la captura del nombre A SECAS. Solo cuando el bot
+    // acaba de pedirlo: sin esa condicion, "Buenos Aires" o
+    // "Interapidisimo" se leerian como nombres de persona.
+    const { candidatos } = extraer.deTexto(evento.texto || "", { seLoPidieron: seLePidioElNombre });
     return { ...propuestas, ...candidatos };
   }
 
@@ -580,7 +583,16 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     if (analisis && analisis.candidatos) {
       conversacion.ficha = aplicarCandidatos(conversacion.ficha, analisis.candidatos, campos.ORIGENES.IA);
     }
-    conversacion.ficha = aplicarCandidatos(conversacion.ficha, candidatosHeuristicos(evento), campos.ORIGENES.CLIENTE);
+    // ¿Se le pidio el nombre y todavia no lo tenemos? Entonces un mensaje
+    // que solo trae un nombre ES la respuesta a esa pregunta. Lo sabe el
+    // cerebro, que es quien guarda la memoria de lo que ya se pidio.
+    const seLePidioElNombre =
+      conversacion.datosPedidos === true && !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre);
+    conversacion.ficha = aplicarCandidatos(
+      conversacion.ficha,
+      candidatosHeuristicos(evento, { seLePidioElNombre }),
+      campos.ORIGENES.CLIENTE
+    );
 
     // ------------------------------------------------------------------
     // "LAS QUIERO" DESPUES DE UN PRECIO DE DOS SIGNIFICA DOS

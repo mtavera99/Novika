@@ -1615,6 +1615,37 @@ const PASAR_A_PERSONA =
   "Déjame pasarte con una persona del equipo para no darte vueltas. Queda anotado y te responden por aquí.";
 
 /**
+ * El texto que se repetia era una ADMISION de que falta el dato.
+ *
+ * Se detecta sobre el texto anterior, igual que `contestar.prometeConfirmar`
+ * y por el mismo motivo: la promesa esta en el texto. Aqui el patron es mas
+ * corto a proposito -solo la parte que identifica la admision- porque lo
+ * unico que hay que decidir es si repetirlo seria un muro.
+ */
+const PROMESA_REPETIDA = /no te l[oa]s? quiero (decir|contestar) a medias|l[oa]s? confirmo con el equipo/i;
+
+/**
+ * Lo que se dice cuando la clienta reformula una pregunta que no tenemos.
+ *
+ * Reconoce que ya quedo anotada -que es verdad: el cerebro abre la tarea- y
+ * deja un paso concreto. Sin plazo, porque no hay nadie de guardia.
+ */
+/**
+ * Lo que se dice cuando el resumen volveria a salir igual.
+ *
+ * Corto y con una sola cosa que hacer. Sin repetir el cuadro -que ya esta
+ * en pantalla- y sin pedir que concrete nada: lo unico que falta es el "sí".
+ */
+const EMPUJON_AL_RESUMEN =
+  'Te dejé el resumen aquí arriba 👆 Si está todo bien, respóndeme "sí" y lo dejo listo. ' +
+  "Y si hay algo que corregir, dime qué y lo cambio.";
+
+const INSISTE_SIN_DATO =
+  "Esa me la quedé debiendo, y ya está anotada para que te la confirme una persona del equipo. " +
+  "Lo que sí te puedo decir es que pagas al recibir, así que puedes revisarlo con calma cuando llegue. " +
+  "¿Te lo aparto mientras?";
+
+/**
  * Evita el texto repetido.
  *
  * OJO CON UNA DISTINCION QUE LA PRIMERA VERSION NO HACIA:
@@ -1657,6 +1688,67 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
   const a = String(texto || "").trim();
   const b = String(ultimoDicho || "").trim();
   if (!a || !b || a !== b) return { texto: a, repetido: false, escalar: false };
+
+  // ----------------------------------------------------------------------
+  // ESTE BLOQUE VA ANTES QUE `mismaPregunta`, Y ES EL ORDEN QUE IMPORTA.
+  //
+  // El muro de "lo confirmo" se da sobre todo cuando la clienta REFORMULA
+  // la misma duda -"Con cables para cargar" y "Trae cargador" marcan los dos
+  // el tema ENERGIA-, asi que `mismaPregunta` es true y la guarda salia por
+  // ahi antes de llegar aqui. Justo el caso que hay que cazar.
+  // ----------------------------------------------------------------------
+
+  // ----------------------------------------------------------------------
+  // EL MURO DE "LO CONFIRMO" DOS VECES
+  //
+  // `preguntaReconocida` existe para no negarle la respuesta a quien
+  // pregunta claro, y eso sigue bien. Pero hay un caso donde repetir
+  // palabra por palabra es indefendible: cuando la respuesta repetida es
+  // una ADMISION de que no tenemos el dato.
+  //
+  // Medido en produccion el 08-oct y reproducido el 09:
+  //
+  //   clienta · "Con cables para cargar"
+  //   bot     · "Buena pregunta: en las fotos se ve el panel de control…
+  //              Si funciona con batería o enchufado no te lo quiero decir
+  //              a medias: lo confirmo con el equipo y te cuento…"
+  //   clienta · "Trae cargador"
+  //   bot     · (exactamente el mismo parrafo otra vez)
+  //
+  // La clienta reformulo porque la primera respuesta no le sirvio, y
+  // recibio el mismo muro. Repetir una respuesta BUENA es contestar;
+  // repetir un "no lo sé" es decirle que insistir no sirve de nada.
+  //
+  // No se escala y no se calla: se reconoce que ya quedo anotado y se le
+  // deja algo que hacer, que es lo unico que mantiene la venta viva.
+  if (PROMESA_REPETIDA.test(b)) {
+    return { texto: INSISTE_SIN_DATO, repetido: true, escalar: false };
+  }
+
+  // ----------------------------------------------------------------------
+  // SI LO QUE SE REPETIA ERA EL RESUMEN, NO SE PIDE "CONCRETAR"
+  //
+  // ⚠️ ES EL PEOR SITIO POSIBLE PARA ESTA FRASE: el cuadro de confirmacion
+  //    es el ultimo paso antes del pedido.
+  //
+  //   bot      · "Confirmemos tu pedido: … ¿Está todo bien? Respóndeme
+  //               «sí» y lo dejo listo ✅"
+  //   cliente  · "Moisés Humanez"      (repite su nombre, por si acaso)
+  //   bot      · "Perdón, no quiero repetirme. Dime concretamente qué
+  //               necesitas y lo reviso con el equipo."
+  //
+  // El cliente manda algo que no aporta un dato nuevo -su nombre otra vez,
+  // un "ahi esta", un punto de referencia que ya teniamos- y el resumen
+  // saldria igual. La guarda lo lee como un bot atascado y suelta la frase
+  // de concretar a quien estaba a UN "sí" de comprar.
+  //
+  // Lo correcto no es repetir el cuadro entero ni pedir que concrete: es
+  // señalar que ya esta ahi arriba y pedir el si, que es el unico paso que
+  // falta.
+  if (/esta todo bien|está todo bien|confirmemos tu pedido/i.test(b)) {
+    return { texto: EMPUJON_AL_RESUMEN, repetido: true, escalar: false };
+  }
+
   if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
   if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
 

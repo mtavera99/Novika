@@ -471,6 +471,26 @@ const PATRONES = [
     /\b(llega|llegaria|entregan|despachan|reparten|hacen\s+(entregas|envios))\b[^?]{0,20}\b(lunes|martes|miercoles|jueves|viernes|sabado|sabados|domingo|domingos|festivo|festivos|fin\s+de\s+semana)\b/,
   ],
   [TEMAS.ENTREGA, /\ben\s+cuanto\s+(?:me\s+|lo\s+|la\s+)?(?:llega|llegaria|lleg\w+|recib\w+)\b/],
+  // ----------------------------------------------------------------------
+  // LA PRISA: "¿no habría manera de que llegue hoy?"
+  //
+  // Es un mensaje REAL del 08-oct (chat de Steven, Popayán) y es el cliente
+  // mas caliente que entra por aqui: quien pregunta si llega hoy tiene el
+  // colico HOY. Recibio "esto lo reviso con una persona del equipo" y el bot
+  // se callo 12 horas; una persona lo rescato a mano hora y media despues.
+  //
+  // La respuesta honesta no es el silencio ni una promesa: es el rango de la
+  // ficha. Prometer el dia exacto sigue PROHIBIDO -esta en claimsProhibidos
+  // frase por frase- y el redactor no puede escribirlo; lo que si se puede
+  // es contestar "1 a 3 días hábiles según tu ciudad", que es lo que el
+  // cliente necesita para decidir.
+  [TEMAS.ENTREGA, /\b(llegue|llega|llegaria|llegar)\s+(hoy|ya|rapido|pronto|esta\s+tarde|esta\s+noche)\b/],
+  [TEMAS.ENTREGA, /\b(para|por)\s+hoy\b/],
+  [TEMAS.ENTREGA, /\bhoy\s+mismo\b/],
+  [TEMAS.ENTREGA, /\bmanera\s+de\s+que\s+llegue\b/],
+  [TEMAS.ENTREGA, /\bcuanto\s+antes\b/],
+  [TEMAS.ENTREGA, /\blo\s+necesito\s+(hoy|ya|urgente|para\s+hoy)\b/],
+  [TEMAS.ENTREGA, /\burgente\b/],
 
   // ---- Material ----
   [TEMAS.MATERIAL, /\bmaterial\b/],
