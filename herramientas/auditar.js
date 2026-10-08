@@ -270,9 +270,25 @@ function auditar(conv, susPedidos, acuses) {
   const noLlegaron = mensajes.filter((m) => delNegocio(m) && !llegoAlCliente(m));
   for (const m of noLlegaron) {
     const n = nivelDe(m);
-    const err = n.errores
+    // LOS CAMPOS VAN EN CASTELLANO, como todo el repo: `normalizar.js` los
+    // guarda como {codigo, titulo, detalle}. Esta funcion los leia como
+    // {code, title, details} -en ingles- asi que `filter(Boolean)` se
+    // quedaba sin nada y la auditoria decia "el proveedor no reportó
+    // error" habiendo guardado el error.
+    //
+    // Era el dato mas importante de los tres fallos de envio: sin el codigo
+    // no se puede saber si es la ventana de 24 horas, un numero sin
+    // WhatsApp o una restriccion de la cuenta — y cada causa se arregla en
+    // un sitio distinto. Se aceptan los dos nombres por si algun evento
+    // viejo quedo guardado con el otro.
+    const err = n.errores && (Array.isArray(n.errores) ? n.errores.length : true)
       ? (Array.isArray(n.errores) ? n.errores : [n.errores])
-          .map((e) => [e.code, e.title || e.message, e.details].filter(Boolean).join(" · "))
+          .map((e) =>
+            [e.codigo || e.code, e.titulo || e.title || e.message, e.detalle || e.details]
+              .filter(Boolean)
+              .join(" · ")
+          )
+          .filter(Boolean)
           .join(" | ")
       : null;
     hallazgos.push({
