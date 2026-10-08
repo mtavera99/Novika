@@ -34,6 +34,7 @@ const DIR = ayuda.entornoDePrueba();
 
 const voz = require("../src/cerebro/voz");
 const responder = require("../src/cerebro/responder");
+const contestar = require("../src/cerebro/contestar");
 const cotizador = require("../src/dominio/cotizador");
 const { cargarCatalogo } = require("../src/catalogo");
 
@@ -168,7 +169,14 @@ describe("3 · más calidez, mismas garantías", () => {
         `claim ante "${mensajeCliente}": ${JSON.stringify(claims.encontrados)} -> ${texto}`
       );
 
-      const importes = cotizador.revisarImportes(texto, cot.importesAutorizados);
+      // Los autorizados incluyen los de la OFERTA DE DOS: ante una objecion
+      // de precio la escalera ofrece la pareja con su precio, y esa cifra
+      // tambien sale del cotizador. La guarda sigue cazando cualquier
+      // importe que el cotizador no haya calculado.
+      const importes = cotizador.revisarImportes(texto, [
+        ...cot.importesAutorizados,
+        ...((contestar.ofertaDeDos(producto) || {}).importesAutorizados || []),
+      ]);
       assert.equal(
         importes.ok,
         true,
