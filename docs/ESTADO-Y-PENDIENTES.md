@@ -30,9 +30,9 @@ en **cada** llamada (node v22). Postgres local:
 invocación. Cada comando es un contenedor nuevo: `/tmp` se borra y los
 procesos no sobreviven.
 
-**Pruebas:** `npm test` → **915 sin base** (1 omitida). Medida el 08-oct tras
-el PR #43; eran 862. Con Postgres son más (CI las corre y falla si se saltan):
-el número exacto lo dice CI, y aquí no se escribe a ojo. Las 884 en
+**Pruebas:** `npm test` → **915 sin base** (1 omitida), **970 con Postgres**
+(0 omitidas). Medidas el 08-oct tras el PR #43; eran 862 y 917. Las 970 las
+verifica CI, que es quien tiene la base y falla si esas pruebas se saltan. Las 884 en
 local y las **939 en CI**, que es quien tiene la base: aquel sandbox no traía
 binarios de PostgreSQL ni el `pg-local.sh`.
 
