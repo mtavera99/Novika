@@ -90,9 +90,26 @@ function loConfirmo(que, pronombre = "lo") {
   // Lo que SI es verdad y ademas tranquiliza: que la pregunta queda anotada
   // y que una persona responde por aqui. Eso lo respalda el registro de
   // tareas pendientes del cerebro, que existe de verdad.
+  // Y SE SIGUE VENDIENDO EN LA MISMA FRASE.
+  //
+  // Esto decia "lo dejo anotado para el equipo y te responden por aquí" y
+  // ahi se moria la conversacion. Honesto, y un callejon sin salida: el
+  // cliente no tiene nada que hacer con esa respuesta.
+  //
+  // BIKERPRO resuelve el mismo problema sin pararse, y lo tiene documentado
+  // como "la regla mas importante" de su guion:
+  //
+  //   "Ese dato específico prefiero confirmártelo para no darte información
+  //    incorrecta 🙌 ¿Querés que te lo confirme y te escribo?"  Y SEGUI CON
+  //    LA VENTA.
+  //
+  // La diferencia es la que hay entre un bot honesto y un VENDEDOR honesto:
+  // los dos admiten que no lo saben, pero uno deja al cliente parado y el
+  // otro le deja algo que hacer. Admitir un hueco no obliga a soltar la
+  // conversacion.
   return (
-    `${enMinuscula} no te ${pronombre} quiero decir a medias. ` +
-    `Lo dejo anotado para el equipo y te responden por aquí.`
+    `${enMinuscula} no te ${pronombre} quiero decir a medias: lo confirmo con el equipo ` +
+    `y te cuento. Mientras tanto, si quieres te lo voy dejando apartado.`
   );
 }
 
