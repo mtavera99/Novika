@@ -808,6 +808,27 @@ function textoDeterminista({
       // y muchas veces un cierre de conversacion. Se responde con cortesia y
       // se deja la puerta abierta UNA vez, sin pedir nada.
       // ------------------------------------------------------------------
+      // ------------------------------------------------------------------
+      // SE LO ESTA PENSANDO: NO SE INSISTE
+      //
+      // "ahí le aviso" recibia "para preparar tu pedido me pasas tu nombre
+      // completo y la dirección": justo la insistencia que espanta a quien
+      // esta dudando.
+      //
+      // La regla de BIKERPRO para esta intencion es explicita: no insistir
+      // con el mismo mensaje ni inventar urgencia. Lo que funciona es
+      // dejar algo concreto y sin costo de decidir — y aqui lo hay, porque
+      // paga al recibir.
+      // ------------------------------------------------------------------
+      if (lectura.seLoPiensa) {
+        const partesP = ["¡Claro, sin afán!"];
+        if (cot && cot.condiciones && cot.condiciones.pagoMetodo === "contraentrega") {
+          partesP.push("Y recuerda que pagas cuando lo recibes, así que no arriesgas nada.");
+        }
+        partesP.push("Aquí estoy cuando quieras.");
+        return componer(partesP, { emoji: "atencion" });
+      }
+
       if (lectura.soloAgradece) {
         const quien = voz.nombreDePila(nombreCliente);
         return componer(
