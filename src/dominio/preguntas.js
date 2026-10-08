@@ -52,6 +52,8 @@ const TEMAS = {
   TALLA: "talla",
   MEDIDAS: "medidas",
   GARANTIA: "garantia",
+  /** Como se hace efectiva / que cubre: el PLAZO esta confirmado, esto no. */
+  GARANTIA_TRAMITE: "garantia_tramite",
   ENTREGA: "tiempo_de_entrega",
   MATERIAL: "material",
   USO: "uso",
@@ -115,8 +117,18 @@ const PATRONES = [
   [TEMAS.MEDIDAS, /\buso\s+talla\b/],
   [TEMAS.MEDIDAS, /\bsoy\s+(gordita|gorda|delgada|grande|pequena)\b/],
 
-  // ---- Garantia ----
+  // ---- Garantia: el plazo ----
   [TEMAS.GARANTIA, /\bgarantia\b/],
+
+  // ---- Garantia: el tramite y la cobertura ----
+  // Se separa del plazo porque son dos datos distintos: el plazo lo
+  // confirmo Marco (1 mes) y el tramite NO esta definido. Responder "1 mes"
+  // a "¿cómo la hago efectiva?" contesta otra pregunta.
+  [TEMAS.GARANTIA_TRAMITE, /\bcomo\s+(la\s+)?(hago|hacer)\s+efectiva\b/],
+  [TEMAS.GARANTIA_TRAMITE, /\bcomo\s+(reclamo|la\s+reclamo|pido\s+la\s+garantia)\b/],
+  [TEMAS.GARANTIA_TRAMITE, /\bcomo\s+funciona\s+la\s+garantia\b/],
+  [TEMAS.GARANTIA_TRAMITE, /\bque\s+cubre\b/],
+  [TEMAS.GARANTIA_TRAMITE, /\bquien\s+paga\s+(el\s+)?(envio\s+de\s+)?(la\s+)?(devoluci|cambio)/],
   [TEMAS.GARANTIA, /\bsi\s+(sale|viene)\s+(malo|dañado|danado|defectuoso)\b/],
   [TEMAS.GARANTIA, /\b(puedo|se\s+puede)\s+(devolver|cambiar)\b/],
   [TEMAS.GARANTIA, /\bdevoluci(on|ones)\b/],

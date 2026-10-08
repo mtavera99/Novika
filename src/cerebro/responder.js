@@ -474,10 +474,10 @@ function textoDeterminista({
         // Cuando conteste que si, el turno siguiente SI tiene señal de
         // compra y ahi se piden los datos.
         // ----------------------------------------------------------------
-        partes.push("¿Te sirve? Si quieres te lo despacho hoy mismo.");
+        partes.push("¿Te sirve? Si quieres, me pasas los datos y lo despachamos.");
       } else if (!memoria.pasoPropuesto) {
         // Se deja la puerta abierta UNA vez, sin pedir nada.
-        partes.push("Si te animas, te lo despacho hoy mismo.");
+        partes.push("Cuando quieras te lo despachamos.");
       }
 
       return partes.filter(Boolean).join(" ");

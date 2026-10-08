@@ -112,9 +112,16 @@ test("NO hay descuento por cantidad: la tabla cubre solo 1 unidad", () => {
   assert.deepEqual(p.promociones, [], "aparecio una promocion que nadie aprobo");
 });
 
-test("NO hay garantia ni claims inventados", () => {
+test("la garantia es la que dijo Marco, y nada mas", () => {
   const p = elCinturon();
-  assert.equal(p.garantia, "", "se escribio una garantia que Marco no ha definido");
+  // ANTES SE EXIGIA `garantia: ""`. Marco la confirmo el 2026-10-07: 1 mes.
+  // Mantener la asercion obligaria a borrar un dato aprobado.
+  //
+  // Lo que se vigila ahora es que sea EXACTAMENTE lo que dijo: un plazo, sin
+  // alcance ni procedimiento añadidos. "1 mes, te lo cambiamos si sale
+  // defectuoso" seria la frase que suena razonable y que nadie aprobo.
+  assert.equal(p.garantia, "1 mes");
+  assert.equal(/cambio|devoluci|cubre|reembolso/i.test(p.garantia), false, "se le añadió alcance a la garantía");
   assert.deepEqual(p.claimsPermitidos, [], "se autorizo una afirmacion sin revisarla una por una");
 
   // ANTES EXIGIA `caracteristicasAutorizadas` VACIA, y dejo de valer el
@@ -144,10 +151,11 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
   // Son las preguntas que mas se repiten en este producto y ninguna tiene
   // respuesta aprobada. Si no estuvieran declaradas, el modelo las
   // contestaria con algo verosimil.
-  // "tallas" salio de esta lista el 2026-10-07 porque Marco confirmo que es
-  // talla unica; en su lugar entro el contorno del ajuste, que sigue sin
-  // medir y es la pregunta peligrosa de este producto.
-  for (const tema of [/garantia/, /tiempo de entrega/, /dos o mas unidades/, /contorno/]) {
+  // Esta lista se vacia a medida que Marco confirma datos. Han salido:
+  // "tallas" y "colores" (confirmados), "la garantia" y "el tiempo de
+  // entrega" (confirmados el 2026-10-07). Lo que queda son los que de
+  // verdad siguen abiertos, y el mas delicado es el contorno del ajuste.
+  for (const tema of [/dos o mas unidades/, /contorno/, /tramita la garantia/, /dia exacto/]) {
     assert.ok(
       p.sinDatoConfirmado.some((s) => tema.test(s)),
       `falta declarar ${tema} como dato sin confirmar: el modelo lo rellenaria`
