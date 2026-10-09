@@ -1126,6 +1126,59 @@ function deTema(
     //    plata" seria inventar una politica que no existe, y la queja
     //    posterior seria justa.
     // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // "PERO EL ANUNCIO DICE QUE ME DEVUELVEN LA PLATA"
+    //
+    // ⚠️ LA RESPUESTA MAS DELICADA DE TODO EL CATALOGO, porque el bot tiene
+    //    que sostener una contradiccion que no creo el.
+    //
+    // El anuncio de Facebook promete «Pruébalo 7 días: si no sientes alivio,
+    // te devolvemos tu dinero». Marco confirmo el 2026-10-09 que lo que vale
+    // es «1 mes por defecto de fábrica». No son lo mismo.
+    //
+    // Hay tres cosas que NO se pueden hacer, y cada una por su motivo:
+    //
+    //   · PROMETER la devolucion -> no esta aprobada. Decirla crea una
+    //     obligacion de devolver plata que nadie autorizo.
+    //   · NEGAR que el anuncio lo diga -> lo dice. Llamar mentirosa a la
+    //     clienta que esta citando nuestra propia publicidad es la peor
+    //     salida posible.
+    //   · CONTESTAR el plazo de la garantia como si fuera lo mismo -> es
+    //     cambiarle las condiciones sin avisar, y lo va a notar.
+    //
+    // Lo que SI se puede: decir lo que de verdad cubre la garantia, poner
+    // delante el argumento que de verdad quita el riesgo en contraentrega
+    // -ve el producto ANTES de pagar, asi que no necesita que nadie le
+    // devuelva nada- y dejar la pregunta para una persona.
+    //
+    // Cada tarea que esto genere en la bandeja es evidencia medida de que el
+    // anuncio esta prometiendo algo que la politica no cubre. La decision es
+    // de negocio: o se cambia el anuncio, o se aprueba la devolucion.
+    // ----------------------------------------------------------------------
+    case TEMAS.PROMESA_DEL_ANUNCIO: {
+      const partes = [];
+      if (pagaAlRecibir(producto, cotizacion)) {
+        // PRIMERO esto, porque es lo que responde el miedo de fondo: no
+        // necesita una devolucion si no ha soltado la plata todavia.
+        partes.push(
+          "lo bueno es que no tienes que adelantar nada: pagas cuando el pedido está en tus manos, " +
+            "así que lo ves antes de soltar un peso."
+        );
+      }
+      const plazo = producto && producto.garantia;
+      const cubre = producto && producto.garantiaCubre;
+      if (plazo && cubre) {
+        partes.push(`Y te va con ${plazo} de garantía por ${cubre}.`);
+      }
+      // Y la parte honesta: lo de la devolución lo confirma una persona. Sin
+      // prometerla y sin desmentir el anuncio.
+      partes.push(
+        "Lo de la devolución del dinero te lo confirmo con el equipo para no decirte nada por mi cuenta, " +
+          "y te responden por aquí."
+      );
+      return partes.join(" ");
+    }
+
     case TEMAS.SI_NO_FUNCIONA: {
       const partes = [];
       if (pagaAlRecibir(producto, cotizacion)) {

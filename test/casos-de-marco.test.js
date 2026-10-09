@@ -404,6 +404,86 @@ describe("Los 20 casos de Marco", () => {
   // REGLAS TRANSVERSALES DEL PROMPT NUEVO (Parte B)
   // ------------------------------------------------------------------------
 
+  // ------------------------------------------------------------------------
+  // LA CONTRADICCIÓN ENTRE EL ANUNCIO Y LA GARANTÍA (2026-10-09)
+  //
+  // El anuncio de Facebook promete «Pruébalo 7 días: si no sientes alivio,
+  // te devolvemos tu dinero». Marco confirmó que lo que vale es «1 mes por
+  // defecto de fábrica». No son lo mismo: una devuelve plata por no gustar,
+  // la otra cambia el producto si llega roto.
+  //
+  // Así que van a llegar clientas citando el anuncio, y el bot tiene que
+  // sostener una contradicción que no creó él. Tres cosas que NO puede hacer:
+  // prometer la devolución (nadie la aprobó), negar que el anuncio lo diga
+  // (lo dice), o contestar el plazo de la garantía como si fuera lo mismo
+  // (es cambiarle las condiciones sin avisar).
+  // ------------------------------------------------------------------------
+  describe("el anuncio promete 7 días y la garantía es de 1 mes", () => {
+    const CITAN_EL_ANUNCIO = [
+      "pero el anuncio dice que me devuelven el dinero",
+      "si no siento alivio me devuelven la plata?",
+      "no era de 7 dias de prueba?",
+      "ahí dice que me devuelven el dinero",
+    ];
+
+    test("no promete la devolución, pero tampoco desmiente el anuncio", async () => {
+      for (const m of CITAN_EL_ANUNCIO) {
+        const c = await chat();
+        await c.dice(ANUNCIO);
+        const r = await c.dice(m);
+
+        // NO promete devolver plata.
+        assert.equal(
+          /te devolvemos|te devuelvo|se te devuelve|devolución del dinero sí|7 días de prueba/i.test(r.texto),
+          false,
+          `prometió la devolución con "${m}": ${r.texto}`
+        );
+        // NO desmiente a la clienta.
+        assert.equal(
+          /no es (cierto|verdad)|eso no|está equivocad|no decimos/i.test(r.texto),
+          false,
+          `desmintió a la clienta con "${m}": ${r.texto}`
+        );
+        // Dice lo que SÍ cubre, y pone delante el contraentrega.
+        assert.match(r.texto, /pagas cuando|al recibir|antes de/i, `sin el argumento del riesgo: ${r.texto}`);
+        assert.match(r.texto, /1 mes|defecto de fábrica/i, `sin la garantía real: ${r.texto}`);
+        // Y queda la tarea: cada una es evidencia de que el anuncio genera
+        // una expectativa que la política no cubre.
+        assert.equal(atencion.pendienteDe(r.conversacion).hay, true, `no dejó tarea con "${m}"`);
+      }
+    });
+
+    test("y el filtro de claims bloquea la promesa aunque el modelo la intente", () => {
+      // La defensa de verdad: si el modelo redacta la promesa del anuncio,
+      // `revisarClaims` tiene que tumbarla. Es plata de vuelta, y es la
+      // única promesa del catálogo que el propio anuncio ya está haciendo.
+      const responder = require("../src/cerebro/responder");
+      const producto = cargarCatalogo({
+        carpeta: path.join(RAIZ, "catalogo", "productos"),
+        refrescar: true,
+      }).porId.get("cinturon-termico-colicos");
+
+      for (const frase of [
+        "Pruébalo 7 días y si no sientes alivio te devolvemos tu dinero",
+        "Tienes garantía de 7 días",
+        "Si no te gusta te devolvemos tu dinero",
+      ]) {
+        const v = responder.revisarClaims(frase, producto);
+        assert.equal(v.ok, false, `el filtro deja pasar la promesa de devolución: "${frase}"`);
+      }
+    });
+
+    test("la garantía del catálogo sigue siendo la que confirmó Marco", () => {
+      const producto = cargarCatalogo({
+        carpeta: path.join(RAIZ, "catalogo", "productos"),
+        refrescar: true,
+      }).porId.get("cinturon-termico-colicos");
+
+      assert.equal(producto.garantia, "1 mes");
+      assert.equal(producto.garantiaCubre, "defecto de fábrica");
+    });
+  });
+
   test("ningún mensaje contiene una de las frases que Marco prohibió", async () => {
     const c = await chat({ nombrePerfil: "Daniela" });
     const dichos = [];

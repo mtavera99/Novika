@@ -149,6 +149,23 @@ const TEMAS = {
   RUIDO: "ruido",
   /** "¿se puede usar debajo de la ropa?", "¿en el trabajo?" */
   DISCRECION: "discrecion",
+
+  /**
+   * "PERO EL ANUNCIO DICE QUE ME DEVUELVEN LA PLATA"
+   *
+   * Tema del 2026-10-09, y nace de una contradiccion que el bot no puede
+   * arreglar: el anuncio de Facebook promete «Pruebalo 7 dias: si no
+   * sientes alivio, te devolvemos tu dinero», y Marco confirmo que lo que
+   * vale es «1 mes por defecto de fabrica». No son lo mismo: una devuelve
+   * plata por no gustar, la otra cambia el producto si llega roto.
+   *
+   * Asi que van a llegar clientas citando el anuncio. El bot NO puede
+   * prometer la devolucion -no esta aprobada- y NO puede negar que el
+   * anuncio lo diga -lo dice-. Sin este tema caia en el camino generico y
+   * recibia la respuesta de garantia a secas, que suena a que le estamos
+   * cambiando las condiciones.
+   */
+  PROMESA_DEL_ANUNCIO: "promesa_del_anuncio",
 };
 
 /**
@@ -222,6 +239,22 @@ const PATRONES = [
   [TEMAS.CONTRAINDICACION, /\bmarcapaso/],
   [TEMAS.CONTRAINDICACION, /\b(endometriosis|quiste|quistes|mioma|miomas)\b/],
   [TEMAS.CONTRAINDICACION, /\b(cesarea|operada\s+(hace|de))\b/],
+
+  // ---- "El anuncio dice que me devuelven la plata" ----
+  //
+  // VA PRIMERO DE TODO, antes incluso de GARANTIA: si la clienta cita el
+  // anuncio, lo que hay que contestar es la contradiccion, no el plazo de
+  // la garantia. Contestarle "tiene 1 mes de garantía" a quien pregunta por
+  // la devolucion del dinero es cambiarle las condiciones sin decirselo.
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\b(devuelv|devolv)\w*\s+(mi|el|la|tu)?\s*(dinero|plata)\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\b(dinero|plata)\s+de\s+vuelta\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\bme\s+devuelven\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\bprueb\w*\s+(de\s+)?\d{1,2}\s+dias\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\b\d{1,2}\s+dias\s+(de\s+)?(prueba|garantia)\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\bel\s+anuncio\s+(dice|decia|promete)\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\b(ahi|alla|aqui)\s+dice\s+que\s+(me\s+)?devuelv/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\bsi\s+no\s+(siento|me\s+hace)\s+(alivio|efecto)\b/],
+  [TEMAS.PROMESA_DEL_ANUNCIO, /\bgarantia\s+de\s+satisfaccion\b/],
 
   // ---- Masaje: va ANTES de USO ----
   [TEMAS.MASAJE, /\bmasaj\w*/],
@@ -1300,6 +1333,15 @@ function leer(texto) {
   if (temas.includes(TEMAS.TEMPERATURA)) quitar(TEMAS.SEGURIDAD);
   // "¿y si no me funciona?" ya se contesta con contraentrega + garantia.
   if (temas.includes(TEMAS.SI_NO_FUNCIONA)) quitar(TEMAS.GARANTIA);
+  // Quien cita el anuncio pregunta por la DEVOLUCION DEL DINERO, no por el
+  // plazo. Contestarle el plazo de la garantia es cambiarle las condiciones
+  // sin decirselo, y es justo como se pierde la confianza de alguien que
+  // llego confiando en lo que leyo.
+  if (temas.includes(TEMAS.PROMESA_DEL_ANUNCIO)) {
+    quitar(TEMAS.GARANTIA);
+    quitar(TEMAS.GARANTIA_TRAMITE);
+    quitar(TEMAS.SI_NO_FUNCIONA);
+  }
   // "¿llega a mi vereda?" casa con `llega a` de ENVIO; la respuesta es la
   // cobertura, y ya dice que el envio va incluido.
   if (temas.includes(TEMAS.COBERTURA)) quitar(TEMAS.ENVIO);
