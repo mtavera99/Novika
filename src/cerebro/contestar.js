@@ -396,6 +396,26 @@ function deTema(
       // lo quiero decir a medias": ni contesto lo que pregunto, ni era
       // verdad -el metodo de pago esta en la ficha, aprobado-.
       if (pagaAlRecibir(producto, cotizacion)) {
+        // ⚠️ LOS MEDIOS DE PAGO SE CONFIRMARON EL 2026-10-09 (parche 4):
+        //    efectivo, Nequi, Daviplata o transferencia.
+        //
+        // Llevaban desde el 07-oct en DATOS-PENDIENTES, y el bot solo podia
+        // decir "efectivo al mensajero". En Colombia mucha gente no carga
+        // efectivo: a quien preguntaba por Nequi se le estaba diciendo, sin
+        // querer, que no se podia.
+        const medios = producto && producto.pago && producto.pago.mediosAlRecibir;
+        if (Array.isArray(medios) && medios.length) {
+          const lista = medios.length > 1 ? `${medios.slice(0, -1).join(", ")} o ${medios[medios.length - 1]}` : medios[0];
+          // ⚠️ "pagas cuando lo recibes" VA SEGUIDO Y SIN NADA EN MEDIO.
+          //
+          // Al añadir los medios escribi "le pagas al mensajero cuando lo
+          // recibes", y eso rompio tres pruebas a la vez -las del caso 4 de
+          // Marco y las dos de la venta perdida del 08-oct- porque todas
+          // buscan esa frase literal. No eran pruebas fragiles: es LA frase
+          // que contesta "¿es contra entrega?", y partirla con "al
+          // mensajero" en medio la deja sin decir lo que importa.
+          return `pagas cuando lo recibes, al mensajero, como te quede más fácil: ${lista}. Nada por adelantado.`;
+        }
         return "pagas cuando lo recibes, en la puerta de tu casa. Nada por adelantado.";
       }
       if (c && c.pagoEtiqueta) return c.pagoEtiqueta;
@@ -444,7 +464,12 @@ function deTema(
         // En MINUSCULA, como el resto de las frases de este archivo: va
         // detras de una apertura y la mayuscula la pone `voz.unir`. Con la
         // "L" fija salia "Sí, La correa es graduable".
-        partes.push("la correa es graduable, así que se ajusta a distintas medidas.");
+        // Si hay medida concreta, esta frase sobra: la siguiente ya dice que
+        // es elastica Y hasta cuanto. Decir las dos cosas salia "la correa es
+        // graduable... Es elástica y se estira", que suena a relleno.
+        if (!(ajuste && ajuste.contornoMaximoCm)) {
+          partes.push("la correa es graduable, así que se ajusta a distintas medidas.");
+        }
       } else {
         const talla = caracteristica(producto, /talla/);
         if (talla) partes.push(`${talla.charAt(0).toUpperCase()}${talla.slice(1)}.`);
@@ -458,13 +483,37 @@ function deTema(
       // defecto de fabrica, NO "no me quedo". Si se le promete a una
       // clienta que le va a quedar y no le queda, no tiene garantia — y la
       // queja seria justa, porque se lo dijimos nosotros.
-      if (!ajuste || !ajuste.contornoMaximoCm) {
-        // Ofrecer confirmarlo ANTES de que pida es lo que convierte un "no
-        // lo sé" en atencion: la clienta no tiene que arriesgarse ni
-        // esperar a recibirlo para saberlo.
-        partes.push("Si quieres te confirmo el contorno máximo exacto antes de que lo pidas, para que vayas segura.");
+      // ------------------------------------------------------------------
+      // ⚠️ YA HAY NUMERO. Marco lo confirmo el 2026-10-09 (parche 4):
+      //    "la correa elastica se estira hasta unos 130 a 150 cm. Le sirve a
+      //    casi cualquier persona, hasta talla 4XL".
+      //
+      // Esto estuvo DOS DIAS en [CONFIRMAR] y era el dato que mas vendia:
+      // "¿me queda?" es la duda numero uno de este producto, y la respuesta
+      // era "te confirmo el contorno maximo" — pedirle a la clienta que
+      // espere justo cuando estaba decidiendo.
+      //
+      // SIGUE PROHIBIDO "le sirve a cualquiera" y "talla unica universal":
+      // la medida es concreta y hay cuerpos por encima. "Casi cualquier
+      // persona" es lo que se puede sostener, y lo dijo asi Marco.
+      // ------------------------------------------------------------------
+      if (ajuste && ajuste.contornoMaximoCm) {
+        const desde = ajuste.contornoMinCm ? `${ajuste.contornoMinCm} a ` : "hasta ";
+        const talla = ajuste.hastaTalla ? `, así que le sirve a casi cualquier persona, hasta talla ${ajuste.hastaTalla}` : "";
+        // ⚠️ "LA CORREA ES GRADUABLE" NO SE QUITA AL AÑADIR LA MEDIDA.
+        //
+        // Al meter los centimetros escribi "Es elástica y se estira hasta
+        // unos 130 a 150 cm" y borre la palabra `graduable`, que llevaba
+        // desde el 08-oct en caracteristicasAutorizadas. Rompio dos pruebas
+        // -voz y tono- y las dos tenian razon: el numero dice CUANTO, pero
+        // "graduable" dice que se AJUSTA, y es lo que tranquiliza a quien
+        // pregunta "¿me queda?". El dato nuevo se suma al que ya vendia, no
+        // lo reemplaza.
+        partes.push(`La correa es graduable: elástica, se estira hasta unos ${desde}${ajuste.contornoMaximoCm} cm${talla}.`);
       } else {
-        partes.push(`Ajusta hasta ${ajuste.contornoMaximoCm} cm de contorno.`);
+        // Sin numero se sigue ofreciendo confirmarlo: es lo que convierte un
+        // "no lo sé" en atencion.
+        partes.push("Si quieres te confirmo el contorno máximo exacto antes de que lo pidas, para que vayas segura.");
       }
 
       return partes.join(" ");
@@ -563,6 +612,28 @@ function deTema(
       // Con ciudad conocida `plazoDeEntrega` ya devuelve el matiz vacio.
       const matiz = t.matiz ? ` ${t.matiz.replace(/^según la ciudad$/, "según tu ciudad")}` : "";
       return `te llega en ${t.texto}${matiz}.`;
+    }
+
+    // ----------------------------------------------------------------------
+    // "¿ME LLEGA HOY?" — SE CONTESTA QUE NO, Y LUEGO EL PLAZO.
+    //
+    // Antes caia en ENTREGA y salia «Claro, te llega en 1 a 3 días hábiles».
+    // El "Claro," lo pone la apertura y, delante de una pregunta de si o no,
+    // lo que se lee es un SI. Y "te llega hoy" es un claim PROHIBIDO: no se
+    // puede prometer porque depende de la transportadora y de la hora de
+    // corte.
+    //
+    // ⚠️ OJO AL REDACTARLO: la frase no puede contener la secuencia "te
+    //    llega hoy" NI "llega hoy" ni siquiera dentro de una negacion. "No
+    //    te llega hoy" las contiene las dos, y `revisarClaims` busca
+    //    subcadenas sobre el texto aplanado — tumbaria el mensaje entero.
+    //    Por eso se dice "hoy mismo no" y el verbo va despues.
+    // ----------------------------------------------------------------------
+    case TEMAS.LLEGA_HOY: {
+      const t = plazoDeEntrega(producto, ciudadConfirmada);
+      if (!t || !t.texto) return loConfirmo("El tiempo de entrega", "lo", producto, cotizacion);
+      const matiz = t.matiz ? ` ${t.matiz.replace(/^según la ciudad$/, "según tu ciudad")}` : "";
+      return `hoy mismo no alcanza, pero va rápido: son ${t.texto}${matiz} desde que lo confirmas.`;
     }
 
     case TEMAS.MATERIAL: {
@@ -695,6 +766,62 @@ function deTema(
       }
       return partes.join(" ");
     }
+
+    // ----------------------------------------------------------------------
+    // LOS TEMAS DEL PARCHE 4. Cada uno con el dato que confirmo Marco.
+    // ----------------------------------------------------------------------
+    case TEMAS.RELAJA: {
+      const m = producto && producto.masaje;
+      const conMasaje = m && m.modos ? " y el masaje" : "";
+      return `sí: el calor${conMasaje} relajan la zona donde lo pones y dan una sensación de descanso muy rica.`;
+    }
+
+    // "¿Puedo dormir con él?" — y la respuesta es NO, dicha con cariño.
+    //
+    // ⚠️ "puedes dormir con el" sigue en claimsProhibidos, y esta rama no lo
+    //    contradice: dice lo contrario. Antes caia en SEGURIDAD -que habla de
+    //    quemaduras- y la clienta se quedaba sin saber si podia o no.
+    case TEMAS.DORMIR: {
+      const d = producto && producto.dormir;
+      if (d && d.texto) return d.texto;
+      return "mejor no: te recomiendo quitártelo antes de dormir, por seguridad.";
+    }
+
+    // "¿Se apaga solo?" — NO, y decirlo bien importa.
+    //
+    // Si el cliente cree que se apaga solo, se duerme con el puesto, que es
+    // justo lo que la ficha pide no hacer. Confirmado por Marco el 09-oct.
+    case TEMAS.APAGADO_AUTO: {
+      const sg = producto && producto.seguridad;
+      if (sg && sg.textoApagado) return sg.textoApagado;
+      return "lo apagas tú con el botón cuando termines. Lo ideal son ratos de 15 a 20 minutos.";
+    }
+
+    case TEMAS.HOMBRES:
+      return "¡claro! Para la espalda baja o la cintura lo puede usar cualquier persona.";
+
+    case TEMAS.EN_MOVIMIENTO: {
+      const e = producto && producto.energia;
+      const sinCable = e && e.recargable ? "Por eso es inalámbrico: " : "";
+      return `¡sí! ${sinCable}lo llevas puesto trabajando, estudiando o en la casa.`;
+    }
+
+    case TEMAS.FACIL_USO: {
+      const pa = producto && producto.pantalla;
+      const conPantalla = pa && pa.texto ? ", y la pantalla te muestra todo" : "";
+      return `¡facilísimo! Un botón para prender, uno para el calor y otro para el masaje${conPantalla}.`;
+    }
+
+    case TEMAS.TIEMPO_DE_USO:
+      return "lo ideal son ratos de 15 a 20 minutos y luego descansas un poco. Lo puedes repetir varias veces al día.";
+
+    // "¿Por qué transportadora?", "¿me mandan la guía?"
+    //
+    // NO SE NOMBRA LA TRANSPORTADORA: cual va cada pedido lo decide el
+    // despacho, y prometer una concreta es una promesa que no controla el
+    // bot. Lo que si es verdad es que la guia se manda por aqui.
+    case TEMAS.TRANSPORTADORA:
+      return "va por transportadora nacional, y te mandamos el número de guía por aquí en cuanto salga.";
 
     case TEMAS.COMO_SE_USA: {
       const u = producto && producto.comoSeUsa;
@@ -1020,6 +1147,30 @@ function deTema(
     }
 
     // ----------------------------------------------------------------------
+    // USARLO MIENTRAS SE CARGA. Dato confirmado por Marco el 2026-10-09.
+    //
+    // ⚠️ ESTO ERA UN DEFECTO DE MI PROPIO PARCHE, y de la peor clase: el
+    //    dato estaba escrito en la ficha (`energia.usarMientrasCarga`) y
+    //    NO estaba conectado a ninguna respuesta. O sea que el bot lo tenia
+    //    y seguia contestando lo contrario.
+    //
+    // A "¿se puede usar mientras se carga?" respondia el texto de ENERGIA,
+    // que termina en "mientras lo usas no va conectado a nada". Para quien
+    // pregunta eso, es un NO. Y la respuesta es SI.
+    //
+    // Es exactamente la trampa que el catalogo documenta tres veces: un
+    // dato confirmado hay que escribirlo Y usarlo, y olvidar lo segundo no
+    // rompe ninguna prueba.
+    // ----------------------------------------------------------------------
+    case TEMAS.USAR_CARGANDO: {
+      const e = producto && producto.energia;
+      if (e && e.usarMientrasCarga === true && e.textoUsarCargando) return `sí, ${e.textoUsarCargando}`;
+      if (e && e.usarMientrasCarga === false) return "no se usa mientras se carga: primero lo cargas y después lo usas sin cables.";
+      if (e && e.texto) return e.texto;
+      return loConfirmo("Si se puede usar mientras se carga", "lo", producto, cotizacion);
+    }
+
+    // ----------------------------------------------------------------------
     // MASAJE. Es lo que convierte "una almohadilla mas" en un aparato.
     // ----------------------------------------------------------------------
     case TEMAS.MASAJE: {
@@ -1203,6 +1354,29 @@ function deTema(
     }
 
     // ----------------------------------------------------------------------
+    // ¿QUEMA? Es TEMPERATURA preguntada con miedo, y se contesta primero.
+    //
+    // Antes caia en TEMPERATURA y recibia los tres niveles de calor. El dato
+    // es correcto y hace falta, pero no es lo que se pregunto: quien escribe
+    // "¿eso quema?" quiere un si o un no antes de nada.
+    //
+    // LA FORMULA LA AUTORIZO MARCO: «Si lo usas bien, no». Y es condicional
+    // a proposito. "nunca quema" y "no se calienta de mas" estan en
+    // claimsProhibidos porque de un aparato que llega a 60 °C sobre el
+    // abdomen no se puede afirmar nada en absoluto; lo honesto —y lo que
+    // ademas tranquiliza de verdad— es decir que si, calienta fuerte, y que
+    // por eso se empieza por el nivel bajo.
+    // ----------------------------------------------------------------------
+    case TEMAS.QUEMA: {
+      const t = producto && producto.temperatura;
+      const partes = ["si lo usas bien, no 😊"];
+      if (t && t.texto) partes.push(`${t.texto.charAt(0).toUpperCase()}${t.texto.slice(1)}`);
+      if (t && t.recomendacion) partes.push(t.recomendacion);
+      if (partes.length === 1) partes.push("Empieza siempre por el nivel de calor más bajo y sube según cómo te sientas.");
+      return partes.join(" ");
+    }
+
+    // ----------------------------------------------------------------------
     // MARCA Y ORIGINALIDAD
     //
     // "¿es original?" no pregunta por una marca: pregunta si lo van a
@@ -1322,24 +1496,24 @@ function deTema(
     //    contorno. Se dice que es graduable -que es verdad y esta aprobado-
     //    y se ofrece confirmar el maximo.
     // ----------------------------------------------------------------------
-    case TEMAS.DESTINATARIO: {
-      const graduable = producto && producto.ajuste && producto.ajuste.graduable === true;
-      const maximo = producto && producto.ajuste && producto.ajuste.contornoMaximoCm;
-      const partes = [];
-      partes.push(
-        graduable
-          ? "es talla única y la correa es graduable, así que se ajusta a distintas medidas."
-          : "es talla única."
+    // ----------------------------------------------------------------------
+    // "¿LO PUEDE RECIBIR MI MAMA?" — Y ESTO CONTESTABA SOBRE LA TALLA.
+    //
+    // ⚠️ El tema se llama DESTINATARIO y la respuesta hablaba de la correa
+    //    graduable. Nacio para "¿es para regalar, le quedara a ella?" y al
+    //    añadir el 10-oct los patrones de "lo puede recibir" -que es quien
+    //    ABRE LA PUERTA, no quien lo usa- la respuesta se quedo contestando
+    //    otra cosa.
+    //
+    // Son dos preguntas distintas: quien lo USA es talla, quien lo RECIBE es
+    // logistica. Y la de recibir tiene una respuesta util: si, y dime a
+    // nombre de quien — que ademas captura el dato que falta.
+    // ----------------------------------------------------------------------
+    case TEMAS.DESTINATARIO:
+      return (
+        "¡claro! Lo puede recibir otra persona mayor de edad, o lo enviamos a la dirección que quieras. " +
+        "Solo dime a nombre de quién lo dejamos."
       );
-      if (graduable && !maximo) {
-        partes.push("Si quieres te confirmo el contorno máximo exacto antes de que lo pidas, para que vayas segura.");
-      } else if (maximo) {
-        partes.push(`Ajusta hasta ${maximo} cm de contorno.`);
-      }
-      const paraQue = producto && producto.paraQueSirve && producto.paraQueSirve.texto;
-      if (paraQue) partes.push("Y lo que hace es aliviar el cólico con calor.");
-      return partes.join(" ");
-    }
 
     // ----------------------------------------------------------------------
     // COMPARATIVA CON LO QUE YA USA
@@ -1563,6 +1737,32 @@ function aTemas(temas, contexto, { maximo = 2 } = {}) {
   if (lista.includes(TEMAS.MEDIDAS)) lista = lista.filter((t) => t !== TEMAS.TALLA);
   // El tramite ya dice el plazo: si vienen los dos, el plazo solo sobra.
   if (lista.includes(TEMAS.GARANTIA_TRAMITE)) lista = lista.filter((t) => t !== TEMAS.GARANTIA);
+  // DORMIR gana a SEGURIDAD: las dos hablan de usarlo con cuidado, pero
+  // "¿puedo dormir con él?" tiene una respuesta concreta -mejor no- y la de
+  // seguridad habla de quemaduras, que no es lo que se pregunto.
+  if (lista.includes(TEMAS.DORMIR)) lista = lista.filter((t) => t !== TEMAS.SEGURIDAD);
+  // RELAJA gana a USO: "¿sirve para relajar los músculos?" marca los dos
+  // porque lleva "sirve para", y la respuesta de relajacion es la que
+  // contesta de verdad.
+  if (lista.includes(TEMAS.RELAJA)) lista = lista.filter((t) => t !== TEMAS.USO);
+  // APAGADO_AUTO gana a SEGURIDAD por el mismo motivo.
+  if (lista.includes(TEMAS.APAGADO_AUTO)) lista = lista.filter((t) => t !== TEMAS.SEGURIDAD);
+  // USAR_CARGANDO gana a ENERGIA y a USO, y aqui no es cuestion de estilo:
+  // las dos respuestas se CONTRADICEN. La de energia termina en "mientras
+  // lo usas no va conectado a nada" y la de aqui dice que si se puede usar
+  // cargando. Juntas en un mensaje dejan a la clienta peor que antes.
+  if (lista.includes(TEMAS.USAR_CARGANDO)) {
+    lista = lista.filter((t) => t !== TEMAS.ENERGIA && t !== TEMAS.USO);
+  }
+  // QUEMA gana a TEMPERATURA y a SEGURIDAD: su respuesta ya lleva dentro los
+  // niveles de calor y el consejo de empezar por el bajo, asi que dejar
+  // TEMPERATURA repetiria el mismo dato dos veces en el mismo mensaje.
+  if (lista.includes(TEMAS.QUEMA)) {
+    lista = lista.filter((t) => t !== TEMAS.TEMPERATURA && t !== TEMAS.SEGURIDAD);
+  }
+  // LLEGA_HOY gana a ENTREGA: su respuesta ya lleva el plazo dentro, y las
+  // dos juntas decian el rango dos veces en el mismo mensaje.
+  if (lista.includes(TEMAS.LLEGA_HOY)) lista = lista.filter((t) => t !== TEMAS.ENTREGA);
   // La respuesta a la objecion YA dice que el envio va incluido y que paga
   // al recibir: son dos de sus tres pasos. Sin esto, "esta caro, y el envio
   // cuanto vale?" repetia el envio dos veces en el mismo mensaje.

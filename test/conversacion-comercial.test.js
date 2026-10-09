@@ -378,13 +378,25 @@ describe("4 · sin inventar", () => {
     assert.equal(claims.ok, true, JSON.stringify(claims.encontrados));
   });
 
-  test("ante «¿me sirve?» NO promete que sirva para cualquier contorno", async () => {
+  test("ante «¿me sirve?» da la medida, y NO promete que sirva para cualquier contorno", async () => {
+    // ⚠️ LA SEGUNDA MITAD DE ESTA PRUEBA SE INVIRTIO EL 2026-10-09.
+    //
+    // Exigia que el bot ADMITIERA no tener la medida, y era lo correcto
+    // mientras no la tenia. Marco la confirmo en el parche 4, asi que
+    // seguir exigiendo la admision obligaria a callar el dato que mas
+    // vende, justo a quien mas lo necesita: "tengo bastante abdomen" es la
+    // clienta que duda si le va a quedar.
+    //
+    // La primera mitad NO se toca, y es la que sigue teniendo dientes: el
+    // filtro de claims tiene que dejar pasar el texto. Que haya medida no
+    // autoriza "le queda a cualquiera" — hay cuerpos por encima de 150 cm.
     const { dice } = await conversacion();
     const r = await dice("¿me sirve? tengo bastante abdomen");
 
     const claims = responder.revisarClaims(r.texto, elCinturon());
     assert.equal(claims.ok, true, `prometió ajuste: ${JSON.stringify(claims.encontrados)}`);
-    assert.match(r.texto, /no tengo las medidas|confirmo/i, "no admitió que no tiene la medida");
+    assert.match(r.texto, /130 a 150 cm/, `no dio la medida confirmada: ${r.texto}`);
+    assert.match(r.texto, /casi cualquier persona/, `no usó la fórmula que aprobó Marco: ${r.texto}`);
   });
 
   test("el tiempo de entrega se dice como RANGO, nunca como un día concreto", async () => {
@@ -544,8 +556,24 @@ describe("5 · ningún texto nuevo introduce una cifra o una promesa", () => {
           producto,
           mensajeCliente,
         });
+        // ⚠️ LAS MEDIDAS NO SON IMPORTES, Y DESDE EL PARCHE 4 HAY MEDIDAS.
+        //
+        // El guarda era `/\$|\d{3,}/`: cualquier numero de tres cifras. Era
+        // un proxy de "dinero" que funciono mientras el unico numero largo
+        // posible era un precio. El 09-oct Marco confirmo el contorno de la
+        // correa -130 a 150 cm- y el proxy empezo a dar falsos positivos
+        // sobre un dato que SI esta autorizado y que no cuesta plata.
+        //
+        // No se relaja el guarda: se le quita la medida y se le deja el
+        // resto intacto. Un "$" o un numero de cuatro cifras -que es lo que
+        // mide un precio en pesos: 42.500, 85.000- sigue haciendo fallar la
+        // prueba. Si algun dia hay un precio de tres cifras, esto hay que
+        // repensarlo; hoy el mas barato son 42.500.
+        const sinMedidas = texto
+          .replace(/\d{2,3}\s*(a|-|–|hasta)\s*\d{2,3}\s*cm\b/gi, "«medida»")
+          .replace(/\d{2,3}\s*cm\b/gi, "«medida»");
         assert.equal(
-          /\$|\d{3,}/.test(texto),
+          /\$|\d{3}\.\d{3}|\d{4,}/.test(sinMedidas),
           false,
           `cifra sin cotización en ${situacion} con "${mensajeCliente}": ${texto}`
         );

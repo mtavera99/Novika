@@ -24,6 +24,18 @@
 const { aplanar, cantidadesEn, NUMEROS_EN_PALABRAS } = require("./texto");
 const { CIUDADES, DEPARTAMENTOS } = require("./destino");
 
+/**
+ * El detector de "esto es una pregunta", que vive en `preguntas.js`.
+ *
+ * ⚠️ SE CARGA PEREZOSAMENTE, Y A PROPOSITO. Hoy `preguntas` solo depende de
+ * `texto`, asi que un `require` arriba no haria ciclo; pero este modulo es
+ * el que mas abajo esta en la pila -lo usan el cerebro y el panel- y un
+ * `require` diferido cuesta nada (Node cachea el modulo) y deja el grafo de
+ * carga como estaba. Se usa en los dos candados de "una pregunta no es un
+ * dato": el del nombre y el de la ciudad.
+ */
+const PALABRA_DE_PREGUNTA = () => require("./preguntas").PALABRA_DE_PREGUNTA;
+
 /** Tipos de via, para reconocer una direccion. */
 // `barrio`, `corregimiento` y `sector` NO ESTABAN, y en los pueblos la
 // direccion ES eso. Costo una venta el 08-oct en San Andres de Sotavento:
@@ -180,7 +192,23 @@ const NO_SON_NOMBRE_SUELTO = new Set(
     // transportadora" y de la guia.
     "interrapidisimo interapidisimo inter servientrega coordinadora envia enviaa tcc deprisa " +
     "redex saferbo mensajeros transprensa domina"
-  ).split(/\s+/)
+  )
+    .split(/\s+/)
+    // ⚠️ LOS NUMEROS EN PALABRA, Y ES OTRO DEFECTO DE PRODUCCION DEL MISMO
+    //    DIA (2026-10-09, `herramientas/revivir.js` caso de Mauricio).
+    //
+    // El bot pregunta "¿cuántos quieres?", la clienta contesta "uno", y
+    // "uno" se guardaba como SU NOMBRE. En el panel quedaba «Para: Uno», y
+    // encima pisaba el nombre de perfil de WhatsApp, que era el correcto
+    // ("Mauricio Benítez"). Es la respuesta mas natural del mundo a la
+    // pregunta que el propio bot acaba de hacer.
+    //
+    // No se escriben a mano: se toman del mapa que ya existe en `texto.js`
+    // -el mismo que usa el cotizador para entender "quiero dos"-. Si
+    // mañana se añade "quince" alli, este candado lo hereda. Una lista
+    // copiada a mano es justo como nacieron los otros dos defectos de esta
+    // tanda.
+    .concat(Object.keys(require("./texto").NUMEROS_EN_PALABRAS))
 );
 
 /** Si aparece en MEDIO, ahi termina el nombre y empieza otra frase. */
@@ -355,11 +383,52 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
         (p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)) || NO_SON_NOMBRE_SUELTO.has(aplanar(p))
       );
 
+      // ------------------------------------------------------------------
+      // ⚠️ UNA PREGUNTA NO ES UN NOMBRE. DEFECTO DE PRODUCCION, ENCONTRADO
+      //    EL 2026-10-09 CORRIENDO `herramientas/revivir.js santiago`.
+      //
+      // El chat de pruebas de Marco: el cliente, con la peticion de datos
+      // ya hecha, escribe "Tienes cinturones" —o sea "¿tienes cinturones?",
+      // una pregunta de stock—. Pasaba los cinco candados y se guardaba
+      // como NOMBRE DEL CLIENTE. El resumen decia «Para: Tienes cinturones
+      // · Bogota», el cierre «¡Listo, Tienes!», y ese nombre es el que iba
+      // a la guia de la transportadora.
+      //
+      // Y encima PISABA el nombre de perfil de WhatsApp, que era correcto
+      // ("Santiago"): en cuanto se confirma con origen CLIENTE, el perfil
+      // ya no vuelve a rellenar y solo un marcador explicito lo corrige. El
+      // chat entero arrastraba el nombre falso.
+      //
+      // POR QUE SE COLABA, QUE ES LO QUE IMPORTA: la lista
+      // `NO_SON_NOMBRE_SUELTO` es de palabras exactas y se mantiene a mano.
+      // Le faltaba el verbo "tienes" -y "venden", "manejan", "hay"- y
+      // tampoco frenaba "cinturones", porque la lista tiene el SINGULAR
+      // "cinturon" y la comparacion es `Set.has` de cadena exacta. Los
+      // otros mensajes-pregunta del mismo chat si se frenaban, pero por
+      // casualidad: "Tiene garantía" por "garantia", "No cargaron" por
+      // "no". Ir añadiendo palabras una a una no arregla la clase de fallo.
+      //
+      // Asi que el candado es de clase, no de palabra: si la frase PARECE
+      // UNA PREGUNTA, no es un dato. Se reutiliza el detector que ya existe
+      // en `preguntas.js` -que es justo donde vive el saber de "esto es una
+      // pregunta"- en vez de ampliar esta lista por sexta vez.
+      //
+      // El `require` va aqui dentro, como el de `texto` en `preguntas.js`:
+      // `preguntas` solo depende de `texto`, asi que no hay ciclo.
+      //
+      // ES ASIMETRICO A PROPOSITO: si se rechaza un nombre de verdad, el
+      // bot lo vuelve a pedir y se pierde un turno. Si se acepta una
+      // pregunta, Marco despacha un paquete a nombre de "Tienes
+      // cinturones". Ante la duda, se rechaza.
+      // ------------------------------------------------------------------
+      const pareceUnaPregunta = /\?/.test(trozo) || PALABRA_DE_PREGUNTA().test(plano);
+
       if (
         palabras.length >= 1 &&
         palabras.length <= 4 &&
         todasLetras &&
         !algunaProhibida &&
+        !pareceUnaPregunta &&
         !VIA.test(plano) &&
         !esSoloUnLugar(limpio)
       ) {
@@ -682,6 +751,25 @@ function ciudadEn(textoCrudo, { seLaPidieron = false, yaHayCiudad = false } = {}
       !NO_ES_CIUDAD_SUELTA.test(pelado) &&
       !RUIDO_DE_TECLADO.test(pelado) &&
       !palabras.some((p) => NO_SON_NOMBRE_SUELTO.has(p)) &&
+      // ------------------------------------------------------------------
+      // ⚠️ UNA PREGUNTA NO ES UNA CIUDAD. EL MISMO DEFECTO QUE EN EL
+      //    NOMBRE, POR LA MISMA PUERTA, ENCONTRADO EL MISMO DIA.
+      //
+      // «esa vaina kalienta?» -una clienta preguntando si calienta, con la
+      // jerga y la errata de teclado que pidio Marco tolerar- se guardaba
+      // como CIUDAD, y el bot contestaba: «A Esa Vaina Kalienta te llega en
+      // 1 a 3 días hábiles». Se quedaba la pregunta sin responder Y con un
+      // destino falso en la ficha.
+      //
+      // Este bloque acepta a proposito texto que NO esta en el listado del
+      // DANE, y eso es correcto: "Guacamayal" es un corregimiento real y
+      // rechazarlo costo una venta el 08-oct. Pero aceptar lo desconocido
+      // no es aceptar cualquier cosa, y una pregunta nunca es un destino.
+      //
+      // Se usa el mismo detector que el candado del nombre, para que los
+      // dos campos no se protejan con listas distintas.
+      // ------------------------------------------------------------------
+      !(/\?/.test(textoCrudo) || PALABRA_DE_PREGUNTA().test(plano)) &&
       // Una sola palabra de tres letras es casi siempre una muletilla, no un
       // municipio. Con dos o mas palabras se permiten, porque ahi el
       // conjunto ya parece un toponimo ("Zona Bananera", "San Juan").

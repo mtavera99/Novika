@@ -692,7 +692,11 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
 
   if (yaSeSabeCuantas) {
     return pide.length
-      ? `Si te llevas las dos, me pasas ${enumerar(pide)} y lo dejo listo 🙌`
+      ? // ⚠️ "LAS DOS" ESTABA FIJO, Y DESDE EL PARCHE 4 HAY PRECIO PARA 3, 4
+        //    Y 5. Con tres unidades salia "Si te llevas las dos, me pasas la
+        //    ciudad" — contando mal justo en el mensaje que cierra la venta
+        //    mas grande.
+        `Si te llevas ${Number(cantidadInformada) > 2 ? `las ${Number(cantidadInformada)}` : "las dos"}, me pasas ${enumerar(pide)} y lo dejo listo 🙌`
       : invitar;
   }
 

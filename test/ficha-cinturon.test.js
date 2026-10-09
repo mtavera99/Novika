@@ -111,10 +111,22 @@ test("los precios son EXACTAMENTE los que aprobo Marco, y ninguno mas", () => {
   // no habia precio por volumen. Marco confirmo el combo el 2026-10-08:
   // 85.000 por dos. Mantener la asercion obligaria a borrar un dato real.
   //
+  // Y EL 2026-10-09 (parche 4) MARCO AMPLIO LA TABLA HASTA CINCO, con una
+  // regla sencilla: desde 2 unidades, 42.500 cada una. De ahi salen 3 =
+  // 127.500, 4 = 170.000 y 5 = 212.500. Textual suyo: "mas de 5 se escala a
+  // mayorista", asi que la tabla PARA en 5 y no se extrapola.
+  //
   // Lo que se vigila sigue siendo lo mismo: que no aparezca un precio que
-  // nadie aprobo. Solo que ahora la lista aprobada tiene dos entradas.
+  // nadie aprobo. Solo que ahora la lista aprobada tiene cinco entradas.
   const p = elCinturon();
-  assert.deepEqual(p.precios, { 1: 49900, 2: 85000 });
+  assert.deepEqual(p.precios, { 1: 49900, 2: 85000, 3: 127500, 4: 170000, 5: 212500 });
+
+  // Y que los escalones de 2 a 5 sigan la regla que dio, en vez de ser
+  // cifras sueltas que alguien tecleo: 42.500 por unidad, exacto.
+  for (const n of [2, 3, 4, 5]) {
+    assert.equal(p.precios[n], 42500 * n, `el escalon de ${n} no sale de 42.500 c/u`);
+  }
+  assert.equal(p.precios[6], undefined, "aparecio un precio para 6, que Marco dijo que se escala");
   assert.deepEqual(p.promociones, [], "aparecio una promocion que nadie aprobo");
 });
 
@@ -168,7 +180,16 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
   // `trae exactamente el paquete` SALIO de la lista el 2026-10-09: Marco
   // autorizo el contenido del paquete, asi que ya no es un hueco. Se cambia
   // por `Nequi`, que sigue siendo uno de los que el dejo como [CONFIRMAR].
-  for (const tema of [/tres o mas unidades/, /contorno/, /dia exacto/, /Nequi/]) {
+  //
+  // ⚠️ Y `contorno`, `Nequi` y `tres o mas unidades` SALIERON TAMBIEN, con
+  //    la seccion D del parche 4 (2026-10-09). Los tres los confirmo Marco:
+  //    la correa abarca 130 a 150 cm, se paga con efectivo/Nequi/Daviplata/
+  //    transferencia, y la tabla de precios llega a 5 unidades.
+  //
+  //    Lo que queda son los tres huecos de verdad. El de precios se
+  //    estrecho, no se borro: el escalon que falta ahora es por ENCIMA de
+  //    cinco, que Marco dijo que se habla como mayorista.
+  for (const tema of [/mas de cinco unidades/, /medidas exactas/, /dia exacto/]) {
     assert.ok(
       p.sinDatoConfirmado.some((s) => tema.test(s)),
       `falta declarar ${tema} como dato sin confirmar: el modelo lo rellenaria`
@@ -210,15 +231,36 @@ test("un dato que YA esta en la ficha no puede declararse desconocido", () => {
     assert.equal(declarado(/cubre exactamente la garantia/), false, "el alcance esta en la ficha y declarado sin confirmar");
   }
 
-  // Y al revés: lo que NO tiene campo sigue declarado. El precio de tres no
-  // esta en la tabla, asi que tiene que seguir en la lista.
-  if (!p.precios || p.precios["3"] === undefined) {
-    assert.ok(declarado(/tres o mas unidades/), "falta el precio de 3 y no esta declarado");
-  }
-  // El contorno es el caso vivo: `ajuste.contornoMaximoCm` sigue en null.
-  if (!p.ajuste || p.ajuste.contornoMaximoCm === null) {
+  // ⚠️ EL CONTORNO VOLVIO A PASAR, Y AHORA SE COMPRUEBA EN LOS DOS SENTIDOS.
+  //
+  // El 2026-10-09 se escribio la medida en la ficha y se olvido sacarla de
+  // la lista — exactamente el defecto que esta prueba vigila, cometido otra
+  // vez. Y encima la medida se escribio en un campo NUEVO
+  // (`contornoMaxCm`) al lado del que ya existia (`contornoMaximoCm`, que
+  // se quedo en null), asi que la comprobacion de abajo seguia pasando
+  // mientras el bot ya decia "130 a 150 cm". Por eso ahora el maximo vive
+  // en un solo campo y se afirman las dos direcciones.
+  if (p.ajuste && p.ajuste.contornoMaximoCm) {
+    assert.equal(
+      declarado(/contorno/),
+      false,
+      "la correa tiene medida en la ficha y a la vez se declara que no se sabe"
+    );
+  } else {
     assert.ok(declarado(/contorno/), "no hay medida de contorno y no esta declarada");
   }
+  if (p.pago && Array.isArray(p.pago.mediosAlRecibir) && p.pago.mediosAlRecibir.length) {
+    assert.equal(declarado(/Nequi|transferencia/), false, "los medios de pago estan en la ficha y declarados dudosos");
+  }
+
+  // Y al revés: lo que NO tiene campo sigue declarado. El primer escalon de
+  // precio que no existe tiene que seguir en la lista, sea cual sea.
+  const tope = Math.max(...Object.keys(p.precios || {}).map(Number));
+  assert.ok(
+    declarado(/unidades/),
+    `la tabla llega a ${tope} y no hay ningun escalon declarado como pendiente`
+  );
+  assert.equal(p.precios[tope + 1], undefined, "la tabla no puede tener un escalon por encima de su tope");
 });
 
 // --------------------------------------------------------------------------
@@ -336,19 +378,27 @@ test("EL PRECIO NO SE MULTIPLICA: 2 unidades valen 85.000, no 99.800", () => {
   assert.notEqual(r.cotizacion.total, 49900 * 2, "multiplicó el precio unitario en vez de leer la tabla");
 });
 
-test("3 o mas unidades NO se cotizan: se escala, no se extrapola", () => {
-  // Con DOS escalones ya existe una escala de descuento por volumen, y
-  // extrapolarla al tercero es la misma clase de error que multiplicar
-  // cuando solo habia uno.
-  for (const cantidad of [3, 5, 10, 100]) {
+test("mas de CINCO unidades NO se cotizan: se escala, no se extrapola", () => {
+  // ⚠️ EL LIMITE SE MOVIO DE 3 A 6 EL 2026-10-09, y es lo unico que cambio.
+  //
+  // Marco confirmo la tabla hasta 5 unidades y dijo que de ahi para arriba
+  // se escala a mayorista. Antes esta prueba empezaba en 3 porque la tabla
+  // llegaba a 2.
+  //
+  // LO QUE PROTEGE ES IDENTICO: que el cotizador no INTERPOLE. Que 3 tenga
+  // precio hoy no es porque el codigo lo haya deducido de 42.500 x 3, es
+  // porque Marco escribio el escalon. En cuanto se sale de la tabla, el bot
+  // calla y pasa la venta a una persona — que ademas es lo que conviene,
+  // porque un pedido de 10 unidades es una negociacion, no una cotizacion.
+  for (const cantidad of [6, 10, 100]) {
     const r = cotizador.cotizar({ producto: activadoEnMemoria(), cantidad });
     assert.equal(r.ok, false, `se cotizaron ${cantidad} unidades sin precio aprobado`);
     assert.equal(r.escalar, true, "tiene que pasar a una persona, no quedarse callado");
     assert.equal(r.cotizacion, undefined, "no puede salir ninguna cifra de aqui");
 
     // Y el motivo no puede contener un total calculado "por si acaso". Las
-    // cifras de 4+ digitos serian importes; "1, 2" son las claves de la
-    // tabla y son informacion util para quien lea el panel.
+    // cifras de 4+ digitos serian importes; "1, 2, 3, 4, 5" son las claves
+    // de la tabla y son informacion util para quien lea el panel.
     const cifras = String(r.motivo).match(/\d{4,}/g) || [];
     assert.deepEqual(cifras, [], `el motivo insinua un importe: ${r.motivo}`);
   }
@@ -523,13 +573,17 @@ test("confirmar dos veces deja UN pedido y no recotiza", async () => {
   assert.equal(guardados.length, 1, "se duplico el pedido");
 });
 
-test("pedir 3 unidades no crea pedido ni dice ninguna cifra", async () => {
-  // ESTA PRUEBA ERA DE 2 UNIDADES. Marco confirmo el combo el 2026-10-08,
-  // asi que dos ya se venden. El caso sin precio aprobado es ahora TRES, y
-  // la garantia es la misma: donde no hay precio, no sale ninguna cifra.
+test("pedir 8 unidades no crea pedido ni dice ninguna cifra", async () => {
+  // ESTA PRUEBA ERA DE 2 UNIDADES, y luego de 3. Cada vez que Marco aprueba
+  // un escalon hay que moverla al primero que NO existe, porque lo que
+  // prueba es el borde de la tabla, no un numero concreto.
+  //
+  // El 2026-10-09 la tabla llego a 5, asi que el caso sin precio aprobado
+  // es ahora 8. La garantia es la misma de siempre: donde no hay precio, no
+  // sale ninguna cifra.
   const { cerebro, repos } = await montarConElCinturon();
 
-  await cerebro.procesar(msg("quiero 3 cinturones termicos"));
+  await cerebro.procesar(msg("quiero 8 cinturones termicos"));
   const traza = await cerebro.procesar(msg("vivo en Medellin, Calle 45 # 23-10"));
 
   assert.notEqual(traza.respuesta.situacion, "resumen", "se armo un resumen con un precio que no existe");
@@ -555,11 +609,16 @@ void DIR;
 
 const textoDominio = require("../src/dominio/texto");
 
-test("la tabla cubre 1 y 2 unidades, con los precios confirmados", () => {
+test("la tabla cubre 1 a 5 unidades, con los precios confirmados", () => {
   const p = elCinturon();
   assert.equal(p.precios["1"], 49900);
   assert.equal(p.precios["2"], 85000);
-  assert.deepEqual(Object.keys(p.precios), ["1", "2"], "apareció un precio que nadie aprobó");
+  // Los tres de abajo los confirmo Marco el 2026-10-09, con la regla "desde
+  // 2 unidades, 42.500 cada una".
+  assert.equal(p.precios["3"], 127500);
+  assert.equal(p.precios["4"], 170000);
+  assert.equal(p.precios["5"], 212500);
+  assert.deepEqual(Object.keys(p.precios), ["1", "2", "3", "4", "5"], "apareció un precio que nadie aprobó");
 });
 
 test("el combo es mas barato que dos sueltos, y por eso es una promocion", () => {
@@ -580,18 +639,19 @@ test("2 unidades cotizan 85.000 con el envio incluido", () => {
   assert.equal(r.cotizacion.condiciones.pagoMetodo, "contraentrega");
 });
 
-test("3 o mas unidades SIGUEN escalando: la tabla no se extrapola", () => {
-  // Ahora hay dos escalones (49.900 y 85.000), asi que ya existe una escala
-  // de descuento por volumen. Extrapolarla a 3 seria inventar el siguiente
-  // escalon, que es la misma clase de error que multiplicar por 2 cuando
-  // solo habia un precio.
-  for (const cantidad of [3, 4, 6, 12]) {
+test("MAS DE 5 unidades SIGUEN escalando: la tabla no se extrapola", () => {
+  // Ahora hay cinco escalones, y la escala tiene una regla visible (42.500
+  // por unidad desde la segunda). Eso hace mas tentador que nunca
+  // extrapolar: 6 x 42.500 = 255.000 "sale solo". Y es exactamente lo que
+  // no se puede hacer — Marco dijo que de 5 para arriba se habla de
+  // mayorista, que es un precio distinto y una conversacion con una persona.
+  for (const cantidad of [6, 7, 12, 50]) {
     const r = cotizador.cotizar({ producto: activadoEnMemoria(), cantidad });
     assert.equal(r.ok, false, `se cotizaron ${cantidad} unidades sin precio aprobado`);
     assert.equal(r.escalar, true);
-    // Y el motivo dice que cubre 1 y 2, para que quien lea el panel sepa
+    // Y el motivo dice que cubre 1 a 5, para que quien lea el panel sepa
     // exactamente que falta.
-    assert.match(r.motivo, /la tabla cubre 1, 2/);
+    assert.match(r.motivo, /la tabla cubre 1, 2, 3, 4, 5/);
   }
 });
 

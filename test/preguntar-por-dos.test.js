@@ -281,12 +281,30 @@ describe("2 · la captura completa, con un pedido ya confirmado", () => {
     assert.equal(/99\.800/.test(r.texto), false, "multiplicó el precio de una en vez de usar la tabla");
   });
 
-  test("por TRES, que no tiene precio aprobado, no se inventa nada", async () => {
-    // La tabla cubre 1 y 2. Extrapolar el tercer escalon es inventar un
-    // descuento que nadie autorizo.
+  test("por OCHO, que no tiene precio aprobado, no se inventa nada", async () => {
+    // ESTA PRUEBA ERA DE TRES. El 2026-10-09 Marco aprobo la tabla hasta 5
+    // unidades, asi que tres ya se cotiza y el borde se movio a seis.
+    //
+    // Lo que prueba no cambia: donde acaba la tabla, el bot no extrapola. Y
+    // ahora es mas facil que lo haga, porque la escala tiene regla visible
+    // -42.500 por unidad- y 8 x 42.500 = 340.000 "sale solo".
     const c = await conversacion();
-    const r = await c.dice("cuanto cuestan tres");
-    assert.equal(/127\.500|149\.700|120\.000/.test(r.texto), false, `inventó el precio de tres: ${r.texto}`);
+    const r = await c.dice("cuanto cuestan ocho");
+    assert.equal(/340\.000|399\.200|320\.000/.test(r.texto), false, `inventó el precio de ocho: ${r.texto}`);
+  });
+
+  test("y por TRES, CUATRO y CINCO si se cotiza, porque Marco los aprobo", async () => {
+    // El otro lado de la moneda, y el que de verdad vende: desde el parche
+    // 4 estos tres escalones tienen precio y el bot los cierra solo.
+    for (const [frase, cifra] of [
+      ["cuanto cuestan tres", /127\.500/],
+      ["cuanto cuestan cuatro", /170\.000/],
+      ["cuanto cuestan cinco", /212\.500/],
+    ]) {
+      const c = await conversacion();
+      const r = await c.dice(frase);
+      assert.match(r.texto, cifra, `no dio el precio aprobado para "${frase}": ${r.texto}`);
+    }
   });
 });
 
@@ -556,35 +574,42 @@ describe("5 · la respuesta de respaldo es útil, no un formulario", () => {
 // El precio de UNA a una pregunta por TRES. La clienta puede leer que tres
 // le salen a 49.900, y eso es cobrar mal o perder la venta al aclararlo.
 //
-// La tabla cubre 1 y 2 porque es lo que Marco aprobo. No se interpola -el
-// tercer escalon seria un descuento inventado- y tampoco se contesta por
+// La tabla cubre lo que Marco aprobo y nada mas. No se interpola -el
+// escalon siguiente seria un descuento inventado- y tampoco se contesta por
 // otra cantidad: se dice que lo confirma una persona y queda la tarea.
+//
+// ⚠️ EL CASO CONCRETO SE MOVIO DE 3 A 8 EL 2026-10-09. Marco aprobo la
+//    tabla hasta 5, asi que el ejemplo original dejo de ser un hueco. Se
+//    cambia el numero y se deja el defecto intacto, que es el de siempre:
+//    contestar por una cantidad distinta de la que preguntaron.
 // --------------------------------------------------------------------------
 
 describe("6 · por una cantidad sin precio aprobado no se improvisa", () => {
   test("no se contesta con el precio de otra cantidad", async () => {
     const c = await conversacion();
-    const r = await c.dice("y cuanto cuestan tres?");
+    const r = await c.dice("y cuanto cuestan ocho?");
 
-    assert.equal(/49\.900/.test(r.texto), false, `dio el precio de UNA por una pregunta de TRES: ${r.texto}`);
-    assert.equal(/85\.000/.test(r.texto), false, `dio el precio de DOS por una pregunta de TRES: ${r.texto}`);
+    assert.equal(/49\.900/.test(r.texto), false, `dio el precio de UNA por una pregunta de OCHO: ${r.texto}`);
+    assert.equal(/85\.000/.test(r.texto), false, `dio el precio de DOS por una pregunta de OCHO: ${r.texto}`);
+    assert.equal(/212\.500/.test(r.texto), false, `dio el precio de CINCO por una pregunta de OCHO: ${r.texto}`);
     // Ni ninguna cifra inventada por multiplicar.
-    assert.equal(/149\.700|127\.500|120\.000/.test(r.texto), false, `inventó el precio: ${r.texto}`);
+    assert.equal(/340\.000|399\.200|320\.000/.test(r.texto), false, `inventó el precio: ${r.texto}`);
     // Y lo dice: nombra la cantidad por la que preguntó.
-    assert.match(r.texto, /3 unidades/, `no reconoció por cuántas preguntaba: ${r.texto}`);
+    assert.match(r.texto, /8 unidades/, `no reconoció por cuántas preguntaba: ${r.texto}`);
     assert.match(r.texto, /confirmo|equipo/i, `no ofreció confirmarlo: ${r.texto}`);
   });
 
   test("queda la tarea, porque es una venta MAYOR que la aprobada", async () => {
-    // Quien pide tres se lleva mas que quien pide uno. No se puede cotizar,
-    // pero perderla por no anotarla seria tonto.
+    // Quien pide ocho se lleva mas que quien pide uno. No se puede cotizar,
+    // pero perderla por no anotarla seria tonto — y es justo el pedido que
+    // Marco quiere ver en la bandeja, porque es el que se negocia a mano.
     const c = await conversacion();
-    await c.dice("cuanto cuestan tres?");
+    await c.dice("cuanto cuestan ocho?");
 
     const conv = await c.repos.conversaciones.obtener(CLIENTE);
     const p = atencion.pendienteDe(conv);
-    assert.equal(p.hay, true, "no dejó tarea por una venta de 3 unidades");
-    assert.match(p.pregunta, /3 unidades/, "la tarea no dice por cuántas preguntaba");
+    assert.equal(p.hay, true, "no dejó tarea por una venta de 8 unidades");
+    assert.match(p.pregunta, /8 unidades/, "la tarea no dice por cuántas preguntaba");
   });
 
   test("tampoco con un pedido ya confirmado", async () => {

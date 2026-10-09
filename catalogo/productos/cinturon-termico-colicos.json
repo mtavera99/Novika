@@ -79,14 +79,11 @@
     "pago": "contraentrega - Marco, 2026-10-07"
   },
   "sinDatoConfirmado": [
-    "el precio por tres o mas unidades",
-    "si hay descuento por cantidad",
-    "hasta que contorno ajusta la correa",
+    "el precio por mas de cinco unidades",
     "las medidas exactas del cinturon",
-    "si se puede pagar por transferencia o Nequi",
     "el dia exacto en que llega"
   ],
-  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como temas sobre los que el texto no puede AFIRMAR. Son las preguntas que mas se repiten en este producto y que no tienen respuesta aprobada.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.\n\nTRES SALIERON EL 2026-10-08, Y POR EL MISMO MOTIVO: el dato ya existe en un campo estructurado, asi que declararlo dudoso era una contradiccion de la ficha contra si misma.\n\n  · 'como se tramita la garantia'       -> esta en garantiaComoSeTramita\n  · 'que cubre exactamente la garantia' -> esta en garantiaCubre + garantiaNoCubre\n  · 'el precio por dos o mas unidades'  -> precios tiene la clave '2'\n\nEl de precios NO se borro: se ESTRECHO a 'tres o mas', que es lo que de verdad falta. Marco confirmo 1 y 2; el motor 'tabla' no interpola, asi que quien pida 3 se escala. Borrarlo del todo habria dejado el hueco real sin declarar, que es el error opuesto y mas caro: el bot podria intentar contestar el precio de tres.\n\nLA LECCION DE DISEÑO, porque se repetira: cuando un dato pasa de desconocido a confirmado hay que tocar DOS sitios -el campo y esta lista- y olvidar el segundo no rompe ninguna prueba. Queda un bot que tiene el dato y dice que no lo tiene.\n\nTRES SALIERON EL 2026-10-09, porque Marco autorizo la ficha tecnica del fabricante: los niveles de temperatura, la bateria y lo que trae el paquete. Eran las tres preguntas que mas veces quedaban sin respuesta -medido: 3 de las 5 que fallaban el 09-oct eran de energia-.\n\nLOS QUE QUEDAN SON LOS QUE MARCO MARCO [CONFIRMAR] EN SU PROPIO DOCUMENTO, y no se tocan: el precio de 3 o mas, el descuento por cantidad, hasta que contorno ajusta la correa, el pago por Nequi y el dia exacto de llegada. Añadir uno de esos sin su visto bueno seria inventarse una politica.",
+  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como temas sobre los que el texto no puede AFIRMAR. Son las preguntas que mas se repiten en este producto y que no tienen respuesta aprobada.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.\n\nTRES SALIERON EL 2026-10-08, Y POR EL MISMO MOTIVO: el dato ya existe en un campo estructurado, asi que declararlo dudoso era una contradiccion de la ficha contra si misma.\n\n  · 'como se tramita la garantia'       -> esta en garantiaComoSeTramita\n  · 'que cubre exactamente la garantia' -> esta en garantiaCubre + garantiaNoCubre\n  · 'el precio por dos o mas unidades'  -> precios tiene la clave '2'\n\nEl de precios NO se borro: se ESTRECHO a 'tres o mas', que es lo que de verdad falta. Marco confirmo 1 y 2; el motor 'tabla' no interpola, asi que quien pida 3 se escala. Borrarlo del todo habria dejado el hueco real sin declarar, que es el error opuesto y mas caro: el bot podria intentar contestar el precio de tres.\n\nLA LECCION DE DISEÑO, porque se repetira: cuando un dato pasa de desconocido a confirmado hay que tocar DOS sitios -el campo y esta lista- y olvidar el segundo no rompe ninguna prueba. Queda un bot que tiene el dato y dice que no lo tiene.\n\nTRES SALIERON EL 2026-10-09, porque Marco autorizo la ficha tecnica del fabricante: los niveles de temperatura, la bateria y lo que trae el paquete. Eran las tres preguntas que mas veces quedaban sin respuesta -medido: 3 de las 5 que fallaban el 09-oct eran de energia-.\n\nTRES SALIERON EL 2026-10-09 CON LA SECCION D DEL PARCHE 4, y esta vez la leccion de arriba se cumplio al pie de la letra: se escribieron los campos nuevos y ESTA LISTA SE OLVIDO. Durante unas horas el bot tenia el contorno de la correa y los medios de pago en la ficha y a la vez los declaraba dudosos. No lo cazo ninguna prueba -tal como estaba escrito aqui que pasaria-; se encontro revisando a mano por que fallaban las pruebas del contorno.\n\n  · 'hasta que contorno ajusta la correa'          -> esta en ajuste.contornoMinCm/MaxCm/hastaTalla\n  · 'si se puede pagar por transferencia o Nequi'  -> esta en pago.mediosAlRecibir\n  · 'si hay descuento por cantidad'                -> precios tiene 2, 3, 4 y 5 a 42.500 c/u\n\nEL DE PRECIOS SE ESTRECHO OTRA VEZ, no se borro: de 'tres o mas' a 'MAS DE CINCO'. Marco confirmo hasta 5 y dijo que de ahi para arriba se escala a mayorista, asi que el hueco real existe y sigue declarado. Es el mismo razonamiento del 08-oct, un escalon mas arriba.\n\nSE QUEDA 'las medidas exactas del cinturon', y la diferencia es fina pero cuenta: lo confirmado es el CONTORNO QUE ABARCA LA CORREA (130 a 150 cm), no el alto y ancho de la almohadilla. Quien pregunta '¿cuanto mide?' pensando en el aparato sigue sin respuesta aprobada.\n\nLOS QUE QUEDAN SON LOS QUE MARCO MARCO [CONFIRMAR] EN SU PROPIO DOCUMENTO, y no se tocan: el precio de mas de cinco, las medidas del aparato y el dia exacto de llegada. Añadir uno de esos sin su visto bueno seria inventarse una politica.",
   "claimsPermitidos": [],
   "claimsProhibidos": [
     "cura los colicos",
@@ -145,12 +142,23 @@
   "motorDePrecio": "tabla",
   "precios": {
     "1": 49900,
-    "2": 85000
+    "2": 85000,
+    "3": 127500,
+    "4": 170000,
+    "5": 212500
   },
-  "_nota_precios": "49.900 por UNA unidad y 85.000 por DOS, confirmados por Marco (1 u el 2026-10-07, 2 u el 2026-10-08). Enteros en pesos, sin separadores: el cotizador solo acepta enteros y el formato de moneda se aplica al escribir el mensaje. El envio va incluido en los dos, por la politica global del producto.\n\nLA TABLA CUBRE 1 Y 2, Y NADA MAS. El motor 'tabla' NO interpola: quien pida 3 recibe 'no hay precio para 3 unidad(es)' y se escala a una persona. Sigue siendo deliberado: dos sueltos cuestan 99.800 y el combo 85.000, asi que ya hay una escala de descuento por volumen — y extrapolarla a 3 seria inventar el siguiente escalon. Cuando Marco confirme el de 3, se añade como clave nueva y el escalado desaparece solo.\n\nOJO AL AÑADIR UN PRECIO: `versionDeCatalogo` incluye el objeto `precios` completo, asi que añadir la clave '2' cambia la huella de TODAS las cotizaciones de este producto, tambien las de 1 unidad. Una oferta que estuviera abierta en el momento del despliegue no se confirmara: `confirmarPedido` recotiza, ve la firma distinta y escala a una persona en vez de crear el pedido. Es el lado seguro -no se cobra un precio viejo- y se asume a sabiendas: afinar la huella por cantidad debilitaria el candado que impide cobrar mal, y eso cuesta mas que la friccion de un pedido que pasa por el panel.",
+  "_nota_precios": "CONFIRMADO POR MARCO EL 2026-10-09 (parche 4). Textual: «desde 2 unidades, cada una sale a $42.500 con envio incluido. 2 = $85.000 · 3 = $127.500 · 4 = $170.000 · 5 = $212.500. Mas de 5: escalar como pedido mayorista».\n\nANTES SOLO HABIA 1 Y 2 ({'1': 49900, '2': 85000}), y eso tenia un coste concreto: a quien preguntaba por 3 o por 4 el cotizador no le podia dar precio, el bot admitia que no lo tenia y la venta se paraba. Ahora la escala llega a 5.\n\nDE 6 EN ADELANTE NO SE COTIZA A PROPOSITO: es pedido al mayor y lo atiende una persona. Inventar un precio por volumen es la clase de promesa que no se puede retirar.\n\n⚠️ EL CANDADO DE IMPORTES SE ALIMENTA DE AQUI: `responder.revisarClaims` bloquea cualquier cifra que no salga de esta tabla. Añadir un total sin añadirlo aqui hace que el propio bot se censure.",
   "pago": {
     "metodo": "contraentrega",
-    "etiquetaCliente": "Pagas al recibir (contra entrega)"
+    "etiquetaCliente": "Pagas al recibir (contra entrega)",
+    "mediosAlRecibir": [
+      "efectivo",
+      "Nequi",
+      "Daviplata",
+      "transferencia"
+    ],
+    "textoMedios": "le pagas al mensajero cuando lo recibes, como te quede más fácil: efectivo, Nequi, Daviplata o transferencia.",
+    "_porQue_medios": "CONFIRMADO POR MARCO EL 2026-10-09. Nequi y Daviplata llevaban desde el 07-oct en DATOS-PENDIENTES: hasta ahora el bot solo podia decir «efectivo al mensajero», y en Colombia mucha gente no carga efectivo."
   },
   "_nota_pago": "Confirmado por Marco el 2026-10-07. Vive aqui, y no en el prompt, porque el cotizador lo copia dentro de la cotizacion y el pedido guarda la cotizacion como snapshot: asi el metodo de cobro queda estampado en el pedido que ve quien despacha. Un pedido contraentrega que no dice que hay que recaudar es un paquete entregado sin cobrar. Ademas entra en la firma de condiciones: si algun dia pasa a pago anticipado, las ofertas que el cliente ya acepto caducan en vez de despacharse con la condicion vieja. La etiqueta no lleva cifras a proposito; si las llevara, el filtro de importes la leeria como un cobro no autorizado y bloquearia el mensaje completo.",
   "ofertaPrincipal": "",
@@ -206,8 +214,12 @@
   "garantiaComoSeTramita": "nos escribes por este mismo WhatsApp y te hacemos el cambio del producto",
   "ajuste": {
     "graduable": true,
-    "contornoMaximoCm": null,
-    "_porQue": "graduable=true lo confirmo Marco el 2026-10-08 y se ve en la foto 04-correa. contornoMaximoCm sigue en null a proposito: Marco dijo que 'no importa si la cintura es muy pequena o muy ancha porque es ajustable y le va a poder quedar sin problema', y eso es una CONCLUSION, no una medida. Mientras el numero sea null, el bot dice que es graduable -que es verdad y ya desatasca la pregunta- y ofrece confirmar el maximo. En cuanto haya un numero, la respuesta pasa a 'ajusta hasta X cm', que vende mas porque es concreto y ademas se puede sostener. El riesgo de poner la promesa sin el numero no es teorico: la garantia cubre defecto de fabrica y NO cubre 'no me quedo', asi que a quien le prometimos que le quedaria y no le queda, se le dice que no hay garantia. Esa queja seria justa."
+    "contornoMaximoCm": 150,
+    "_porQue": "⚠️ ESTE DATO ESTUVO DOS DIAS EN [CONFIRMAR] Y ERA EL QUE MAS VENDIA.\n\nLa pregunta «¿me queda?» es la duda numero uno de este producto, y hasta el 2026-10-09 la respuesta era «te confirmo el contorno maximo» — es decir, pedirle a la clienta que espere justo cuando estaba decidiendo. Marco lo confirmo en el parche 4: 130 a 150 cm, hasta 4XL.\n\nSIGUE PROHIBIDO decir «le sirve a cualquiera» o «talla unica universal»: la medida es concreta y hay cuerpos por encima. «Casi cualquier persona» es lo que se puede sostener.",
+    "contornoMinCm": 130,
+    "hastaTalla": "4XL",
+    "_ojo_un_solo_nombre": "EL MAXIMO VIVE EN `contornoMaximoCm` Y SOLO AHI. Al aplicar la seccion D escribi un campo nuevo, `contornoMaxCm`, al lado del que ya existia -que se quedo en null-. La ficha tenia entonces el dato y la ausencia del dato a la vez, segun por donde se leyera: la rama `else if (ajuste.contornoMaximoCm)` de contestar.js quedo inalcanzable para siempre, y la prueba de coherencia de ficha-cinturon seguia diciendo con razon que no habia medida. Es el mismo error que esta documentado dos veces mas en este fichero -el dato que se confirma en un sitio y se declara dudoso en otro-, cometido una tercera vez. Si algun dia hay que renombrarlo, se renombra; lo que no puede haber es dos.",
+    "texto": "la correa es elástica y se estira hasta unos 130 a 150 cm, así que le sirve a casi cualquier persona, hasta talla 4XL."
   },
   "comoSeUsa": {
     "texto": "Te lo pones en la parte baja del abdomen con la correa, lo prendes y en unos 10 segundos ya da calor 🔥 Tiene 3 niveles de calor (50, 55 y 60 °C) y 4 modos de masaje, y es recargable, así que no va conectado mientras lo usas.",
@@ -235,7 +247,10 @@
     "horasDeUso": 2,
     "inalambricoEnUso": true,
     "texto": "es recargable: trae su cable USB y lo cargas con el cargador de tu celular en unas 2 horas. Dura unas 2 horas de uso por carga, y mientras lo usas no va conectado a nada.",
-    "_porQue": "Autorizado por Marco el 2026-10-09. 'Mientras lo usas no va conectado a nada' es la parte que mas vende: la duda de fondo de quien pregunta por el cable es si va a quedar amarrada a un enchufe."
+    "_porQue": "Autorizado por Marco el 2026-10-09. 'Mientras lo usas no va conectado a nada' es la parte que mas vende: la duda de fondo de quien pregunta por el cable es si va a quedar amarrada a un enchufe.",
+    "usarMientrasCarga": true,
+    "textoUsarCargando": "también funciona mientras se está cargando, y cuando está cargado lo usas sin cables.",
+    "_porQue_cargando": "CONFIRMADO POR MARCO EL 2026-10-09 (parche 4)."
   },
   "temperatura": {
     "niveles": [
@@ -261,7 +276,7 @@
     "almohadillaCm": "19 × 8",
     "pesoGr": 170,
     "texto": "la almohadilla mide unos 19 × 8 cm y pesa unos 170 g, así que es bien liviano.",
-    "_ojo": "ESTO NO ES EL CONTORNO DE LA CORREA. `ajuste.contornoMaximoCm` sigue en null y prometer que le queda a cualquiera sigue PROHIBIDO en claimsProhibidos. Son dos medidas distintas y confundirlas seria justo el error que Marco pidio no cometer."
+    "_ojo": "ESTO NO ES EL CONTORNO DE LA CORREA. Son dos medidas distintas y confundirlas seria justo el error que Marco pidio no cometer: `ajuste.contornoMaximoCm` es hasta donde ABARCA la correa -130 a 150 cm, confirmado el 2026-10-09- y esto de aqui serian las medidas del aparato, que siguen sin confirmar y siguen en sinDatoConfirmado. Y aunque el contorno ya se sepa, prometer que le queda a cualquiera sigue PROHIBIDO en claimsProhibidos: 150 cm es una medida concreta y hay cuerpos por encima."
   },
   "zonasDeUso": {
     "texto": "lo puedes poner en la parte baja del abdomen o en la espalda, en la zona lumbar.",
@@ -279,7 +294,10 @@
       "No lo pongas sobre piel lastimada, irritada o con heridas.",
       "Úsalo sobre la ropa o sobre una tela delgada."
     ],
-    "_porQue": "Autorizado por Marco el 2026-10-09. Un aparato que llega a 60 °C sobre el abdomen necesita que estos avisos salgan cuando preguntan, no solo en una caja que quizas nadie lee."
+    "_porQue": "Autorizado por Marco el 2026-10-09. Un aparato que llega a 60 °C sobre el abdomen necesita que estos avisos salgan cuando preguntan, no solo en una caja que quizas nadie lee.",
+    "apagadoAutomatico": false,
+    "textoApagado": "no se apaga solo: lo apagas tú con el botón cuando termines. Lo ideal son ratos de 15 a 20 minutos y no dormirse con él.",
+    "_porQue_apagado": "CONFIRMADO POR MARCO EL 2026-10-09: «NO se apaga solo. Lo apaga la persona con el boton». Importa decirlo bien: si el cliente cree que se apaga solo, se duerme con el puesto — que es justo lo que la ficha pide no hacer."
   },
   "cuidado": {
     "seMoja": false,
