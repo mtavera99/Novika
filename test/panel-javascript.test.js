@@ -251,3 +251,54 @@ describe("el JavaScript del panel parsea en TODAS las pantallas", () => {
     }
   });
 });
+
+// ==========================================================================
+// EL PANEL NO PUEDE MENTIR SOBRE SI EL BOT ESTA CALLADO
+//
+// El aviso bajo la caja de respuesta decia «Al enviar, el bot queda pausado
+// en este chat». NO ERA VERDAD: `/panel/responder` nunca llama a
+// `atencion.tomarControl` — eso solo lo hace el boton «Tomar el control».
+//
+// Es la clase de mentira que mas caro sale en un panel operativo, porque va
+// en las dos direcciones:
+//
+//   · Marco responde una duda a mano creyendo que se queda al mando, y el
+//     bot sigue contestando al lado: DOS VOCES en el mismo chat.
+//   · o al contrario, deja de responder a mano por miedo a dejar el chat
+//     mudo, cuando nunca lo iba a dejar.
+//
+// Y encaja con la decision del 09-oct de que el bot NO se calle solo: callar
+// al bot es ahora una accion humana explicita, y el panel tiene que decirlo
+// con esas palabras.
+// ==========================================================================
+describe("el aviso del panel dice la verdad sobre la pausa", () => {
+  test("responder a mano NO pausa el bot, y el panel lo dice así", () => {
+    const fuente = fs.readFileSync(path.join(RAIZ, "src", "panel", "rutas.js"), "utf8");
+
+    // 1. El hecho: la ruta de responder no toma el control.
+    //
+    // Se aísla el cuerpo de `/responder` cortando en la siguiente ruta. Sin
+    // ese corte, el texto arrastra la ruta `/control` -que SÍ llama a
+    // `tomarControl`, y debe- y la comprobación daría un falso positivo.
+    const inicio = fuente.indexOf('router.post("/responder"');
+    assert.ok(inicio > 0, "no se encontró la ruta /panel/responder");
+    const resto = fuente.slice(inicio + 10);
+    const siguiente = resto.search(/\n {2}router\.(post|get)\(/);
+    const cuerpo = siguiente > 0 ? resto.slice(0, siguiente) : resto;
+
+    assert.equal(
+      /tomarControl/.test(cuerpo),
+      false,
+      "la ruta de responder volvió a pausar el bot: entonces hay que cambiar el aviso del panel"
+    );
+
+    // 2. Y el aviso que se le muestra a Marco no puede decir lo contrario.
+    const vistas = fs.readFileSync(path.join(RAIZ, "src", "panel", "vistas.js"), "utf8");
+    assert.equal(
+      /el bot queda pausado en este chat/.test(vistas),
+      false,
+      "el panel sigue diciendo que responder pausa el bot, y no es verdad"
+    );
+    assert.match(vistas, /sigue atendiendo/, "el aviso tiene que decir qué pasa de verdad");
+  });
+});

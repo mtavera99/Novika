@@ -723,7 +723,7 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
       <span style="font-size:13px;color:var(--suave);align-self:center">
         ${
           envioManualActivo
-            ? "Al enviar, el bot queda pausado en este chat."
+            ? "Al enviar, el bot <strong>sigue atendiendo</strong> este chat. Si quieres que se calle, pulsa «Tomar el control»."
             : "Los env\u00edos manuales est\u00e1n <b>apagados</b>: se registrar\u00e1 el intento y su motivo real, pero no saldr\u00e1 nada. " +
               "Se encienden con <code>PANEL_ENVIO_MANUAL=1</code> en Render."
         }
