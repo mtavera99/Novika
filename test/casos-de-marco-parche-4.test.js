@@ -7,11 +7,12 @@
 // significado), B (un banco de 60 intenciones), C (28 pruebas obligatorias)
 // y D (datos confirmados que reemplazan cualquier valor anterior).
 //
-// ⚠️ ESTE FICHERO NO SON LAS 28 PRUEBAS DE LA SECCION C.
+// ⚠️ SON 28 PRUEBAS, PERO NO SON *SUS* 28 DE LA SECCION C.
 //
-// Las 28 venían numeradas en su mensaje y NO quedaron transcritas en el
-// repositorio, así que escribirlas "de memoria" y ponerles su nombre sería
-// inventarme lo que pidió. Lo que hay aquí es lo que SI se puede verificar
+// Las suyas venían numeradas en el mensaje y NO quedaron transcritas en el
+// repositorio. Escribirlas "de memoria" y ponerles su nombre sería
+// inventarme lo que pidió, así que no se hizo. Pidió «termina las 28» y lo
+// que hay aquí son 28 pruebas construidas con lo que SI se puede verificar
 // palabra por palabra:
 //
 //   · los dos mensajes literales que abrieron el parche —«Ese quita los
@@ -25,10 +26,15 @@
 //   · su regla de lenguaje: «ayuda a aliviar», nunca «cura», «elimina» ni
 //     «quita el dolor al 100 %»;
 //   · los seis datos de la sección D, uno por uno;
-//   · y tres defectos de captura que aparecieron AL PROBAR esto y que
-//     estaban en producción, no en su lista.
+//   · tres defectos de captura que aparecieron AL PROBAR esto y que
+//     estaban en producción, no en su lista;
+//   · y las dos cosas que encargó después (23 y 24): retomar el pedido al
+//     final de cada respuesta, y usar el nombre en los recordatorios solo
+//     si lo escribió el cliente.
 //
-// Falta pedirle las 28 para cerrar el hueco exacto. Está dicho en
+// SIGUE FALTANDO que pegue sus 28 para cerrar el hueco exacto, y también
+// los textos de las intenciones 10 y 24 del banco de la sección B, que dijo
+// que están aprobados pero que tampoco quedaron transcritos. Está dicho en
 // docs/PARCHE-4-2026-10-09.md.
 // ==========================================================================
 
@@ -494,6 +500,80 @@ describe("Defectos que aparecieron AL PROBAR el parche 4", () => {
     ]) {
       assert.equal(ciu(frase), esperado, `dejó de capturar una ciudad legítima: "${frase}"`);
     }
+  });
+
+  test("23 · tras el «sí», cada respuesta retoma el pedido por el dato que falta", async () => {
+    // ⚠️ ESTA Y LA SIGUIENTE SON LAS DOS QUE PIDIÓ MARCO DESPUÉS, no una
+    //    reconstrucción de su sección C. Con ellas la batería llega a 28.
+    //
+    // Su encargo: «implementa lo de retomar el pedido al final de cada
+    // respuesta». Antes, una vez que el cliente ya había dicho que sí, el
+    // bot seguía cerrando con «¿Te lo aparto?» — ofreciéndole apartar algo
+    // que ya había aceptado, una y otra vez.
+    const c = await chat();
+    await c.dice(ANUNCIO);
+    await c.dice("Bogotá");
+    const cierre = await c.dice("Cómo funciona");
+    // Antes del sí se ofrece apartar: es la pregunta que consigue el
+    // compromiso, y el bot sabe reconocer la respuesta.
+    assert.match(cierre.texto, /te lo aparto/i, `no ofreció apartarlo a quien estaba mirando: ${cierre.texto}`);
+
+    await c.dice("Si");
+    // Después del sí, cada respuesta contesta la duda Y retoma el dato.
+    for (const f of ["y tiene garantia?", "de que material es?"]) {
+      const r = await c.dice(f);
+      assert.equal(
+        /te lo aparto/i.test(r.texto),
+        false,
+        `volvió a ofrecer apartar a quien ya dijo que sí, ante «${f}»: ${r.texto}`
+      );
+      assert.match(r.texto, /direcci[óo]n|barrio|referencia/i, `no retomó el pedido ante «${f}»: ${r.texto}`);
+      // Y sigue contestando primero lo que preguntó: el cierre no se come
+      // la respuesta.
+      assert.match(r.texto, /garant|pl[áa]stico|tela|terciopelo/i, `no contestó la duda: ${r.texto}`);
+      // Una sola pregunta por mensaje, que es la regla de siempre.
+      assert.equal((r.texto.match(/\?/g) || []).length, 1, `más de una pregunta: ${r.texto}`);
+    }
+  });
+
+  test("24 · el recordatorio usa el nombre solo si lo escribió el cliente", () => {
+    // Su encargo: «en los recordatorios, usa el nombre del cliente solo si
+    // él lo escribió». El nombre de perfil de WhatsApp se guarda confirmado,
+    // así que antes entraba igual: el recordatorio podía saludar «Hola,
+    // Ailid 😊» a una clienta que se llama Nevis Johana.
+    const recordar = require("../src/cerebro/recordar");
+    const campos = require("../src/dominio/campos");
+    const conOrigen = (valor, origen) =>
+      campos.confirmar(campos.proponer(campos.campoVacio(), valor, origen), () => ({ ok: true, valor }));
+
+    const conv = (nombre) => ({
+      contactoId: "573001112233",
+      estado: require("../src/dominio/estados").ESTADOS.CAPTURANDO_DATOS,
+      saludado: true,
+      datosPedidos: true,
+      ultimoDelClienteEn: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      ficha: {
+        nombre,
+        ciudad: conOrigen("Bogota", campos.ORIGENES.CLIENTE),
+        telefono: conOrigen("573001112233", campos.ORIGENES.CLIENTE),
+      },
+      mensajes: [],
+    });
+
+    const producto = elCinturon();
+    // El de perfil no se usa ni para saludar ni en ningún otro sitio.
+    const dePerfil = recordar.texto({ conversacion: conv(conOrigen("Ailid🥰", campos.ORIGENES.PERFIL)), producto, orden: 1 });
+    assert.equal(/Ailid/i.test(dePerfil), false, `usó el nombre del perfil: ${dePerfil}`);
+    assert.equal(/^Hola, /.test(dePerfil), false, `saludó con un nombre que el cliente no escribió: ${dePerfil}`);
+
+    // El que escribió el cliente sí, y solo el nombre de pila.
+    const delCliente = recordar.texto({
+      conversacion: conv(conOrigen("Nevis Johana Sánchez", campos.ORIGENES.CLIENTE)),
+      producto,
+      orden: 1,
+    });
+    assert.match(delCliente, /^Hola, Nevis 😊/, delCliente);
+    assert.equal(/Sánchez/.test(delCliente), false, `usó el apellido, suena a cobro: ${delCliente}`);
   });
 
   test("22 · los números en palabra se entienden hasta diez", () => {

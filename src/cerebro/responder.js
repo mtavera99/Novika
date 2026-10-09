@@ -870,6 +870,10 @@ function textoDeterminista({
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
   huboSenalDeCompra = false,
+  // ¿Hay un resumen del pedido en pantalla? Lo usa `cierreSegunLoQueFalta`:
+  // con el resumen puesto, el unico paso que queda es el "sí", y ofrecer
+  // apartar algo que ya esta apartado es retroceder un paso.
+  resumenMostrado = false,
 }) {
   // ------------------------------------------------------------------
   // UN AUDIO O UN STICKER SE CONTESTAN ANTES DE TODO LO DEMAS
@@ -1469,7 +1473,11 @@ function textoDeterminista({
         // El cierre depende de lo que falte: a quien no ha dicho su ciudad
         // se le pregunta la ciudad, no se le ofrece apartar algo que no se
         // sabe a donde va. Es el punto 9 de Marco.
-        if (!enManosDeUnaPersona && !noEmpujar) partes.push(cierreSegunLoQueFalta({ lectura, ciudadConfirmada }));
+        if (!enManosDeUnaPersona && !noEmpujar) {
+          partes.push(
+            cierreSegunLoQueFalta({ lectura, ciudadConfirmada, faltan, memoria, resumenMostrado, huboSenalDeCompra })
+          );
+        }
       } else if (lectura.temas.length && !noEmpujar && !partes.some((x) => /\?/.test(String(x || "")))) {
         // ------------------------------------------------------------
         // LA REGLA DE ORO DE MARCO: NINGUN MENSAJE SE QUEDA SUELTO
@@ -1491,7 +1499,9 @@ function textoDeterminista({
         // Solo aplica cuando se CONTESTO UN TEMA y el mensaje no trae ya una
         // pregunta: no se le añade un cierre a quien se esta despidiendo, ni
         // dos preguntas al mismo mensaje.
-        partes.push(cierreSegunLoQueFalta({ lectura, ciudadConfirmada }));
+        partes.push(
+          cierreSegunLoQueFalta({ lectura, ciudadConfirmada, faltan, memoria, resumenMostrado, huboSenalDeCompra })
+        );
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
@@ -2084,11 +2094,76 @@ const TEMAS_SIN_CIERRE = [preguntas.TEMAS.OTRO_DIA, preguntas.TEMAS.MENOR_DE_EDA
  * hace falta es la ciudad, no un sí. Preguntar lo que de verdad toca es lo
  * que convierte un cierre en un paso.
  */
-function cierreSegunLoQueFalta({ lectura, ciudadConfirmada }) {
-  // LA PREGUNTA VA AL FINAL, no en medio. La regla de tono es "termina con
+/*
+ * ⚠️ AMPLIADA EN EL PARCHE 4: «RETOMAR EL PEDIDO AL FINAL DE CADA RESPUESTA».
+ *
+ * Tenia DOS ramas -sin ciudad, y todo lo demas- y por tanto a casi todo el
+ * mundo le ofrecia apartarlo. Eso esta bien para quien esta mirando, pero a
+ * quien YA DIJO QUE COMPRA y solo le falta la direccion, «¿te lo aparto?» no
+ * es el paso siguiente: es volver a ofrecerle lo que ya aceptó.
+ *
+ * Ahora la cascada va por ESTADO, y el orden importa:
+ *
+ *   1. resumen en pantalla  -> lo unico que falta es el «sí»
+ *   2. sin ciudad           -> la ciudad, siempre (punto 9 de Marco)
+ *   3. ya esta comprando    -> el primer dato que falte
+ *   4. todavia esta mirando -> «¿te lo aparto?»
+ *
+ * EL PASO 3 SOLO APLICA SI HAY SEÑAL DE COMPRA, y es deliberado: pedirle la
+ * direccion a quien solo preguntó el precio es un formulario, no una venta.
+ * Es la misma condicion que ya usaba la rama de `puedePedirDatos`.
+ *
+ * Y NO SE ESCRIBE UNA CASCADA NUEVA: se delega en `siguientePasoCorto`, que
+ * ya tenia exactamente este orden -ciudad, direccion, nombre, telefono,
+ * cantidad- y ya tiene pruebas. Dos cascadas que digan lo mismo se separan
+ * en cuanto alguien toque una, que es como nacieron tres defectos de este
+ * mismo repositorio.
+ */
+function cierreSegunLoQueFalta({
+  lectura,
+  ciudadConfirmada,
+  faltan = [],
+  memoria = {},
+  resumenMostrado = false,
+  huboSenalDeCompra = false,
+}) {
+  // 1. CON EL RESUMEN EN PANTALLA NO SE OFRECE APARTAR NADA: ya esta
+  //    apartado y lo unico que falta es que diga que si. La redaccion lleva
+  //    `respóndeme "sí"` a proposito, porque es una de las formas que
+  //    reconoce `PREGUNTA_DE_CIERRE` — si no, el "sí" del turno siguiente se
+  //    perderia, que es el agujero del 10-oct.
+  if (resumenMostrado === true) return 'Si está todo bien, respóndeme "sí" y lo dejo listo ✅';
+
+  // 2. LA PREGUNTA VA AL FINAL, no en medio. La regla de tono es "termina con
   // una pregunta", y una coletilla detras del "?" la deja a medio cumplir —
   // lo caza una prueba de tono que ya existia.
   if (!ciudadConfirmada) return "Para decirte cuánto se demora, ¿tú en qué ciudad estás? 🙌";
+
+  // 3. QUIEN YA DIJO QUE COMPRA SE RETOMA POR EL DATO QUE FALTE.
+  //
+  // ⚠️ SOLO `huboSenalDeCompra`, Y NO `memoria.datosPedidos`. La primera
+  //    version miraba las dos y rompio dos pruebas del 10-oct, con razon:
+  //    `datosPedidos` se enciende en cuanto el bot pide un dato UNA vez, lo
+  //    cual pasa ya en el primer mensaje -que pregunta la ciudad-. Con esa
+  //    condicion, a quien solo habia escrito "quiero información" y "Cómo
+  //    funciona" se le pedia la direccion.
+  //
+  //    Y eso rompe el orden que hace que esto venda: PRIMERO el "sí",
+  //    DESPUES los datos. `huboSenalDeCompra` se pone a true justo cuando
+  //    el cliente acepta el cierre (orquestar.js, `afirmoElCierre`), asi
+  //    que es exactamente la señal de "ya aceptó, ahora toca despachar".
+  //
+  //    Efecto practico de la diferencia: a quien esta mirando se le ofrece
+  //    apartarlo -que es una pregunta que se contesta con un "sí" y que el
+  //    bot sabe reconocer-; a quien ya dijo que si se le pide el dato que
+  //    falta, sin volver a ofrecerle lo que ya aceptó.
+  const yaEstaComprando = huboSenalDeCompra === true;
+  // La ciudad se saca de la lista porque el paso 2 ya la cubrio: si llegamos
+  // aqui, esta confirmada.
+  const pendientes = (Array.isArray(faltan) ? faltan : []).filter((c) => c !== "ciudad");
+  if (yaEstaComprando && pendientes.length) return siguientePasoCorto(pendientes);
+
+  // 4. Todavia esta mirando: se le ofrece apartarlo.
   return "¿Te lo aparto? 🙌";
 }
 

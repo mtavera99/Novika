@@ -39,6 +39,7 @@ const campos = require("../dominio/campos");
 const estados = require("../dominio/estados");
 const { PERMISOS } = require("../whatsapp/enviar");
 const contestar = require("./contestar");
+const voz = require("./voz");
 
 /** Cada cuanto pasa el barrido. */
 const CADA_MS = 5 * 60 * 1000;
@@ -73,12 +74,38 @@ const POR_PASADA = 500;
  */
 function texto({ conversacion, producto, orden }) {
   const ficha = (conversacion && conversacion.ficha) || {};
-  const nombre = campos.valorConfirmado(ficha.nombre);
-  // Solo el nombre de pila, y solo si parece un nombre: el apellido suena a
-  // cobro, y el nombre de perfil de WhatsApp a veces es un emoji.
-  const pila = nombre && /^[\p{L}][\p{L}'’-]{1,}$/u.test(String(nombre).split(/\s+/)[0])
-    ? String(nombre).split(/\s+/)[0]
-    : null;
+
+  // ----------------------------------------------------------------------
+  // EL NOMBRE, SOLO SI LO ESCRIBIO EL CLIENTE
+  //
+  // ⚠️ LO PIDIO MARCO: "en los recordatorios, usa el nombre del cliente solo
+  //    si él lo escribió".
+  //
+  // Antes bastaba `valorConfirmado`, que es CIEGO AL ORIGEN. Y el nombre de
+  // perfil de WhatsApp se guarda confirmado, con origen PERFIL, asi que
+  // entraba igual — con lo cual el recordatorio podia escribirle "Hola,
+  // Ailid 😊" a una clienta que se llama Nevis Johana, o saludar a un apodo,
+  // a una frase o a un emoji.
+  //
+  // Un recordatorio es el peor sitio posible para equivocarse con el nombre:
+  // llega SIN que el cliente haya escrito nada, a los 30 minutos o a las
+  // tres horas, y si le llama por un nombre que no es suyo parece un envio
+  // masivo. Es justo lo contrario de lo que el recordatorio intenta ser.
+  //
+  // SE EXIGE ORIGEN `CLIENTE`, que es literalmente "lo escribió él". Queda
+  // fuera tambien `PERSONA` -un operador escribiendolo desde el panel-, y
+  // eso es una decision conservadora: el operador suele acertar, pero no es
+  // el cliente y el coste de equivocarse aqui es alto. Si Marco prefiere
+  // incluirlo, es cambiar esta linea por `!campos.vieneDelPerfil(...)`.
+  //
+  // Y el filtrado del nombre de pila se delega en `voz.nombreDePila`, que ya
+  // existia: recorta el apellido -que suena a cobro-, exige tres letras,
+  // capitaliza y descarta "Cliente", "WhatsApp", "info"... La regex local
+  // que habia aqui era mas laxa y dejaba pasar "Hola, Cliente 😊".
+  // ----------------------------------------------------------------------
+  const loEscribioElCliente =
+    Boolean(ficha.nombre) && ficha.nombre.origen === campos.ORIGENES.CLIENTE;
+  const pila = loEscribioElCliente ? voz.nombreDePila(campos.valorConfirmado(ficha.nombre)) : "";
   const hola = pila ? `Hola, ${pila} 😊 ` : "";
 
   const esperandoElSi = conversacion && conversacion.resumenMostrado === true;
@@ -111,7 +138,21 @@ function texto({ conversacion, producto, orden }) {
     telefono: "tu número de celular",
   };
   const falta = ["ciudad", "direccion", "nombre", "telefono"].find(
-    (c) => !campos.valorConfirmado(ficha[c]) && COMO_SE_LLAMA[c]
+    // ⚠️ EL NOMBRE DE PERFIL NO CUENTA COMO NOMBRE, Y AQUI TAMPOCO.
+    //
+    // Es el mismo defecto que arriba, por el otro lado: con un nombre de
+    // perfil puesto, `valorConfirmado` devuelve algo y el recordatorio daba
+    // el nombre por resuelto, asi que NUNCA pedia el nombre de verdad. Es
+    // decir, no solo saludaba mal: tampoco preguntaba.
+    //
+    // El orquestador ya trata "viene del perfil" como "no tenemos nombre"
+    // (`seLePidioElNombre`), y esto lo pone de acuerdo con el. Se usa
+    // `vieneDelPerfil` y no el origen CLIENTE porque aqui la pregunta es
+    // otra: no "¿lo escribió él?" sino "¿tenemos un nombre de verdad?", y
+    // el que escribe un operador en el panel SI lo es.
+    (c) =>
+      (!campos.valorConfirmado(ficha[c]) || (c === "nombre" && campos.vieneDelPerfil(ficha[c]))) &&
+      COMO_SE_LLAMA[c]
   );
 
   if (falta && conversacion.datosPedidos === true) {

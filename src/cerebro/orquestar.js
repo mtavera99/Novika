@@ -1483,6 +1483,10 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       fotosYaEnviadas: Boolean(
         (conversacion.fotosEnviadas || {})[(producto || candidato || {}).id || conversacion.productoId]
       ),
+      // ¿Tiene el resumen del pedido en pantalla? Lo necesita el cierre: con
+      // el resumen puesto, el unico paso que falta es el "sí", y ofrecerle
+      // apartarlo otra vez es retroceder. Lo lee tambien `recordar.js`.
+      resumenMostrado: conversacion.resumenMostrado === true,
       memoria: {
         saludado: conversacion.saludado === true,
         datosPedidos: conversacion.datosPedidos === true,
