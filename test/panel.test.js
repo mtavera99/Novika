@@ -1015,4 +1015,120 @@ describe("12 · una sola fuente de pedidos", () => {
   });
 });
 
+// ==========================================================================
+// LA TABLA DESDE LA QUE SE ESCRIBEN LAS GUIAS
+//
+// Marco entra a /panel/guias y copia los datos a mano en la web de la
+// transportadora. Le faltaban tres columnas -celular, direccion y producto-
+// y la del celular era la mas importante: sin ella hay que abrir el chat de
+// cada pedido uno por uno, que es el trabajo que esta pantalla quita.
+//
+// No habia NINGUNA prueba que fijara las columnas de esta tabla. Estas lo
+// hacen, porque es una pantalla operativa: si alguien quita una columna, se
+// nota el dia que hay diez pedidos que despachar.
+// ==========================================================================
+
+describe("9 · la tabla de guias trae lo que pide la transportadora", () => {
+  /** Un pedido listo para despachar, con un BSUID como clave de chat. */
+  const unPedido = (extra = {}) => ({
+    id: "NOV-ABC123",
+    estado: "confirmado",
+    // ⚠️ UN BSUID, A PROPOSITO. Es la trampa de esta pantalla.
+    contactoId: "CO.1098944221",
+    producto: { id: "cinturon-termico-colicos", nombre: "Cinturón térmico NOVIKA" },
+    cantidad: 2,
+    destinatario: {
+      nombre: "Nevis Johana Sánchez López",
+      telefono: "3105177896",
+      ciudad: "Bogota",
+      departamento: "Cundinamarca",
+      direccion: "KR 101 #29c-07",
+      referencia: "Lagos de suba",
+    },
+    cotizacion: { total: 85000, condiciones: { pagoEtiqueta: "contra entrega" } },
+    novedades: [],
+    ...extra,
+  });
+
+  const pintar = (pedidos) =>
+    vistas.guias({
+      datos: {
+        porDespachar: pedidos.map((p) => ({ ...p, _listo: dominioPedido.listoParaDespachar(p) })),
+        despachados: [],
+        entregados: [],
+        conNovedad: [],
+      },
+      transportadoras: ["Interrapidisimo"],
+    });
+
+  test("estan las seis cosas que Marco necesita para la guia", () => {
+    const html = pintar([unPedido()]);
+
+    // Las cabeceras.
+    for (const col of ["Cliente", "Celular", "Ciudad", "Direccion", "Producto", "Total"]) {
+      assert.match(html, new RegExp(`<th>${col}</th>`), `falta la columna ${col}`);
+    }
+
+    // Y los datos de verdad en la fila.
+    assert.match(html, /Nevis Johana Sánchez López/, "falta el nombre");
+    assert.match(html, /3105177896/, "falta el celular, que es el que pidió");
+    assert.match(html, /Bogota/, "falta la ciudad");
+    assert.match(html, /KR 101 #29c-07/, "falta la dirección");
+    assert.match(html, /Cinturón térmico NOVIKA/, "falta el producto que se despacha");
+    assert.match(html, /\$85\.000/, "falta el total a pagar");
+  });
+
+  test("el celular es el del DESTINATARIO, nunca la clave del chat", () => {
+    // ⚠️ LA EQUIVOCACION QUE IMPRIMIRIA UNA GUIA INSERVIBLE.
+    //
+    // `contactoId` es la clave de la conversacion y puede ser un BSUID
+    // (`CO.1098944…`) cuando el cliente escribe con nombre de usuario — el
+    // 07-oct eran tres de los quince chats del dia. Si la columna saliera
+    // de ahi, la transportadora tendria un numero que no existe y el
+    // paquete se devuelve.
+    const html = pintar([unPedido()]);
+    assert.match(html, /3105177896/, "no mostró el celular del destinatario");
+    assert.equal(/CO\.1098944221/.test(html), false, "mostró el BSUID del chat como celular de la guía");
+  });
+
+  test("la direccion lleva el punto de referencia, que es lo que busca el mensajero", () => {
+    // En los pueblos la referencia ES la direccion ("Barrio pueblillo en la
+    // cantera la pintada"). Se pegan las dos con `guias.datosDe`, que es la
+    // misma funcion que usa el pareo de etiquetas: una sola fuente.
+    const html = pintar([unPedido()]);
+    assert.match(html, /KR 101 #29c-07 Lagos de suba/, "la dirección no lleva la referencia");
+  });
+
+  test("y la cantidad se ve, porque despachar dos no es despachar uno", () => {
+    const html = pintar([unPedido({ cantidad: 2 })]);
+    assert.match(html, /×\s*2/, "no se ve que son dos unidades");
+    // Con una sola unidad no se ensucia la celda.
+    const una = pintar([unPedido({ cantidad: 1 })]);
+    assert.equal(/×\s*1/.test(una), false, "puso «× 1», que es ruido");
+  });
+
+  test("un pedido al que le falta un dato lo dice, y no finge tenerlo", () => {
+    const sinTelefono = unPedido({
+      id: "NOV-SINTEL",
+      destinatario: { ...unPedido().destinatario, telefono: "" },
+    });
+    const html = pintar([sinTelefono]);
+    assert.match(html, /falta telefono/i, "no avisó de que falta el celular");
+    // Y la celda queda con una raya, no vacía: una celda vacía parece un
+    // error de la pantalla, no un dato que falta.
+    assert.match(html, /—/, "la celda sin dato tiene que mostrar una raya");
+  });
+
+  test("cada celda lleva su data-label, o en el móvil la tabla no se lee", () => {
+    // El panel apila las filas como tarjetas por debajo de 760px usando
+    // `content: attr(data-label)`. Una celda sin su etiqueta sale sin
+    // título, y con nueve columnas eso es ilegible. Marco mira esto desde
+    // el teléfono.
+    const html = pintar([unPedido()]);
+    for (const col of ["Codigo", "Cliente", "Celular", "Ciudad", "Direccion", "Producto", "Total", "Estado"]) {
+      assert.match(html, new RegExp(`data-label="${col}"`), `la celda ${col} no tiene data-label`);
+    }
+  });
+});
+
 module.exports = {};
