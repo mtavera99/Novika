@@ -113,6 +113,42 @@ const NEGACIONES = [
   /\bdesisto\b/,
 ];
 
+// ==========================================================================
+// "¿Y SI NO ME SIRVE?" NO ES "NO LO QUIERO"
+//
+// ⚠️ LA PEOR CONFUSION POSIBLE: UNA OBJECION LEIDA COMO UNA DESPEDIDA.
+//
+// `NEGACIONES` tiene `\bno\s+(...|me\s+sirve|...)`, pensado para quien dice
+// que el producto no le sirve y se va. Pero la MISMA frase precedida de "si"
+// es una pregunta hipotetica, y es una de las que mas vende:
+//
+//   clienta · "¿y si no me sirve?"
+//   bot     · "Tranquila, sin problema. Si más adelante lo quieres, aquí
+//              estoy."                                  <- se despidio
+//
+// Ella estaba preguntando QUE PASA SI no le sirve —justo lo que cubre la
+// prueba de 7 dias— y el bot entendio que se iba, y se fue antes.
+//
+// Lo delataba que los temas SI estaban bien: `si_no_funciona` se reconocia
+// perfectamente. Lo que ganaba era la negacion, que se evalua primero y no
+// mira los temas.
+//
+// No vale con quitar "me sirve" de `NEGACIONES`: "no me sirve" a secas si es
+// una negacion de verdad. Lo que cambia el significado es el "si" delante.
+//
+// SE EXIGE LA FORMA COMPLETA, no un "si" suelto en cualquier parte: solo
+// estas construcciones, que son inequivocamente condicionales. Asi "sí, no
+// lo quiero" -donde la coma se pierde al aplanar- sigue siendo una negacion.
+// ==========================================================================
+const HIPOTETICAS = [
+  /^(y\s+|pero\s+|entonces\s+)?si\s+no\s+(me\s+|le\s+)?(sirve|funciona|gusta|convence|queda|hace\s+efecto|siento)\b/,
+  /\b(que|qu[eé])\s+(pasa|hago|hacemos|sucede)\s+si\s+no\b/,
+  /\bsi\s+no\s+(me\s+)?(sirve|funciona|gusta|queda)\s*[,.]?\s*(que|me\s+devuelven|lo\s+devuelvo|puedo)/,
+  /\ben\s+caso\s+de\s+que\s+no\b/,
+  /\bse\s+puede\s+devolver\b/,
+  /\bpuedo\s+devolverl[oa]\b/,
+];
+
 // --- 2. Preguntas de estado (posventa). Antes del "si" suelto. ---
 const PREGUNTAS_ESTADO = [
   // `llegado` y `llegara` faltaban, y "no me ha llegado" es LA pregunta de
@@ -294,6 +330,15 @@ function clasificar(texto) {
   if (v.vacio) return { clase: CLASES.AMBIGUO, confianza: "alta", motivo: "mensaje vacio" };
 
   const t = v.plano;
+
+  // 0. ANTES DE LA NEGACION: la hipotetica. "¿y si no me sirve?" lleva una
+  //    negacion dentro y NO niega nada: pregunta. Se devuelve AMBIGUO a
+  //    proposito, para que el mensaje siga su camino y lo contesten los
+  //    temas -`si_no_funciona`, `promesa_del_anuncio`-, que ya lo entienden
+  //    bien. Ver el bloque de HIPOTETICAS.
+  if (coincide(t, HIPOTETICAS)) {
+    return { clase: CLASES.AMBIGUO, confianza: "alta", motivo: "pregunta hipotetica, no una negacion" };
+  }
 
   // 1. Negacion primero: "no confirmo" contiene "confirmo".
   if (coincide(t, NEGACIONES)) {

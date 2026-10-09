@@ -347,6 +347,13 @@ const PATRONES = [
   [TEMAS.SI_NO_FUNCIONA, /\bsi\s+no\s+(me\s+)?(funciona|sirve|resulta|gusta|queda)\b/],
   [TEMAS.SI_NO_FUNCIONA, /\by\s+si\s+no\b/],
   [TEMAS.SI_NO_FUNCIONA, /\bsi\s+no\s+me\s+(convence|hace\s+efecto)\b/],
+  // "¿y si no me sirve?" y "¿se puede devolver?". Las cubre la prueba de 7
+  // dias, autorizada el 10-oct. Antes, "si no me sirve" la leia la lista de
+  // NEGACIONES y el bot se despedia de quien estaba objetando.
+  [TEMAS.SI_NO_FUNCIONA, /^(y\s+|pero\s+|entonces\s+)?si\s+no\s+(me\s+)?(sirve|gusta|queda)\b/],
+  [TEMAS.SI_NO_FUNCIONA, /\b(que|qué)\s+(pasa|hago|hacemos)\s+si\s+no\b/],
+  [TEMAS.SI_NO_FUNCIONA, /\b(se\s+puede\s+devolver|puedo\s+devolverl[oa]|hay\s+devolucion)\b/],
+  [TEMAS.SI_NO_FUNCIONA, /\ben\s+caso\s+de\s+que\s+no\b/],
 
   // ---- Para quien es: va ANTES de USO y de MEDIDAS ----
   //
@@ -563,7 +570,15 @@ const PATRONES = [
   // Marco fue explicito: no hay medidas del ajuste y no se promete que sirva
   // para cualquier contorno. Se clasifica aparte de TALLA para poder dar la
   // respuesta honesta en vez de la del dato aprobado.
-  [TEMAS.MEDIDAS, /\bme\s+(sirve|queda|servira|quedara|serviria|quedaria)\b/],
+  // El lookbehind deja fuera "¿y si no me sirve?", que NO es una pregunta de
+  // talla: es la objecion de satisfaccion, y la contesta la prueba de 7
+  // dias. Sin el, esa pregunta recibia la respuesta del contorno -con su
+  // promesa de confirmar el dato pendiente- pegada detras de la devolucion,
+  // y el mensaje salia con cuatro temas y tres parrafos.
+  //
+  // "¿me sirve?" y "¿me queda?" a secas siguen siendo MEDIDAS, que es la
+  // duda que mas vende en este producto.
+  [TEMAS.MEDIDAS, /(?<!\bsi\s+no\s+)\bme\s+(sirve|queda|servira|quedara|serviria|quedaria)\b/],
   // "¿le sirve a una persona delgada?": pregunta por OTRA persona, o en
   // tercera persona. Es la misma duda -la mas frecuente del producto- y
   // solo se reconocia en primera.

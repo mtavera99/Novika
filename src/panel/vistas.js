@@ -723,29 +723,32 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
       <span style="font-size:13px;color:var(--suave);align-self:center">
         ${
           /*
-           * ⚠️ ESTE AVISO DECIA LO CONTRARIO, Y ERA FALSO. Corregido el
-           *    2026-10-10.
+           * ⚠️ ESTE AVISO HA DICHO LAS DOS COSAS, Y AHORA DICE LA VERDAD.
            *
-           * El 09-oct se cambio a "el bot sigue atendiendo este chat", y el
-           * codigo hace justo lo otro: `rutas.js`, al responder a mano, pone
-           * `pausado: true` (y la respuesta de la API lo dice bien: "El bot
-           * queda pausado en este chat"). O sea que el panel se contradecia
-           * consigo mismo en la misma pantalla, y la version que leia el
-           * operador ANTES de escribir era la equivocada.
+           * Historia corta, porque explica por que hay tanto comentario para
+           * una frase:
            *
-           * Lo que cuesta creerselo: el chat de Popayan del 08-oct. Un
-           * operador escribio "Me confirmas" a las 21:33 -lo cual pauso el
-           * bot 12 horas-, el cliente contesto "Si" a las 21:36, y esa
-           * respuesta NO SALIO: "no enviado: conversacion_pausada". El
-           * cliente dijo que si y nadie le contesto.
+           *  · hasta el 09-oct decia "el bot queda pausado", y era verdad.
+           *  · el 09-oct se cambio a "sigue atendiendo" SIN cambiar el
+           *    codigo, que seguia poniendo `pausado: true`. El panel se
+           *    contradecia consigo mismo: el formulario prometia una cosa y
+           *    la respuesta de la API, otra.
+           *  · el 10-oct Marco decidio el COMPORTAMIENTO: responder a mano
+           *    NO debe callar al bot. «Si yo me meto en una conversación y
+           *    respondo, el bot debería seguir ahí, a menos de que yo lo
+           *    silencie». Se quito el `pausado: true` de `rutas.js`, y
+           *    ahora el aviso dice lo que el codigo hace.
            *
-           * El aviso ahora dice la verdad y dice que hacer, porque el
-           * problema real no es que pause -eso evita hablar a dos voces-
-           * sino que nadie sabia que pasaba.
+           * Lo que costo la contradiccion: el chat de Popayan del 08-oct. Un
+           * operador escribio "Me confirmas" a las 21:33, eso callo al bot,
+           * el cliente contesto "Si" a las 21:36 y su respuesta murio con
+           * "no enviado: conversacion_pausada".
+           *
+           * Hay una prueba que ata esta frase al codigo: si alguien vuelve a
+           * cambiar uno sin el otro, falla ahi y no delante de un cliente.
            */
           envioManualActivo
-            ? "Al enviar, <strong>el bot se calla en este chat</strong> (12 h, o hasta que pulses «Devolver al bot»). " +
-              "Qu\u00e9date t\u00fa con la conversaci\u00f3n, o devu\u00e9lvesela cuando termines."
+            ? "Al enviar, el bot <strong>sigue atendiendo</strong> este chat. Si quieres que se calle, pulsa «Tomar el control»."
             : "Los env\u00edos manuales est\u00e1n <b>apagados</b>: se registrar\u00e1 el intento y su motivo real, pero no saldr\u00e1 nada. " +
               "Se encienden con <code>PANEL_ENVIO_MANUAL=1</code> en Render."
         }

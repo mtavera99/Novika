@@ -550,35 +550,89 @@ describe("10 · decir que lo quiere dos veces no es un bot atascado", () => {
 // otro, falla aqui y no en la cara de un cliente.
 // ==========================================================================
 describe("11 · el aviso del panel dice lo que el código hace", () => {
-  const fuente = (f) => fs.readFileSync(path.join(RAIZ, "src", "panel", f), "utf8");
+  const codigo = (...partes) => fs.readFileSync(path.join(RAIZ, "src", ...partes), "utf8");
 
-  test("responder a mano pausa el bot: el código sigue haciéndolo", () => {
-    const rutas = fuente("rutas.js");
-    // Se busca el bloque de /responder y su `pausado: true`.
-    const i = rutas.indexOf('router.post("/responder"');
-    assert.ok(i > 0, "no se encontró la ruta de responder a mano");
-    const bloque = rutas.slice(i, i + 4000);
-    assert.match(bloque, /pausado:\s*true/, "responder a mano ya no pausa: hay que corregir el aviso del formulario");
-  });
-
-  test("y por tanto el formulario NO puede decir que el bot sigue atendiendo", () => {
-    const vistas = fuente("vistas.js");
-    // Solo el texto que ve el operador, sin los comentarios del codigo.
-    const sinComentarios = vistas
+  /** El fichero sin sus comentarios: solo lo que de verdad se ejecuta o se ve. */
+  const sinComentarios = (s) =>
+    s
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
       .split("\n")
-      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .filter((l) => !/^\s*\/\//.test(l))
       .join("\n");
+
+  test("ninguna acción manual del panel pausa el bot", () => {
+    // Marco, 10-oct: «si yo me meto en una conversación y respondo, el bot
+    // debería seguir ahí, a menos de que yo lo silencie».
+    //
+    // Se comprueba sobre las TRES rutas que mandan algo al cliente a mano:
+    // responder, mandar fotos y "Confirmar por WhatsApp". Las tres pausaban.
+    const rutas = sinComentarios(codigo("panel", "rutas.js"));
+    for (const [nombre, ancla] of [
+      ["responder a mano", 'router.post("/responder"'],
+      ["mandar fotos a mano", 'router.post("/fotos"'],
+    ]) {
+      const i = rutas.indexOf(ancla);
+      assert.ok(i > 0, `no se encontró la ruta: ${nombre}`);
+      const bloque = rutas.slice(i, i + 4500);
+      assert.equal(
+        /pausado:\s*true/.test(bloque),
+        false,
+        `${nombre} volvió a pausar el bot: o se deshace, o hay que corregir el aviso del formulario`
+      );
+    }
+
+    // Y el camino compartido de "Confirmar por WhatsApp", que es el peor
+    // sitio posible para pausar: manda el resumen pidiendo un "sí" y
+    // desconectaba a quien iba a recibirlo.
+    const i = rutas.indexOf("async function enviarDesdeElPanel");
+    assert.ok(i > 0, "no se encontró el camino compartido de envío manual");
     assert.equal(
-      /sigue atendiendo/i.test(sinComentarios),
+      /pausado:\s*true/.test(rutas.slice(i, i + 2500)),
       false,
-      "el panel vuelve a prometer que el bot sigue atendiendo, y responder a mano lo pausa"
+      "«Confirmar por WhatsApp» volvió a pausar el bot: el «sí» del cliente se quedaría sin respuesta"
     );
   });
 
-  test("el aviso dice que se calla Y cómo devolvérselo", () => {
-    const vistas = fuente("vistas.js");
-    assert.match(vistas, /el bot se calla en este chat/i, "el aviso no dice que el bot se calla");
-    assert.match(vistas, /Devolver al bot/, "el aviso no dice cómo devolverle la conversación");
+  test("y el formulario promete exactamente eso", () => {
+    const vistas = codigo("panel", "vistas.js");
+    assert.match(
+      sinComentarios(vistas),
+      /sigue atendiendo/i,
+      "el aviso ya no dice que el bot sigue atendiendo, y el código dice que sí"
+    );
+    assert.match(sinComentarios(vistas), /Tomar el control/, "el aviso no dice cómo silenciarlo");
+  });
+
+  test("callar al bot sigue siendo posible, y solo de dos formas", () => {
+    // 1. El botón del panel, que es una decisión humana explícita.
+    const rutas = sinComentarios(codigo("panel", "rutas.js"));
+    const i = rutas.indexOf('router.post("/control"');
+    assert.ok(i > 0, "desapareció la ruta de «Tomar el control»");
+    assert.match(rutas.slice(i, i + 1200), /pausado:\s*tomar/, "«Tomar el control» ya no pausa");
+
+    // 2. El propio bot, cuando pasa el caso a una persona: seguir vendiendo
+    //    detrás de «te paso con una persona» convierte esa frase en mentira.
+    const orquestar = sinComentarios(codigo("cerebro", "orquestar.js"));
+    const j = orquestar.indexOf('situacion === "escalado"');
+    assert.ok(j > 0, "no se encontró la rama de escalado");
+    assert.match(
+      orquestar.slice(j, j + 900),
+      /pausado:\s*true/,
+      "el bot ya no se calla al pasar el caso a una persona"
+    );
+  });
+
+  test("el bot se calla al escalar, pero no antes de avisar al cliente", async () => {
+    // De punta a punta: el mensaje de escalado SÍ sale. Si se pausara antes
+    // de enviarlo, el cliente se quedaría sin saber que lo están pasando a
+    // una persona, que es lo peor de los dos mundos.
+    const c = await chat({ nombrePerfil: "Cliente" });
+    await c.dice(ANUNCIO);
+    const r = await c.dice("quiero hablar con una persona");
+
+    assert.ok(r.texto, "no le dijo nada a quien pidió una persona");
+    assert.match(r.texto, /persona|equipo/i, `no le avisó del traspaso: ${r.texto}`);
+    assert.equal(atencion.leer(r.conversacion).pausado, true, "el bot no se calló tras pasar el caso");
   });
 });
 

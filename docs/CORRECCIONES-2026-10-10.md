@@ -319,3 +319,141 @@ horas, y eso ya costó una venta.
 | `herramientas/revivir.js` | 3 de 3 cierran | **3 de 3** |
 | `herramientas/reproducir-10oct.js` | 8 defectos reproducidos | **0** |
 | Popayán, de punta a punta | sin resumen a las 4 h | **pedido creado** |
+
+---
+
+# Segunda ronda, con las respuestas de Marco
+
+Las cuatro preguntas que quedaban abiertas arriba, resueltas por él el mismo
+día.
+
+## La prueba de 7 días es verdad, y el error fue la pregunta
+
+Marco:
+
+> «Si la prueba de siete días es verdad, o sea se le envía el producto y es
+> como un gancho, entonces no te preocupes […] los siete días, si no te
+> devolvemos su dinero, es un gancho para que la persona compre claramente y
+> pueda probar el producto. Pero la garantía sigue siendo […] por daño, por
+> defectos de fábrica.»
+
+El 09-oct se le preguntó **«¿cuál de las dos vale?»** — la del anuncio o la
+garantía — como si fueran alternativas. Contestó «Si garantía 1 mes», se
+interpretó que la prueba de 7 días no existía, y sus cinco frases entraron en
+`claimsProhibidos`.
+
+Durante dos días, a quien citaba el anuncio **de la propia empresa** el bot le
+contestaba «te lo confirmo con el equipo».
+
+**No eran alternativas: conviven.** Una pregunta mal planteada guardó un dato
+mal, y el bot fue fiel al dato. Son dos cosas distintas y no se pueden
+mezclar:
+
+| | cubre | se resuelve |
+|---|---|---|
+| **Prueba de 7 días** | que no le sirva o no le guste | **devolviendo el dinero** |
+| **Garantía (1 mes)** | defecto de fábrica | **cambiando el producto** |
+
+Confundirlas sale caro en las dos direcciones: prometer devolución de dinero
+por un aparato roto, o negarle la devolución a quien solo dice que no le
+sirvió. Hay una prueba para cada lado.
+
+### Y un defecto que salió al implementarlo: «¿y si no me sirve?»
+
+`NEGACIONES` contiene `no ... me sirve`, pensado para quien dice que no le
+sirve y se va. Pero la misma frase con un «si» delante es una pregunta —y de
+las que más venden—:
+
+```
+clienta · "¿y si no me sirve?"
+bot     · "Tranquila, sin problema. Si más adelante lo quieres, aquí estoy."
+```
+
+**Se despidió de quien estaba objetando.** Lo delataba que los temas sí se
+reconocían bien (`si_no_funciona`); lo que ganaba era la negación, que se
+evalúa primero y no mira los temas.
+
+No valía quitar «me sirve» de la lista: «no me sirve» a secas **sí** es una
+negación. Lo que cambia el significado es el «si». Se añadió un bloque de
+`HIPOTETICAS` que se evalúa **antes** de las negaciones y exige la forma
+condicional completa, para que «sí, no lo quiero» —donde la coma se pierde al
+aplanar— siga siendo una negación.
+
+De paso, «¿y si no me sirve?» dejó de arrastrar el tema de MEDIDAS, que le
+pegaba detrás la respuesta del contorno y sacaba un mensaje de tres párrafos.
+
+## La garantía es 1 mes, confirmada contra su propia contradicción
+
+El 10-oct Marco escribió «la garantía sigue siendo de un año». El 09-oct había
+escrito «1 mes». Se le preguntó cuál valía y respondió: **«un mes perdón»**.
+
+**Mientras se preguntaba se mantuvo 1 mes**, y eso fue deliberado: prometer de
+menos se corrige con un mensaje; prometer once meses de más es una obligación
+que no se puede retirar. Ante una contradicción en un dato comercial, el bot
+se queda con el valor conservador y se pregunta.
+
+## Responder a mano ya NO calla al bot
+
+Marco:
+
+> «Realmente no debe pausar. Solo debe pausar cuando vemos que realmente eso
+> no lo puede responder el bot. Si yo me meto en una conversación y respondo,
+> el bot debería seguir ahí, a menos de que yo lo silencie, o cuando ya la
+> respuesta del bot literalmente es que estamos pasándolo al humano.»
+
+Quedan **dos** formas de callar al bot, y las dos son explícitas:
+
+1. el botón **«Tomar el control»** del panel;
+2. el **propio bot**, cuando pasa el caso a una persona.
+
+Se quitó el `pausado: true` de **tres** sitios del panel. El tercero era el
+peor de todos: el camino compartido de **«Confirmar por WhatsApp»**, que manda
+el resumen del pedido pidiendo un «sí» y acto seguido desconectaba al que iba
+a recibir la confirmación.
+
+### Y se reinstauró en el escalado, que es la otra mitad
+
+Seguir vendiendo detrás de «te paso con una persona» convierte esa frase en
+mentira. El aviso **sale primero** y el bot se calla **después**: pausar antes
+de enviarlo dejaría al cliente sin saber que lo están pasando a alguien, que
+es lo peor de los dos mundos.
+
+**Por qué ahora es seguro y el 09-oct no lo era:** no cambió la idea, cambió
+*cuánto* se escala. El 09-oct cualquier pregunta sin tema acababa en escalado
+—29 de 65 respuestas malas, 7 con pausa— así que pausar al escalar equivalía a
+pausar por cualquier cosa. Hoy el sondeo da **5 de 65** y los cinco son
+legítimos: pide una persona, reclama garantía, está molesto, o pide al mayor.
+
+⚠️ **El riesgo medido sigue ahí y hay que decirlo:** los escalados del 08-oct
+tardaron entre 4 y 5 horas en contestarse. Durante ese rato esos chats quedan
+mudos. Lo que lo limita: la pausa caduca (12 h), el chat sale en
+`/panel/sin-responder` desde el primer minuto, y «Devolver al bot» lo reactiva
+en un clic.
+
+## El punto de referencia, en la primera pedida
+
+Marco insistió en que tras la ciudad hay que sacar los datos para cerrar. Ya
+estaba corregido (defecto 2), y se verificó que pide nombre y dirección —y el
+celular **solo** cuando no lo tenemos, que son los clientes que entran por
+nombre de usuario de WhatsApp—.
+
+Faltaba la **referencia**, que él había pedido dos veces. Va en el texto
+**pero no en los datos requeridos**: si entrara ahí, un pedido sin referencia
+no se podría crear, y la mayoría de las direcciones urbanas no la necesitan —
+sería cambiar una venta perdida por otra. Lo que sí resuelve es el caso del
+pueblo, donde la dirección es «el barrio» y la referencia es lo único que le
+permite al mensajero llegar.
+
+---
+
+# Medición de la segunda ronda
+
+| | antes | después |
+|---|---|---|
+| `npm test` | 1178 | **1183, 0 fallos** |
+| `sondear.js` | 5 de 65, 0 pausas | **5 de 65, 5 pausas** (los 5 escalados legítimos, como pidió Marco) |
+| `revivir.js` | 3 de 3 | **3 de 3** |
+
+Tres pruebas antiguas afirmaban lo contrario y se dieron la vuelta, con el
+motivo escrito al lado: las dos de la promesa del anuncio y la del escalado
+que no pausaba.
