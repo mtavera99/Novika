@@ -1083,7 +1083,29 @@ function guias({ datos: d, transportadoras = [], aviso = null, envioManualActivo
              ${transportadoras.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
            </select>
            <button class="primario" onclick="despachar('${esc(p.id)}')">Despachar</button>`
-        : `<span style="font-size:13px;color:var(--suave)">hay que completar los datos antes</span>`
+        : // ⚠️ ANTES AQUI SOLO DECIA "hay que completar los datos antes", Y NO
+          //    HABIA NINGUNA FORMA DE COMPLETARLOS.
+          //
+          // Es el defecto que bloqueo una guia el 09-oct: el pedido de
+          // Ipiales quedo con el nombre "Sii" y en revision, y desde el panel
+          // no se podia tocar el destinatario de un pedido. La unica salida
+          // era cancelarlo y rehacerlo a mano.
+          //
+          // Ahora la fila trae el arreglo al lado del problema: se escribe el
+          // dato que falta y el pedido queda despachable. Los campos salen
+          // rellenos con lo que haya, para corregir y no reescribir.
+          // El motivo NO se repite aqui: la pastilla de la columna Estado, que
+          // va justo al lado -y justo encima en el movil-, ya lo dice.
+          `<div style="display:flex;flex-direction:column;gap:6px;min-width:260px">
+             <span style="font-size:13px;color:var(--suave)">Corrige lo que esté mal y queda listo:</span>
+             <input id="n-${esc(p.id)}" placeholder="nombre y apellido" autocomplete="off"
+                    value="${esc((p.destinatario && p.destinatario.nombre) || "")}">
+             <input id="c-${esc(p.id)}" placeholder="celular" autocomplete="off"
+                    value="${esc((p.destinatario && p.destinatario.telefono) || "")}">
+             <input id="d-${esc(p.id)}" placeholder="dirección" autocomplete="off"
+                    value="${esc((p.destinatario && p.destinatario.direccion) || "")}">
+             <button class="primario" onclick="corregir('${esc(p.id)}')">Guardar y poder despachar</button>
+           </div>`
     }
   </td>
 </tr>`;
@@ -1195,6 +1217,28 @@ async function despachar(codigo) {
 async function entregar(codigo) {
   var r = await pedir("/panel/guias/entregar", { codigo: codigo });
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error, "mal");
+}
+// Corregir los datos de entrega de un pedido que no se puede despachar.
+// Solo manda los campos con algo escrito: un vacio no borra lo que ya hay.
+async function corregir(codigo) {
+  var leer = function (prefijo) {
+    var el = document.getElementById(prefijo + "-" + codigo);
+    return el && el.value ? el.value.trim() : "";
+  };
+  var cuerpo = { codigo: codigo };
+  var nombre = leer("n");
+  var celular = leer("c");
+  var direccion = leer("d");
+  if (nombre) cuerpo.nombre = nombre;
+  if (celular) cuerpo.telefono = celular;
+  if (direccion) cuerpo.direccion = direccion;
+  if (!nombre && !celular && !direccion) {
+    avisar("Escribe al menos un dato para corregir.", "mal");
+    return;
+  }
+  var r = await pedir("/panel/pedido/destinatario", cuerpo);
+  if (r.ok) { avisar(r.aviso, r.listo ? "ok" : "mal"); setTimeout(function(){ location.reload(); }, 900); }
   else avisar(r.error, "mal");
 }
 

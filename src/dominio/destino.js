@@ -389,6 +389,35 @@ function validarTelefono(texto) {
 }
 
 /** Nombre de persona. Marca en vez de bloquear, salvo casos imposibles. */
+// ==========================================================================
+// PALABRAS QUE NUNCA SON UN NOMBRE DE PERSONA
+//
+// ⚠️ DEFECTO REAL, Y BLOQUEO UNA GUIA EN PRODUCCION (09-oct).
+//
+// Marco no podia despachar el pedido NOV-MV1GEEAT-E4E8F4D3: en el panel
+// salia «Cliente: Sii» y el estado «en revision: solo un nombre: puede
+// faltar el apellido», que impide despachar. O sea que una clienta de
+// Ipiales con $49.900 pagados se quedo sin su paquete porque dijo que si.
+//
+// "Sii" es el "sí" con el que confirmo el pedido. Y se colaba por un fallo
+// de una sola letra: la lista decia `/^(si|no|ok|...)\b/`, y el `\b` detras
+// de "si" NO casa dentro de "sii" -las dos son letras, no hay frontera-.
+// Asi que "si" se rechazaba y "sii", "siii" o "sip" pasaban.
+//
+// EL REPOSITORIO YA SABIA QUE "sii" ES UN SI: `confirmacion.js` lo trae como
+// `/^(s+i+|sip|sisi|si\s+si)$/` desde hace dias, y `preguntas.js` tambien.
+// Eran los candados del nombre los unicos que no lo sabian.
+//
+// SE ESCRIBE CON `s+i+` -no con "si|sii|siii"- porque enumerar repeticiones
+// es una lista que siempre se queda corta: manana llega "siiii".
+//
+// OJO CON LOS NOMBRES QUE EMPIEZAN POR "SI": el patron esta anclado al
+// final (`$`), asi que "Silvia", "Simon" y "Sixta" NO casan. Esa era la
+// trampa de arreglarlo con un prefijo.
+// ==========================================================================
+const NO_ES_UN_NOMBRE =
+  /^(s+i+|sip|sisi|no+|nop|nel|ok|oki+|okey|okay|vale|bueno|buena|listo|lista|gracias|hola|buenas|buenos|claro|dale|hagale|obvio|exacto|correcto|confirmo|confirmado|perfecto|excelente)$/;
+
 function validarNombre(texto) {
   const crudo = String(texto ?? "").trim();
   const plano = aplanar(crudo);
@@ -396,11 +425,13 @@ function validarNombre(texto) {
   if (!plano) return { ok: false, motivo: "vacio" };
   if (plano.length < 3) return { ok: false, motivo: "demasiado corto" };
   if (/\d/.test(plano)) return { ok: false, motivo: "un nombre no lleva numeros" };
-  if (/^(si|no|ok|listo|gracias|hola|buenas|claro|dale)\b/.test(plano)) {
-    return { ok: false, motivo: `"${crudo.slice(0, 30)}" no es un nombre` };
-  }
 
   const palabras = plano.split(" ").filter(Boolean);
+  // Se mira la PRIMERA palabra, no el mensaje entero: asi caen tanto "Sii"
+  // como "si claro por favor", y sigue pasando "Silvia Martinez".
+  if (NO_ES_UN_NOMBRE.test(palabras[0] || "")) {
+    return { ok: false, motivo: `"${crudo.slice(0, 30)}" no es un nombre` };
+  }
   if (palabras.length < 2) {
     // Un solo nombre sirve para contactar, pero la transportadora suele
     // querer nombre y apellido. Se acepta marcado.
@@ -415,6 +446,7 @@ module.exports = {
   CIUDADES,
   DEPARTAMENTOS,
   LISTA_INCOMPLETA,
+  NO_ES_UN_NOMBRE,
   resolverCiudad,
   validarDireccion,
   validarTelefono,

@@ -660,6 +660,20 @@ describe("7 · recorridos por HTTP", () => {
         "tiene que decir que las etiquetas, con los datos del cliente, no se mandan al navegador"
       );
 
+      // ⚠️ EL PANEL NO ES UNA PUERTA TRASERA PARA LOS NOMBRES MALOS.
+      //
+      // La ruta para corregir el destinatario nacio de la guia bloqueada del
+      // 09-oct («Cliente: Sii»). Valida el nombre con el MISMO candado del
+      // bot: si no, acabariamos imprimiendo a mano justo lo que el bot
+      // rechaza.
+      const mal = await fetch(`${s.url}/panel/pedido/destinatario`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ codigo: "NOV-X", nombre: "Sii" }),
+      });
+      assert.equal(mal.status, 400, "el panel aceptó «Sii» como nombre de una guía");
+      assert.match((await mal.json()).error, /no sirve para la guia/i);
+
       const n = await fetch(`${s.url}/panel/novedades`, { headers: { cookie } });
       assert.equal(n.status, 200);
       const htmlN = await n.text();
@@ -1028,7 +1042,7 @@ describe("12 · una sola fuente de pedidos", () => {
 // nota el dia que hay diez pedidos que despachar.
 // ==========================================================================
 
-describe("9 · la tabla de guias trae lo que pide la transportadora", () => {
+describe("13 · la tabla de guias trae lo que pide la transportadora", () => {
   /** Un pedido listo para despachar, con un BSUID como clave de chat. */
   const unPedido = (extra = {}) => ({
     id: "NOV-ABC123",
@@ -1129,6 +1143,155 @@ describe("9 · la tabla de guias trae lo que pide la transportadora", () => {
       assert.match(html, new RegExp(`data-label="${col}"`), `la celda ${col} no tiene data-label`);
     }
   });
+});
+
+// ==========================================================================
+// LA GUIA QUE NO SE PODIA MANDAR (09-oct)
+//
+// Marco: «no me deja mandar esa guía, arréglalo». En el panel, el pedido
+// NOV-MV1GEEAT-E4E8F4D3 salia asi:
+//
+//   Cliente: Sii | Ipiales | $49.900 | en revision: solo un nombre: puede
+//   faltar el apellido | hay que completar los datos antes
+//
+// "Sii" era el «sí» con el que la clienta confirmo el pedido. Se guardo como
+// su nombre, el pedido quedo EN_REVISION, y EN_REVISION impide despachar.
+// Una venta de $49.900 parada, sin ninguna forma de arreglarla desde el
+// panel: no habia ruta para tocar el destinatario de un pedido.
+// ==========================================================================
+
+describe("14 · la guia bloqueada por un nombre que no era un nombre", () => {
+  const dominioDestino = require("../src/dominio/destino");
+  const extraer = require("../src/dominio/extraer");
+
+  test('«Sii» y sus variantes no se guardan como nombre', () => {
+    // Se colaba por un fallo de UNA LETRA: la lista decia /^(si|no|ok|...)\b/
+    // y el \b detras de "si" no casa dentro de "sii" — las dos son letras,
+    // no hay frontera. Asi que "si" se rechazaba y "sii" pasaba.
+    for (const falso of ["Sii", "sii", "Siii", "sip", "sisi", "Noo", "ok", "listo", "confirmo", "sii señor"]) {
+      assert.equal(
+        dominioDestino.validarNombre(falso).ok,
+        false,
+        `validarNombre aceptó "${falso}" como nombre de una guía`
+      );
+      assert.equal(
+        (extraer.nombreEn(falso, { seLoPidieron: true }) || {}).valor,
+        null,
+        `extraer guardó "${falso}" como nombre del cliente`
+      );
+    }
+  });
+
+  test("y los nombres de verdad que empiezan por «si» siguen pasando", () => {
+    // La trampa de arreglarlo con un prefijo: "Silvia", "Simón" y "Sixta"
+    // empiezan por "si". El patrón va anclado al final, así que no casan.
+    for (const real of ["Simon Bolivar", "Sixta Tulia", "Sonia", "Nohora Vallejo", "Nelly Esperanza Burbano"]) {
+      assert.equal(dominioDestino.validarNombre(real).ok, true, `rechazó un nombre real: "${real}"`);
+    }
+  });
+
+  /** El pedido de Marco, tal como quedó en producción. */
+  const elPedidoDeIpiales = (revisiones = [{ campo: "nombre", motivo: "solo un nombre: puede faltar el apellido" }]) =>
+    dominioPedido.construir({
+      cotizacion: {
+        productoId: "cinturon-termico-colicos",
+        productoNombre: "Cinturón térmico NOVIKA",
+        cantidad: 1,
+        total: 49900,
+        subtotal: 49900,
+        envio: 0,
+        descuento: 0,
+        condiciones: { pagoMetodo: "contraentrega", envioIncluido: true },
+      },
+      datos: { nombre: "Sii", telefono: "3001112233", ciudad: "Ipiales", direccion: "Calle 10 # 5-20" },
+      contactoId: "573001112233",
+      ofertaId: "OF-1",
+      wamidConfirmacion: "wamid.X",
+      revisiones,
+    }).pedido;
+
+  test("un pedido en revision no se despacha: eso estaba bien y sigue igual", () => {
+    const p = elPedidoDeIpiales();
+    const listo = dominioPedido.listoParaDespachar(p);
+    assert.equal(listo.ok, false, "dejó despachar una guía a nombre de «Sii»");
+    assert.match(listo.motivo, /en revision/i);
+  });
+
+  test("corregir el dato CIERRA su revision y desbloquea el despacho", () => {
+    // Era el agujero: las revisiones se escribían al crear el pedido y nadie
+    // las borraba nunca. El único final posible era cancelar y rehacerlo.
+    const p = elPedidoDeIpiales();
+    const r = dominioPedido.modificar({
+      pedido: p,
+      cambios: { nombre: "Nelly Esperanza Burbano" },
+      porQue: "los corrigio una persona desde el panel",
+    });
+
+    assert.equal(r.ok, true, r.motivo);
+    assert.equal(r.pedido.destinatario.nombre, "Nelly Esperanza Burbano");
+    assert.deepEqual(r.pedido.revisiones, [], "la revisión del nombre no se cerró al corregirlo");
+    assert.equal(dominioPedido.listoParaDespachar(r.pedido).ok, true, "sigue sin poder despacharse");
+
+    // Y queda escrito quién lo cambió y qué había antes: si un pedido pasa
+    // de «en revisión» a despachable, tiene que poder leerse por qué.
+    const h = r.pedido.historial[r.pedido.historial.length - 1];
+    assert.equal(h.antes.nombre, "Sii", "el historial no guarda el valor que había");
+    assert.equal(h.revisionesCerradas, 1);
+    assert.match(h.porQue, /persona desde el panel/);
+  });
+
+  test("corregir UN campo no cierra las dudas de los OTROS", () => {
+    // Arreglar el nombre no dice nada sobre la dirección.
+    const p = elPedidoDeIpiales([
+      { campo: "nombre", motivo: "solo un nombre" },
+      { campo: "direccion", motivo: "direccion corta" },
+    ]);
+    const r = dominioPedido.modificar({ pedido: p, cambios: { nombre: "Nelly Burbano" }, porQue: "panel" });
+
+    assert.deepEqual(r.pedido.revisiones, [{ campo: "direccion", motivo: "direccion corta" }]);
+    const listo = dominioPedido.listoParaDespachar(r.pedido);
+    assert.equal(listo.ok, false, "desbloqueó el despacho con una duda sin resolver");
+    assert.match(listo.motivo, /direccion corta/);
+  });
+
+  test("una duda sin resolver bloquea aunque el pedido ya no esté «en revision»", () => {
+    // El hueco que abrió permitir corregir: `modificar` deja el pedido en
+    // MODIFICADO, así que mirar solo el estado dejaba pasar un pedido con
+    // dudas pendientes. Con el cambio de cantidad ya pasaba: cambiar de 1 a
+    // 2 unidades «limpiaba» una duda del nombre que nadie había mirado.
+    const p = elPedidoDeIpiales();
+    const r = dominioPedido.modificar({ pedido: p, cambios: { telefono: "3001119999" }, porQue: "panel" });
+
+    assert.notEqual(r.pedido.estado, "en_revision", "el estado ya no es en_revision");
+    assert.ok(r.pedido.revisiones.length, "la duda del nombre sigue ahí");
+    assert.equal(
+      dominioPedido.listoParaDespachar(r.pedido).ok,
+      false,
+      "dejó despachar un pedido con una duda que nadie resolvió"
+    );
+  });
+
+  test("el panel trae el formulario para corregirlo, en la propia fila", () => {
+    // Antes aquí solo decía «hay que completar los datos antes», sin ninguna
+    // forma de completarlos.
+    const p = elPedidoDeIpiales();
+    const html = vistas.guias({
+      datos: {
+        porDespachar: [{ ...p, _listo: dominioPedido.listoParaDespachar(p) }],
+        despachados: [],
+        entregados: [],
+        conNovedad: [],
+      },
+      transportadoras: ["Interrapidisimo"],
+    });
+
+    assert.match(html, new RegExp(`id="n-${p.id}"`), "no hay campo para corregir el nombre");
+    assert.match(html, new RegExp(`onclick="corregir\\('${p.id}'\\)"`), "no hay botón para guardar la corrección");
+    // Pre-rellenado con lo que hay, para corregir y no reescribir de cero.
+    assert.match(html, /value="Sii"/, "el campo no viene con el valor que hay que corregir");
+    assert.equal(/hay que completar los datos antes/.test(html), false, "sigue el mensaje sin salida");
+  });
+
 });
 
 module.exports = {};

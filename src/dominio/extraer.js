@@ -22,7 +22,7 @@
 // ==========================================================================
 
 const { aplanar, cantidadesEn, NUMEROS_EN_PALABRAS } = require("./texto");
-const { CIUDADES, DEPARTAMENTOS } = require("./destino");
+const { CIUDADES, DEPARTAMENTOS, NO_ES_UN_NOMBRE } = require("./destino");
 
 /**
  * El detector de "esto es una pregunta", que vive en `preguntas.js`.
@@ -379,8 +379,25 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
       // Es el riesgo propio de capturar un nombre sin marcador, y se paga
       // con esta lista: las palabras que la gente escribe en un chat de
       // ventas y que NUNCA son un nombre de persona.
+      // ⚠️ `NO_ES_UN_NOMBRE` ES LA TERCERA COMPROBACION, Y HACE FALTA PORQUE
+      //    LAS OTRAS DOS SON DE PALABRA EXACTA.
+      //
+      // `NO_SON_NOMBRE_SUELTO` es un Set, asi que tiene "si" y no tiene
+      // "sii". Una clienta de Ipiales confirmo su pedido con "Sii", se
+      // guardo como su nombre, y el pedido quedo bloqueado en el panel sin
+      // poder despacharse. El patron de `destino` cubre las repeticiones
+      // (`s+i+`) en vez de enumerarlas, que es una lista que siempre se
+      // queda corta.
+      //
+      // Se usa el MISMO patron que `validarNombre`, importado, no copiado:
+      // si los dos candados no coinciden, uno acepta lo que el otro marca
+      // para revision y el pedido acaba atrapado — que es exactamente lo que
+      // paso aqui.
       const algunaProhibida = palabras.some(
-        (p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)) || NO_SON_NOMBRE_SUELTO.has(aplanar(p))
+        (p) =>
+          NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)) ||
+          NO_SON_NOMBRE_SUELTO.has(aplanar(p)) ||
+          NO_ES_UN_NOMBRE.test(aplanar(p))
       );
 
       // ------------------------------------------------------------------
