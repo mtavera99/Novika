@@ -122,13 +122,31 @@ Dos sueltos costarían $99.800, así que el combo ahorra **$14.800**. Eso es un 
 
 ### 4. ¿Cómo funciona / se enciende?
 
-**Hoy:** el bot repite la descripción aprobada y no entra en detalle.
+**✅ RESUELTO con la ficha del fabricante que autorizaste (09-oct), y desde
+el 10-oct el bot lo contesta con su propio texto** (`comoSeUsa` en el
+catálogo, dictado por ti):
 
-- ¿Es con batería recargable o se conecta a la corriente? \_\_\_\_
-- Si es batería: ¿cuánto dura encendido? \_\_\_\_
-- ¿Cómo se carga? (¿cable USB? ¿qué tipo?) \_\_\_\_
-- ¿Cuántos niveles de calor tiene? \_\_\_\_
-- ¿Tiene vibración o masaje, además del calor? Sí / No
+> Te lo pones en la parte baja del abdomen con la correa, lo prendes y en unos
+> 10 segundos ya da calor 🔥 Tiene 3 niveles de calor (50, 55 y 60 °C) y 4
+> modos de masaje, y es recargable, así que no va conectado mientras lo usas.
+
+Hasta el 10-oct «¿cómo funciona?» recibía la respuesta de «¿para qué sirve?»,
+que empieza con «Sí, es justo para eso» y no explicaba nada de la mecánica.
+
+⚠️ **Lo único que queda pendiente aquí es tuyo: verificar la ficha del
+fabricante contra una unidad física.** Este texto no añade ninguna
+afirmación nueva —cada dato sale de la ficha que ya habías autorizado— pero
+por eso mismo, si la ficha está mal, este texto también lo está. Son cinco
+minutos con el producto en la mano:
+
+- ¿De verdad calienta en ~10 segundos? Sí / No → \_\_\_\_
+- ¿Los tres niveles son 50, 55 y 60 °C? Sí / No → \_\_\_\_
+- ¿Son 4 modos de masaje? Sí / No → \_\_\_\_
+- ¿Funciona sin estar conectado mientras se usa? Sí / No
+- Si es batería: ¿cuánto dura encendido de verdad? \_\_\_\_
+
+**Sigue prohibido y no se dice:** que calienta «al instante», que se puede
+dormir con él puesto, y que «nunca quema».
 
 ### 5. ¿De qué material es?
 

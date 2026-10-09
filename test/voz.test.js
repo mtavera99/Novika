@@ -587,9 +587,17 @@ describe("5 · dar un dato dispara el cierre", () => {
   });
 
   // ------------------------------------------------------------------------
-  // Y EL OTRO LADO, que es el caso real que lo motivo.
+  // ⚠️ ESTA PRUEBA AFIRMABA LO CONTRARIO HASTA EL 2026-10-10.
+  //
+  // Protegia que "Palmira" sin señal de compra NO pidiera datos. Marco lo
+  // cambio el 10-oct despues de ver dos conversaciones muertas en ese punto
+  // exacto -Duitama y Santiago, las dos contestaron la ciudad y el bot se
+  // quedo en el plazo-. Ahora el mensaje de la ciudad lleva la pedida.
+  //
+  // La version nueva comprueba las dos mitades: que SIGUE dando el dato util
+  // -el plazo a su ciudad- y que ADEMAS dice que sigue.
   // ------------------------------------------------------------------------
-  test("pero sin señal de compra, «Palmira» NO dispara la pedida de datos", async () => {
+  test("«Palmira» da el plazo Y pide lo que falta, en un solo mensaje", async () => {
     const v = await ventaReal();
     await v.dice("Hola, quiero información sobre el cinturón térmico de $49.900.");
     const r = await v.dice("Palmira");
@@ -597,10 +605,23 @@ describe("5 · dar un dato dispara el cierre", () => {
     // Se le da lo util: el plazo a su ciudad.
     assert.match(r.texto, /Palmira/, `no usó su ciudad: ${r.texto}`);
     assert.match(r.texto, /1 a 3 días hábiles/, `no le dijo el plazo: ${r.texto}`);
-    // Y NO se le pide ni un dato.
-    assert.equal(/me pasas/.test(r.texto), false, `pidió datos a quien solo pidió información: ${r.texto}`);
-    assert.equal(/dirección/i.test(r.texto), false, `pidió la dirección: ${r.texto}`);
-    assert.equal(/nombre completo/i.test(r.texto), false, `pidió el nombre: ${r.texto}`);
+    // Y se le dice que sigue, que es lo que faltaba.
+    assert.match(r.texto, /me pasas/, `no pidió los datos: ${r.texto}`);
+    // Una sola pedida, no dos frases de peticion.
+    assert.equal((r.texto.match(/me pasas/g) || []).length, 1, `pidió dos veces: ${r.texto}`);
+    // Y la cantidad va DENTRO de la misma pedida, con el ofrecimiento de las
+    // dos: es el upsell que Marco pidio conservar en el mensaje de la ciudad.
+    assert.match(r.texto, /uno o dos/, `perdió el ofrecimiento de las dos: ${r.texto}`);
+  });
+
+  test("una PREGUNTA por la ciudad sigue sin recibir la pedida de datos", async () => {
+    // El nucleo de la regla del PR #9 que no se toco: preguntar si llega a
+    // tu ciudad es averiguar, no comprar.
+    const v = await ventaReal();
+    await v.dice("Hola, quiero información sobre el cinturón térmico de $49.900.");
+    const r = await v.dice("¿Llega a Palmira?");
+
+    assert.equal(/me pasas/.test(r.texto), false, `pidió datos a quien solo preguntaba: ${r.texto}`);
   });
 
   test("y pedir información no pide datos ni asume compra", async () => {

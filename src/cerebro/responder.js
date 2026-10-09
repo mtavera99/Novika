@@ -395,12 +395,13 @@ function lineaComercial(cotizacion, producto, { asumida = false } = {}) {
 // habiles"- porque repetirle su ciudad demuestra que se le leyo. Y el plazo
 // ahi no es un adorno: es la pregunta que viene detras.
 // --------------------------------------------------------------------------
-function cerrarTrasElDato({ datosAportados, ciudadConfirmada, faltan, producto, cantidadInformada }) {
+function cerrarTrasElDato({ datosAportados, ciudadConfirmada, faltan, producto, cantidadInformada, yaSePidieron = false }) {
   const dioLaCiudad = (datosAportados || []).includes("ciudad");
   const partes = [];
 
   if (dioLaCiudad && ciudadConfirmada) {
-    const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
+    // El plazo DE SU CIUDAD: Bogota 1 a 2 dias habiles, el resto 1 a 3.
+    const t = contestar.plazoDeEntrega(producto, ciudadConfirmada);
     partes.push(
       t && t.texto
         ? `¡Perfecto! A ${ciudadConfirmada} te llega en ${t.texto}.`
@@ -413,7 +414,7 @@ function cerrarTrasElDato({ datosAportados, ciudadConfirmada, faltan, producto, 
   // Y TODO lo que falta en la MISMA pedida, no de a uno. Pedir un dato,
   // esperar, pedir el siguiente es lo que convierte una venta en un
   // formulario.
-  partes.push(pedirLoQueFalta(faltan, { cantidadInformada, comoProceso: true }));
+  partes.push(pedirLoQueFalta(faltan, { cantidadInformada, comoProceso: true, yaSePidieron }));
   return partes;
 }
 
@@ -875,7 +876,9 @@ function textoDeterminista({
     case "producto_en_borrador": {
       const nombre = (producto && (producto.nombreCorto || producto.nombre)) || null;
       const lo = nombre ? nombre : "ese producto";
-      const hayFotos = Boolean(producto && (producto.imagenes || []).length);
+      // Mismo candado del 10-oct: si ya las tiene, la deduplicacion no las
+      // reenvia y prometerlas es prometer algo que no llega.
+      const hayFotos = Boolean(producto && (producto.imagenes || []).length) && !fotosYaEnviadas;
       return componer([
         saludo,
         `¡Claro que sí! ${mayuscula(lo)} lo tenemos.`,
@@ -1096,7 +1099,7 @@ function textoDeterminista({
           const comerciales = lectura.temas.filter((t) => TEMAS_COMERCIALES.includes(t));
           const politicas = contestar.aTemas(
             comerciales.filter((t) => t !== preguntas.TEMAS.PRECIO),
-            { producto, cotizacion: null, vezDeLaObjecion, vecesPorTema },
+            { producto, cotizacion: null, vezDeLaObjecion, vecesPorTema, fotosYaEnviadas, ciudadConfirmada },
             { maximo: 2 }
           );
           if (politicas.texto) partes.push(politicas.texto);
@@ -1118,7 +1121,7 @@ function textoDeterminista({
       // argumento, y sin este aviso las repetia en el mismo mensaje.
       const resto = contestar.aTemas(
         otros,
-        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot), vezDeLaObjecion, vecesPorTema },
+        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot), vezDeLaObjecion, vecesPorTema, fotosYaEnviadas, ciudadConfirmada },
         { maximo: 2 }
       );
       if (resto.texto) partes.push(resto.texto);
@@ -1219,31 +1222,38 @@ function textoDeterminista({
         //     se los pidio el bot, contestarlos es responder, y seguir el
         //     cierre es atender; quedarse en "gracias" es colgarle.
         // ------------------------------------------------------------------
-        // LA CIUDAD ES EL UNICO DATO AMBIGUO. Los demas comprometen.
+        // ⚠️ MARCO CAMBIO ESTA REGLA EL 2026-10-10, Y SU MEDICION MANDA.
         //
-        // "Palmira" puede ser "¿me llega allá?" -de ahi la regla del PR #9,
-        // que sigue intacta y tiene su prueba-. Pero la CANTIDAD, el NOMBRE
-        // COMPLETO y la DIRECCION no son ambiguos: nadie los da para
-        // informarse. Tratarlos como si lo fueran es lo que dejo a la
-        // clienta del 08-oct con un "¡Perfecto, gracias!" y sin pedirle lo
-        // que faltaba.
-        const NEUTROS = new Set(["ciudad", "departamento", "referencia"]);
-        const dioAlgoQueCompromete = (datosAportados || []).some((d) => !NEUTROS.has(d));
-        const avanzaLaVenta = huboSenalDeCompra || dioAlgoQueCompromete;
-
-        if (!avanzaLaVenta) {
-          const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
-          const dioLaCiudad = datosAportados.includes("ciudad");
-          if (dioLaCiudad && ciudadConfirmada && t && t.texto) {
-            partes.push(`¡Perfecto! A ${ciudadConfirmada} te llega en ${t.texto}${t.matiz ? ` ${t.matiz}` : ""}.`);
-          } else {
-            partes.push("¡Perfecto, gracias!");
-          }
-          // La puerta abierta, UNA vez, sin pedir ningun dato.
-          if (!memoria.pasoPropuesto) partes.push(INVITAR);
-          return componer(partes, { emoji: "atencion" });
-        }
-
+        // Aqui habia un atajo: si el UNICO dato aportado era la ciudad -un
+        // dato "neutro"- se contestaba el plazo y se volvia SIN PEDIR NADA.
+        // La idea era la regla del PR #9, "dar una ciudad no es comprar",
+        // porque muchas veces la ciudad es en realidad "¿me llega allá?".
+        //
+        // El precio de ese atajo, en el panel de Marco:
+        //
+        //   Duitama:  "Duitama boyaca"
+        //   bot:      "¡Perfecto! A Duitama te llega en 1 a 3 días
+        //              hábiles según la ciudad 🙌"
+        //             (y ahi se acabo la conversacion)
+        //
+        //   Santiago: "Bogotá"  ->  el mismo mensaje, y tampoco siguio.
+        //
+        // Dos conversaciones muertas justo donde el cliente acababa de
+        // contestar LA PREGUNTA QUE HACE EL PROPIO BOT en su primer mensaje
+        // ("¿Para qué ciudad sería?"). Preguntar la ciudad y luego tratar la
+        // respuesta como si no comprometiera a nada deja al cliente sin
+        // saber que sigue — y en un chat de ventas, eso es colgarle.
+        //
+        // AHORA LA CIUDAD TAMBIEN AVANZA LA VENTA: el mensaje lleva el plazo
+        // Y la lista de lo que falta, en un solo mensaje. Es exactamente lo
+        // que ya hacia `cerrarTrasElDato`, asi que el arreglo es BORRAR el
+        // atajo, no escribir un camino nuevo.
+        //
+        // LO QUE SIGUE PROTEGIDO, y es la parte de la regla del PR #9 que de
+        // verdad importa: esta rama exige `!lectura.pregunta`. "¿Llega a
+        // Palmira?" NO entra aqui y sigue recibiendo solo la cobertura. Lo
+        // que cambia es la ciudad dicha COMO DATO, que es otra cosa.
+        // ------------------------------------------------------------------
         return componer(
           [
             ...partes,
@@ -1253,6 +1263,7 @@ function textoDeterminista({
               faltan,
               producto,
               cantidadInformada: cot && cot.cantidad,
+              yaSePidieron: memoria.datosPedidos,
             }),
           ],
           { emoji: "atencion" }
@@ -1601,10 +1612,10 @@ function textoDeterminista({
         respuesta = { texto: "ya respondido" };
         // Y las dudas que NO sean comerciales, detras.
         const otras = lectura.temas.filter((t) => !TEMAS_COMERCIALES.includes(t));
-        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema }, { maximo: 1 });
+        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema, fotosYaEnviadas, ciudadConfirmada }, { maximo: 1 });
         if (extra.texto) partes.push(extra.texto);
       } else {
-        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema }, { maximo: 2 });
+        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema, fotosYaEnviadas, ciudadConfirmada }, { maximo: 2 });
         if (respuesta.texto) partes.push(respuesta.texto);
       }
 
@@ -1844,7 +1855,7 @@ function textoDeterminista({
         );
       }
 
-      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion, vezDeLaObjecion, vecesPorTema }, { maximo: 2 });
+      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion, vezDeLaObjecion, vecesPorTema, fotosYaEnviadas, ciudadConfirmada }, { maximo: 2 });
       return componer([
         saludo || voz.apertura(lectura.temas),
         resto.texto,
@@ -1931,6 +1942,40 @@ const INSISTE_SIN_DATO =
   "Esa me la quedé debiendo, y ya está anotada para que te la confirme una persona del equipo. " +
   "Lo que sí te puedo decir es que pagas al recibir, así que puedes revisarlo con calma cuando llegue. " +
   "¿Te lo aparto mientras?";
+
+// ==========================================================================
+// ¿ESTE TEXTO LE HIZO UNA PREGUNTA DE CIERRE?
+//
+// ⚠️ SIN ESTO, EL BOT NO SABIA QUE ACABABA DE PREGUNTAR, y por eso no
+//    entendia el "si". Era el agujero del 10-oct.
+//
+// La conversacion guardaba cuatro banderas -`saludado`, `precioInformado`,
+// `datosPedidos`, `pasoPropuesto`- y NINGUNA decia "mi ultimo mensaje fue
+// una pregunta de cierre". `pasoPropuesto` se le parece, pero es monotona:
+// significa "alguna vez propuse un paso", no "lo acabo de preguntar", y se
+// ponia a true en todos los turnos.
+//
+// Sin esa memoria, "Mándamelo" era un mensaje sin tema y sin dato: el
+// redactor no tenia permiso para pedir datos y volvia a soltar la misma
+// pregunta de cierre. El cliente decia si tres veces y el bot le contestaba
+// "Perdón, creo que no te entendí bien".
+//
+// SE DETECTA SOBRE EL TEXTO YA PREPARADO, igual que `prometeConfirmar`. Es
+// la misma decision de diseño y por el mismo motivo: una bandera que cada
+// rama tiene que acordarse de devolver falla en silencio el dia que alguien
+// añade una rama nueva. Mirando el texto, cualquier cierre futuro queda
+// cubierto sin tocar nada.
+//
+// ⚠️ SI SE CAMBIA LA REDACCION DE UN CIERRE, HAY QUE TOCAR ESTE PATRON.
+//    Lo vigila una prueba que recorre los cierres conocidos.
+// ==========================================================================
+const PREGUNTA_DE_CIERRE =
+  /¿te\s+lo\s+aparto|¿te\s+l[oa]\s+dejo\s+list[oa]|¿te\s+l[oa]\s+preparo|¿te\s+l[oa]\s+dejo\s+apartad[oa]|¿quieres\s+que\s+te\s+ayude\s+a\s+pedirl[oa]|¿quieres\s+pedirl[oa]|¿l[oa]\s+pedimos|¿confirmamos|respóndeme\s+"sí"/i;
+
+/** ¿El texto que se va a enviar termina proponiendo el cierre? */
+function prometeCierre(texto) {
+  return PREGUNTA_DE_CIERRE.test(String(texto || ""));
+}
 
 /**
  * Evita el texto repetido.
@@ -2280,6 +2325,8 @@ module.exports = {
   arranque,
   sinRepetir,
   retomarElPaso,
+  prometeCierre,
+  PREGUNTA_DE_CIERRE,
   PEDIR_CONCRETAR,
   PASAR_A_PERSONA,
   revisarClaims,

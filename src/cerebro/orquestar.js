@@ -151,6 +151,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // "las quiero" sin volver a preguntar. Sin columna propia: viaja en
       // `extra`.
       cantidadInformada: null,
+      // ¿El ultimo mensaje enviado le hizo una pregunta de cierre? Es lo
+      // que permite entender un "si" pelado en el turno siguiente.
+      cierrePropuesto: false,
       // Lo que ya se le dijo, para no repetirlo. Sin columna propia: viajan
       // en `extra`, igual que precioInformado.
       saludado: false,
@@ -194,21 +197,55 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
    * Heuristicas que no necesitan modelo. Son las mas fiables que hay:
    * el telefono del chat es un hecho, no una inferencia.
    */
-  function candidatosHeuristicos(evento, { seLePidioElNombre = false } = {}) {
+  function candidatosHeuristicos(evento, { seLePidioElNombre = false, yaHayNombre = false, seLePidioLaCiudad = false } = {}) {
     const propuestas = {};
 
     // El telefono con el que escribe es el mejor candidato que existe: es un
     // hecho del canal, no una inferencia. Ojo: los clientes con nombre de
     // usuario de WhatsApp NO tienen telefono, y en ese caso no se inventa.
     if (evento.telefono) propuestas.telefono = evento.telefono;
-    if (evento.nombre) propuestas.nombre = evento.nombre;
+
+    // ------------------------------------------------------------------
+    // ⚠️ EL NOMBRE DEL PERFIL ES UN RESPALDO, NO UNA CORRECCION.
+    //
+    // Esto era `if (evento.nombre) propuestas.nombre = evento.nombre;` sin
+    // condicion, y DESTRUIA EL NOMBRE QUE ESCRIBIA EL CLIENTE.
+    //
+    // El nombre de perfil de WhatsApp viaja en CADA mensaje. Se proponia en
+    // cada turno con origen CLIENTE, y `aplicarCandidatos` trata un valor
+    // distinto sobre un campo confirmado como "el cliente lo corrigio":
+    // reabre el campo y mete el nuevo valor. Resultado, con el chat real de
+    // Popayan, cuyo perfil de WhatsApp es un emoji:
+    //
+    //   cliente · "Alejandro león Garzón / Popayán Cauca / Barrio..."
+    //   bot     · (resumen correcto, con el nombre bien)
+    //   cliente · "Si"
+    //             -> el perfil "🤪" "corrige" a "Alejandro león Garzón"
+    //             -> "🤪" no pasa validarNombre, el campo queda VACIO
+    //             -> "no se puede crear el pedido, falta: nombre"
+    //             -> escalado
+    //
+    // El cliente dijo que si a un resumen correcto y perdio el pedido y el
+    // nombre en el mismo turno. Y el defecto no se veia porque hasta hoy el
+    // nombre escrito en el mensaje no se capturaba nunca: no habia nada
+    // bueno que pisar.
+    //
+    // La regla: el perfil solo rellena el hueco. Si ya hay un nombre
+    // confirmado -lo escribio el cliente o lo puso una persona- el perfil
+    // se calla. Corregir el nombre sigue siendo posible diciendolo ("me
+    // llamo X"), que es una correccion de verdad.
+    // ------------------------------------------------------------------
+    if (evento.nombre && !yaHayNombre) propuestas.nombre = evento.nombre;
 
     // Cantidad, ciudad y direccion salen del texto con reglas, no con
     // modelo. Ver dominio/extraer.js: ante la duda, no propone.
     // `seLoPidieron` abre la captura del nombre A SECAS. Solo cuando el bot
     // acaba de pedirlo: sin esa condicion, "Buenos Aires" o
     // "Interapidisimo" se leerian como nombres de persona.
-    const { candidatos } = extraer.deTexto(evento.texto || "", { seLoPidieron: seLePidioElNombre });
+    const { candidatos } = extraer.deTexto(evento.texto || "", {
+      seLoPidieron: seLePidioElNombre,
+      seLaPidieronCiudad: seLePidioLaCiudad,
+    });
     return { ...propuestas, ...candidatos };
   }
 
@@ -430,6 +467,44 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     traza.clase = decision.clase;
 
     // ------------------------------------------------------------------
+    // ¿ACABA DE DECIR QUE SI A LA PREGUNTA DE CIERRE?
+    //
+    // ⚠️ EL DEFECTO MAS CARO DEL 10-OCT. Cuatro conversaciones del panel,
+    //    cuatro clientes diciendo que si, cero pedidos:
+    //
+    //   Santiago · "Mándamelo"          -> el bot repitio la pregunta
+    //   Jhon     · "Si claro por favor" -> repitio el precio y pregunto otra vez
+    //   Precioso · "Si Agame el favor"  -> otra vez "¿Te lo aparto...?"
+    //   Popayan  · "Si" y luego "Claro" -> "Perdón, creo que no te entendí bien"
+    //
+    // La pieza que faltaba era la MEMORIA de haber preguntado. El permiso
+    // para pedir los datos es `lectura.compra || huboSenalDeCompra ||
+    // datosAportados.length`, y "Mándamelo" no es ninguna de las tres: no
+    // trae dato, y `SENALES_DE_COMPRA` no lo reconocia. Sin permiso, el
+    // redactor volvia a soltar el mismo cierre; y al ser texto identico, la
+    // guarda anti-eco remataba con "no te entendí bien".
+    //
+    // `cierrePropuesto` se escribe al final del turno SOLO si el mensaje
+    // salio de verdad y llevaba una pregunta de cierre. Aqui se lee, y un
+    // "si" vale como señal de compra: es lo que el cliente quiso decir.
+    //
+    // POR QUE ES SEGURO ACEPTAR UNA LISTA TAN AMPLIA ("listo", "ok", "por
+    // favor"): porque solo se consulta con `cierrePropuesto` puesto. Fuera
+    // de ese contexto esas palabras no afirman nada y la funcion no se
+    // llama. Y no crea el pedido: lleva a PEDIR LO QUE FALTA. El pedido
+    // sigue exigiendo el resumen a la vista y su propia confirmacion.
+    // ------------------------------------------------------------------
+    const afirmoElCierre =
+      conversacion.cierrePropuesto === true && confirmacion.esAfirmacionDeCierre(evento.texto || "");
+    if (afirmoElCierre) {
+      // Se guarda como señal de compra permanente, igual que un "lo quiero":
+      // una vez que dijo que si, sigue siendo verdad en el turno siguiente.
+      conversacion.huboSenalDeCompra = true;
+      traza.avisos.push("dijo que si a la pregunta de cierre: cuenta como señal de compra");
+      contar("afirmo_el_cierre");
+    }
+
+    // ------------------------------------------------------------------
     // Producto
     // ------------------------------------------------------------------
     const resolucion = senales.resolver({
@@ -590,7 +665,21 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       conversacion.datosPedidos === true && !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre);
     conversacion.ficha = aplicarCandidatos(
       conversacion.ficha,
-      candidatosHeuristicos(evento, { seLePidioElNombre }),
+      candidatosHeuristicos(evento, {
+        seLePidioElNombre,
+        // Para que el nombre de perfil de WhatsApp no pise el que escribio
+        // el cliente. Ver el comentario en `candidatosHeuristicos`.
+        yaHayNombre: Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)),
+        // ¿Se le pidio la ciudad y todavia no la tenemos? Entonces una
+        // ciudad fuera del listado -un corregimiento, una vereda- se acepta
+        // marcada para revisar, en vez de perderse. Se exige que el NOMBRE
+        // ya este resuelto: con los dos pendientes, un mensaje de dos
+        // palabras es ambiguo y se lo queda el nombre, que se pidio primero.
+        seLePidioLaCiudad:
+          (conversacion.saludado === true || conversacion.datosPedidos === true) &&
+          !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.ciudad) &&
+          Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)),
+      }),
       campos.ORIGENES.CLIENTE
     );
 
@@ -610,7 +699,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     const turnoDeCompra = responder.analizarTurno(evento.texto || "");
     if (
-      turnoDeCompra.lectura.compra &&
+      // `afirmoElCierre` entra aqui el 10-oct: si el bot informo el precio
+      // de dos y la clienta contesta "claro" o "mándamelas" a la pregunta
+      // de cierre, esta aceptando LAS DOS. Antes solo valia un "las quiero"
+      // reconocido como compra, y "claro" se quedaba fuera.
+      (turnoDeCompra.lectura.compra || afirmoElCierre) &&
       Number(conversacion.cantidadInformada) > 1 &&
       !texto.cantidadesEn(evento.texto || "").length &&
       !campos.valorConfirmado(conversacion.ficha.cantidad)
@@ -688,15 +781,66 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     //
     // `extraer.cantidadEn` ya resuelve esto bien y esta probado: si el
     // mensaje parece una direccion, sus numeros no son cantidades.
+    // ------------------------------------------------------------------
+    // ⚠️ Y TAMBIEN CUANDO YA DIJO QUE SI: "CANTIDAD POR DEFECTO 1", QUE LO
+    //    PIDIO MARCO EL 10-OCT.
+    //
+    // Hasta hoy esta regla exigia que TODO lo demas estuviera completo. El
+    // resultado, en el chat de Santiago:
+    //
+    //   bot      · "¿Te lo aparto...?"
+    //   Santiago · "Envíamelo"
+    //   bot      · "¡Perfecto! ¿Cuántos quieres? Y para preparar tu pedido
+    //               me pasas la dirección 🙌"
+    //
+    // Preguntarle cuantos quiere a alguien que acaba de decir "envíamelo"
+    // es ponerle un trabajo extra en el unico momento en que ya habia
+    // decidido. Lo normal es uno; si quiere dos, lo dice.
+    //
+    // DOS CANDADOS SE MANTIENEN:
+    //   · si el mensaje trae un numero, manda el numero;
+    //   · si el bot informo el precio de DOS, no se baja a 1 a sus espaldas
+    //     (de eso se encarga la regla de arriba, que respeta esa cantidad).
+    //
+    // Y no se cobra de mas nunca: se elige la menor, y la vera escrita en
+    // el resumen antes de confirmar.
+    // ------------------------------------------------------------------
+    // OJO: se mira la señal de compra DE ESTE TURNO, no la de la
+    // conversacion entera. La diferencia la pidio Marco en sus dos
+    // instrucciones, que a primera vista parecen chocar y no chocan:
+    //
+    //   · tras un SI ("mándamelo") -> no preguntarle cuantos, se toma 1.
+    //   · en el mensaje de la CIUDAD -> ofrecerle "si quieres uno o dos".
+    //
+    // Si esto mirara `huboSenalDeCompra` -que es permanente- un "me
+    // interesa" de hace cinco mensajes fijaria la cantidad en 1 y el
+    // mensaje de la ciudad perderia el ofrecimiento de las dos. Mirando el
+    // turno, cada instruccion se cumple donde toca.
+    // Y se mira la AFIRMACION, no cualquier señal de compra. "Me interesa"
+    // es compra -y abre la puerta a pedir datos- pero no es "mándamelo": a
+    // quien apenas muestra interes todavia se le ofrece "si quieres uno o
+    // dos", que es el upsell del combo. A quien ya dijo "mándamelo" se le
+    // toma 1 y se le piden solo los datos, que es lo que pidio Marco.
+    // Dos caminos, y los dos exigen contexto o intencion explicita:
+    //   · `afirmoElCierre`: contesto que si a la pregunta de cierre.
+    //   · un imperativo de compra RECONOCIDO como tal ("mándamelo", "lo
+    //     quiero"). Se exige `lectura.compra` ADEMAS de la forma de
+    //     afirmacion: sin eso, un "Por favor" suelto -que no es compra-
+    //     fijaba la cantidad y le disparaba el formulario a quien no habia
+    //     pedido nada. Lo cazo una prueba del 09-oct.
+    const dijoQueSiEnEsteTurno =
+      afirmoElCierre ||
+      (turnoDeCompra.lectura.compra === true && confirmacion.esAfirmacionDeCierre(evento.texto || ""));
     if (
       !campos.valorConfirmado(conversacion.ficha.cantidad) &&
       extraer.cantidadEn(evento.texto || "").valor === null &&
-      campos.faltantes(conversacion.ficha, REQUERIDOS_SIN_CANTIDAD).length === 0
+      !(Number(conversacion.cantidadInformada) > 1) &&
+      (campos.faltantes(conversacion.ficha, REQUERIDOS_SIN_CANTIDAD).length === 0 || dijoQueSiEnEsteTurno)
     ) {
       conversacion.ficha = aplicarCandidatos(conversacion.ficha, { cantidad: 1 }, campos.ORIGENES.CODIGO);
       validacion = validarYConfirmar(conversacion.ficha);
       conversacion.ficha = validacion.ficha;
-      traza.avisos.push("solo faltaba la cantidad y no la dijo: se toma 1, que es la menor, y lo vera en el resumen");
+      traza.avisos.push("no dijo cuantos y ya mostro intencion de compra: se toma 1, la menor, y lo vera en el resumen");
     }
 
     // Que datos se confirmaron EN ESTE TURNO.
@@ -709,8 +853,25 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // El telefono tampoco cuenta: llega gratis con el mensaje de WhatsApp,
     // no lo APORTA nadie, y agradecerlo seria agradecerse a si mismo.
     const DATOS_DE_DESPACHO = ["nombre", "documento", "ciudad", "departamento", "direccion", "referencia", "cantidad"];
+    // ------------------------------------------------------------------
+    // ⚠️ Y LO QUE PONE EL CODIGO NO LO "APORTA" EL CLIENTE.
+    //
+    // `datosAportados` se usa como señal de que el cliente avanza la venta.
+    // Pero hay dos campos que los rellena el sistema: la cantidad por
+    // defecto (1) y el departamento derivado de la ciudad. Contarlos como
+    // aportados es atribuirle al cliente algo que no dijo.
+    //
+    // Se vio al añadir la cantidad por defecto el 10-oct: "Por favor" no
+    // aporta ningun dato, el codigo le ponia cantidad 1, y eso bastaba para
+    // dispararle la pedida de los cuatro datos. Justo el "formulario por
+    // defecto" que una prueba del 09-oct existe para impedir.
+    // ------------------------------------------------------------------
+    const puestoPorElCodigo = (campo) => {
+      const c = conversacion.ficha && conversacion.ficha[campo];
+      return Boolean(c && c.origen === campos.ORIGENES.CODIGO);
+    };
     const datosAportados = Object.keys(campos.soloConfirmado(conversacion.ficha)).filter(
-      (c) => !confirmadosAntes.has(c) && DATOS_DE_DESPACHO.includes(c)
+      (c) => !confirmadosAntes.has(c) && DATOS_DE_DESPACHO.includes(c) && !puestoPorElCodigo(c)
     );
     traza.datosAportados = datosAportados;
     traza.revisiones = validacion.revisiones;
@@ -1106,7 +1267,28 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // Y tampoco a quien acaba de DAR un dato: corregir la direccion es lo
       // mas concreto que puede hacer un cliente, y recibia "dime qué
       // necesitas" porque el cuadro de confirmacion salia igual que antes.
-      preguntaReconocida: temasAhora.length > 0 || datosAportados.length > 0,
+      //
+      // ⚠️ NI A QUIEN ACABA DE DECIR QUE LO QUIERE. Añadido el 10-oct, y lo
+      //    saco el chat de Santiago:
+      //
+      //   Santiago · "Mándamelo"   -> "dime el barrio, o un punto de
+      //                               referencia"
+      //   Santiago · "Envíamelo"   -> "Perdón, creo que no te entendí bien"
+      //
+      // Las dos son compra, las dos se entendieron perfectamente, y como el
+      // texto que tocaba era el mismo -falta la direccion, se vuelve a
+      // pedir- la guarda lo leyo como un bot atascado. Decirle "no te
+      // entendí" a quien lleva dos mensajes diciendo que compra es la peor
+      // respuesta posible en el mejor momento posible.
+      //
+      // Un turno reconocido como compra o como afirmacion del cierre ES un
+      // turno entendido. Si hay que repetir, se repite con otra envoltura,
+      // que es lo que hace `sinRepetir` cuando `preguntaReconocida` es true.
+      preguntaReconocida:
+        temasAhora.length > 0 ||
+        datosAportados.length > 0 ||
+        turnoAhora.lectura.compra === true ||
+        afirmoElCierre,
     });
 
     // ------------------------------------------------------------------
@@ -1562,9 +1744,40 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // ----------------------------------------------------------------
       const informada = traza.cotizacionInformativa || traza.cotizacion;
       if (informada && informada.cantidad > 1) conversacion.cantidadInformada = informada.cantidad;
-    }
+
+      // ----------------------------------------------------------------
+      // ⚠️ ESTAS DOS LINEAS ESTABAN FUERA DEL BLOQUE, Y UNA DE ELLAS NO
+      //    HACIA LO QUE DICE. Arreglado el 10-oct.
+      //
+      // Vivian detras del cierre del `if (traza.enviada)`, con la
+      // indentacion de dentro pero el alcance de fuera. Dos consecuencias:
+      //
+      // 1. `turno` se declara con `const` DENTRO de este bloque, asi que
+      //    ahi fuera no existia... pero no explotaba: `turno` resolvia al
+      //    NOMBRE DE ESTA MISMA FUNCION (`async function turno`), que es
+      //    visible en su propio cuerpo. Y `funcion.soloAveriguando` es
+      //    `undefined`, asi que `!turno.soloAveriguando` era SIEMPRE true:
+      //    la guarda estaba muerta y `datosPedidos` se marcaba tambien
+      //    cuando el cliente solo estaba averiguando. Por eso no aparecia
+      //    en las metricas: no hay error, hay una condicion que no condiciona.
+      //
+      // 2. `pasoPropuesto` se ponia a true en TODOS los turnos, incluso con
+      //    el mensaje sin enviar (modo sombra o chat pausado). Y como
+      //    `INVITAR` solo sale `if (!memoria.pasoPropuesto)`, la invitacion
+      //    desaparecia desde el segundo mensaje de la conversacion.
+      //
+      // Ahora las dos van dentro, con `turno` en su alcance de verdad, y
+      // `pasoPropuesto` refleja lo que se PROPUSO de verdad.
+      // ----------------------------------------------------------------
       if (situacion === "faltan_datos" && !turno.soloAveriguando) conversacion.datosPedidos = true;
       conversacion.pasoPropuesto = true;
+
+      // ¿Este mensaje le hizo una pregunta de cierre? Es la memoria que
+      // permite entender el "si" del turno siguiente. Se reescribe en cada
+      // turno enviado: si el ultimo mensaje no cerro, la bandera baja y un
+      // "listo" vuelve a no significar nada.
+      conversacion.cierrePropuesto = responder.prometeCierre(preparada.texto || "");
+    }
 
     conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
     conversacion.ultimoWamid = evento.wamid;

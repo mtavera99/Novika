@@ -34,6 +34,51 @@
 
 const { TEMAS } = require("../dominio/preguntas");
 const cotizador = require("../dominio/cotizador");
+const { aplanar } = require("../dominio/texto");
+
+// ==========================================================================
+// EL PLAZO DE ENTREGA DEPENDE DE LA CIUDAD, Y EL DATO YA ESTABA
+//
+// ⚠️ DEFECTO MEDIDO POR MARCO EL 2026-10-10: a Bogota el bot contestaba
+//    "1 a 3 días hábiles". A Bogota son 1 a 2.
+//
+// Lo mas llamativo es que el dato correcto estaba en el catalogo desde el
+// 09-oct —`logistica.tiempoDeEntrega.porCiudad.bogota`— y NO LO LEIA NADIE.
+// Un campo que nadie consulta es peor que un campo que falta: parece que el
+// dato esta y en realidad no se usa.
+//
+// Y HAY UN SEGUNDO ARREGLO AQUI, el del matiz. Cuando ya sabemos la ciudad,
+// "según la ciudad" sobra y suena a letra pequeña:
+//
+//   antes:  "A Duitama te llega en 1 a 3 días hábiles según la ciudad"
+//   ahora:  "A Duitama te llega en 1 a 3 días hábiles"
+//
+// El matiz solo tiene sentido cuando NO sabemos a donde va, que es cuando
+// el rango de verdad depende de algo que todavia no se conoce.
+// ==========================================================================
+/**
+ * Plazo de entrega para una ciudad concreta, o el general si no se sabe.
+ *
+ * @param {object|null} producto
+ * @param {string|null} ciudad  Ciudad ya confirmada, o null.
+ * @returns {{texto: string, matiz: string}|null}
+ */
+function plazoDeEntrega(producto, ciudad) {
+  const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
+  if (!t || !t.texto) return null;
+
+  const plano = aplanar(ciudad || "");
+  if (plano) {
+    const porCiudad = t.porCiudad || {};
+    // "bogota dc" y "bogota" tienen que dar el mismo plazo: se prueba la
+    // ciudad tal cual y, si no, su primera palabra.
+    const exacto = porCiudad[plano] || porCiudad[plano.split(/\s+/)[0]];
+    // Se sabe la ciudad: el matiz "segun la ciudad" ya no aporta nada.
+    return { texto: exacto || t.texto, matiz: "" };
+  }
+
+  return { texto: t.texto, matiz: t.matiz || "" };
+}
 
 /** Formato de moneda colombiana. Solo para cifras ya calculadas. */
 function pesos(n) {
@@ -192,6 +237,25 @@ function deTema(
     // mensajes normalisimos: "no confío en estas páginas" y "ya me estafaron
     // una vez" recibian el mismo parrafo palabra por palabra.
     vecesEsteTema = 1,
+    // ----------------------------------------------------------------------
+    // ¿YA SE LE MANDARON LAS FOTOS DE ESTE PRODUCTO?
+    //
+    // ⚠️ SIN ESTO SE PROMETEN FOTOS QUE NO LLEGAN, y Marco lo midio el
+    //    2026-10-10: la respuesta de "¿cómo funciona?" terminaba en "Te paso
+    //    las fotos para que lo veas bien" y no salia ninguna imagen.
+    //
+    // El motivo es que las fotos estan DEDUPLICADAS por producto
+    // (`conversacion.fotosEnviadas`): se mandan una vez y no se repiten, que
+    // es lo correcto —nadie quiere la misma galeria cinco veces—. Pero el
+    // texto no se enteraba y seguia anunciandolas.
+    //
+    // Las promete solo si de verdad van a salir. Si ya se enviaron, la frase
+    // se cae y el resto de la respuesta queda intacta.
+    // ----------------------------------------------------------------------
+    fotosYaEnviadas = false,
+    // Ciudad ya confirmada del cliente. La usa el plazo de entrega para dar
+    // el de SU ciudad (Bogota 1 a 2) en vez del rango general.
+    ciudadConfirmada = null,
   } = {}
 ) {
   const nombre = comoSeLlama(producto);
@@ -389,7 +453,11 @@ function deTema(
     // controla nadie de NOVIKA. Esas promesas estan en claimsProhibidos.
     // ----------------------------------------------------------------------
     case TEMAS.ENTREGA: {
-      const t = (producto && producto.logistica && producto.logistica.tiempoDeEntrega) || null;
+      // `plazoDeEntrega` resuelve Bogota (1 a 2) frente al resto (1 a 3) y
+      // quita el matiz cuando ya se sabe la ciudad. `ciudadConfirmada` llega
+      // del cerebro; si todavia no la sabemos, sale el rango general con su
+      // matiz, que es lo honesto.
+      const t = plazoDeEntrega(producto, ciudadConfirmada);
       if (!t || !t.texto) return loConfirmo("El tiempo de entrega", "lo");
       // ANTES: "La transportadora normalmente entrega en 1 a 3 días hábiles
       // según la ciudad." Correcto y escrito como un aviso legal: hablaba de
@@ -398,6 +466,7 @@ function deTema(
       //
       // Sigue siendo un RANGO con su matiz: lo que esta prohibido es el dia
       // concreto, no hablar en segunda persona.
+      // Con ciudad conocida `plazoDeEntrega` ya devuelve el matiz vacio.
       const matiz = t.matiz ? ` ${t.matiz.replace(/^según la ciudad$/, "según tu ciudad")}` : "";
       return `te llega en ${t.texto}${matiz}.`;
     }
@@ -429,6 +498,59 @@ function deTema(
     // resto. Es lo honesto, y es lo unico que se puede hacer hasta que
     // Marco apruebe que decir: esta pedido en docs/DATOS-PENDIENTES.md.
     // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // "¿COMO FUNCIONA?" — LA MECANICA, Y SALE DE LA FICHA
+    //
+    // ⚠️ ESTA RAMA NACIO DE UN DEFECTO MEDIDO POR MARCO EL 2026-10-10.
+    //
+    // "Como funciona" caia en TEMAS.USO y recibia `paraQueSirve.texto`:
+    //
+    //   David:  "Cómo funciona"
+    //   bot:    "Con gusto: Sí, es justo para eso: da calor y masaje..."
+    //   David:  "Cómo funciona"          <- lo volvio a preguntar
+    //   bot:    (el mismo parrafo, palabra por palabra)
+    //
+    // Dos cosas mal: empieza con un "Sí" que no contesta a nada -nadie
+    // pregunto si sirve- y no dice NADA de la mecanica, que es justo lo que
+    // se pregunta. Y la segunda vez repitio el texto exacto.
+    //
+    // El texto lo dicto Marco y cada dato que afirma ya estaba autorizado en
+    // esta ficha desde el 09-oct: los 10 segundos, los tres niveles, los
+    // cuatro modos y lo de ir sin cable. No se añade ninguna afirmacion
+    // nueva: se ordenan para contestar la pregunta que de verdad se hizo.
+    //
+    // La segunda vez se contesta con OTRAS PALABRAS, no con el mismo
+    // parrafo, porque repetir literal es la marca mas reconocible de un bot.
+    // ----------------------------------------------------------------------
+    case TEMAS.COMO_SE_USA: {
+      const u = producto && producto.comoSeUsa;
+      if (u && u.texto) {
+        // Se ALTERNA, no se cambia una sola vez: con `>= 2` fijo, la tercera
+        // vez repetia la segunda palabra por palabra, que es justo lo que
+        // Marco pidio no hacer nunca. Alternando, dos mensajes seguidos
+        // nunca son iguales.
+        const par = vecesEsteTema % 2 === 0;
+        if (par && u.textoAlternativo) return u.textoAlternativo;
+        return u.texto;
+      }
+
+      // Sin `comoSeUsa` en la ficha se compone con los datos que SI haya.
+      // Existe para que otro producto del catalogo no se quede sin respuesta
+      // por no tener el bloque redactado, y para no volver a caer en el
+      // "no te lo quiero contestar a medias" teniendo los datos sueltos.
+      const piezas = [];
+      const t = producto && producto.temperatura;
+      const m = producto && producto.masaje;
+      const e = producto && producto.energia;
+      if (t && Array.isArray(t.niveles) && t.niveles.length) {
+        piezas.push(`tiene ${t.niveles.length} niveles de calor (${t.niveles.join(", ")} ${t.unidad || "°C"})`);
+      }
+      if (m && m.modos) piezas.push(`${m.modos} modos de masaje`);
+      if (e && e.recargable) piezas.push("y es recargable, así que no va conectado mientras lo usas");
+      if (!piezas.length) return loConfirmo("Cómo funciona", "lo");
+      return `${piezas.join(", ").replace(/^(\w)/, (c) => c.toUpperCase())}.`;
+    }
+
     case TEMAS.USO: {
       // PARA QUE SIRVE, cuando Marco lo autorizo. Era la peor respuesta
       // del bot: a "¿para qué sirve?" contestaba una lista de piezas
@@ -444,7 +566,10 @@ function deTema(
         // Y se ofrecen las fotos: a quien pregunta para que sirve, verlo
         // puesto le dice mas que cualquier frase. La prueba que lo exige
         // cazo la primera version de esta respuesta.
-        const conFotos = (producto.imagenes || []).length;
+        //
+        // `fotosYaEnviadas` es el candado del 10-oct: si ya las tiene, no se
+        // le vuelven a prometer, porque la deduplicacion no las reenvia.
+        const conFotos = (producto.imagenes || []).length && !fotosYaEnviadas;
         return conFotos ? `${paraQue} Te paso las fotos para que lo veas bien.` : paraQue;
       }
 
@@ -452,7 +577,7 @@ function deTema(
       if (!descripcion) return loConfirmo("Para qué sirve", "lo");
 
       const partes = [String(descripcion)];
-      if (producto && (producto.imagenes || []).length) {
+      if (producto && (producto.imagenes || []).length && !fotosYaEnviadas) {
         partes.push("Te paso las fotos para que lo veas bien.");
       }
       partes.push("Si quieres que te cuente más de cómo se usa, te lo explica una persona del equipo.");
@@ -1288,6 +1413,7 @@ function prometeConfirmar(texto) {
 module.exports = {
   deTema,
   aTemas,
+  plazoDeEntrega,
   pesos,
   comoSeLlama,
   loConfirmo,

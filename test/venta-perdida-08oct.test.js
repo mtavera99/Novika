@@ -114,10 +114,22 @@ describe("2 · «Solo 1» no puede acabar la conversación", () => {
     assert.match(t, /dirección/i, t);
   });
 
-  test("y «dar la ciudad» sigue SIN disparar la pedida de datos", () => {
-    // La regla del PR #9 no se toca: "Palmira" puede ser "¿me llega allá?".
-    // La ciudad es el unico dato ambiguo; la cantidad, el nombre y la
-    // direccion no lo son.
+  // ⚠️ ESTA PRUEBA AFIRMABA LO CONTRARIO HASTA EL 2026-10-10.
+  //
+  // Comprobaba que dar la ciudad NO disparara la pedida de datos: la regla
+  // del PR #9, "Palmira puede ser «¿me llega allá?»". La idea era buena y el
+  // precio, medido en el panel de Marco, fue dos conversaciones muertas:
+  //
+  //   Duitama:  "Duitama boyaca" -> plazo, y se acabo la conversacion
+  //   Santiago: "Bogotá"         -> plazo, y tampoco siguio
+  //
+  // Marco la cambio el 10-oct: "el mensaje de la ciudad siempre debe incluir
+  // la lista de datos". La prueba se da la vuelta para fijar la regla nueva,
+  // no se borra: lo que se protege ahora es que SI se pidan.
+  //
+  // LO QUE SIGUE PROTEGIDO, y tiene su propia prueba abajo: una PREGUNTA
+  // ("¿llega a Palmira?") no entra por este camino y no recibe la pedida.
+  test("dar la ciudad SÍ pide los datos que faltan (Marco, 10-oct)", () => {
     const t = responder.textoDeterminista({
       situacion: "faltan_datos",
       cotizacion: cotizador.cotizar({ producto: elCinturon(), cantidad: 1 }).cotizacion,
@@ -128,7 +140,29 @@ describe("2 · «Solo 1» no puede acabar la conversación", () => {
       ciudadConfirmada: "Palmira",
       memoria: { saludado: true },
     });
-    assert.equal(/me pasas/.test(t), false, `pidió datos a quien solo dijo su ciudad: ${t}`);
+    assert.match(t, /me pasas/i, `no pidió los datos tras la ciudad: ${t}`);
+    assert.match(t, /nombre completo/i, t);
+    assert.match(t, /dirección/i, t);
+    // Y el plazo sigue saliendo: el dato util no se pierde por cerrar.
+    assert.match(t, /Palmira te llega en/i, t);
+    // Sin el "según la ciudad", que sobra cuando ya sabemos la ciudad.
+    assert.equal(/según la ciudad/i.test(t), false, `el matiz sobra con la ciudad conocida: ${t}`);
+  });
+
+  test("pero una PREGUNTA por la ciudad no recibe la pedida de datos", () => {
+    // Este es el nucleo de la regla del PR #9 que SIGUE VIVO: quien pregunta
+    // si llega a su ciudad esta averiguando, no comprando.
+    const t = responder.textoDeterminista({
+      situacion: "faltan_datos",
+      cotizacion: cotizador.cotizar({ producto: elCinturon(), cantidad: 1 }).cotizacion,
+      faltan: ["nombre", "direccion"],
+      producto: elCinturon(),
+      mensajeCliente: "¿Llega a Palmira?",
+      datosAportados: ["ciudad", "departamento"],
+      ciudadConfirmada: "Palmira",
+      memoria: { saludado: true },
+    });
+    assert.equal(/me pasas/.test(t), false, `pidió datos a quien solo preguntaba: ${t}`);
   });
 
   test("«ayuda con pedido» es querer comprar, no una duda del producto", () => {
