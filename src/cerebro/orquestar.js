@@ -625,8 +625,46 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       );
     }
 
-    const validacion = validarYConfirmar(conversacion.ficha);
+    // ------------------------------------------------------------------
+    // SI LO UNICO QUE FALTA ES LA CANTIDAD, SE TOMA UNA
+    //
+    // El callejon, visto en una conversacion de prueba del 09-oct: la
+    // clienta ya habia dado nombre, ciudad y direccion, y el bot le pedia
+    // "si quieres uno o dos". Contesto "si" -que no es un numero- y recibio
+    // "¿Cuántos quieres? 🙌". Otro "si" habria dado lo mismo: un bucle con
+    // la venta entera ya armada.
+    //
+    // UNA, Y NO DOS, POR LA REGLA DE LA CASA: *ante ambigüedad de cantidad,
+    // se elige la menor*. Nunca se cobra de mas.
+    //
+    // Y es seguro porque NO crea el pedido: con la cantidad puesta, el turno
+    // llega a "resumen" y la clienta ve "1 unidad · $49.900" antes de
+    // confirmar. Si queria dos, lo dice ahi y se recotiza. Cambiar un
+    // callejon por un resumen corregible es un buen cambio.
+    //
+    // Se exige que TODO lo demas este confirmado: mientras falte la
+    // direccion, preguntar la cantidad es lo correcto.
+    let validacion = validarYConfirmar(conversacion.ficha);
     conversacion.ficha = validacion.ficha;
+
+    // ⚠️ VA DESPUES DE `validarYConfirmar`, Y ESO NO ES UN DETALLE.
+    //
+    // La primera version iba antes, y no se disparaba nunca: `faltantes()`
+    // mira lo CONFIRMADO, y antes de validar los datos de este turno todavia
+    // son candidatos. Habia que preguntarse "¿falta algo mas que la
+    // cantidad?" sobre la ficha ya validada.
+    const REQUERIDOS_SIN_CANTIDAD = [...REQUERIDOS_BASE, ...((producto && producto.datosRequeridos) || [])];
+    if (
+      !campos.valorConfirmado(conversacion.ficha.cantidad) &&
+      !texto.cantidadesEn(evento.texto || "").length &&
+      campos.faltantes(conversacion.ficha, REQUERIDOS_SIN_CANTIDAD).length === 0 &&
+      (turnoDeCompra.lectura.compra || conversacion.huboSenalDeCompra === true)
+    ) {
+      conversacion.ficha = aplicarCandidatos(conversacion.ficha, { cantidad: 1 }, campos.ORIGENES.CODIGO);
+      validacion = validarYConfirmar(conversacion.ficha);
+      conversacion.ficha = validacion.ficha;
+      traza.avisos.push("solo faltaba la cantidad y no la dijo: se toma 1, que es la menor, y lo vera en el resumen");
+    }
 
     // Que datos se confirmaron EN ESTE TURNO.
     //
@@ -896,8 +934,22 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       traza.objecionesDePrecio = conversacion.objecionesDePrecio;
     }
 
+    // ------------------------------------------------------------------
+    // Y LA CUENTA DE CADA TEMA, por el mismo motivo: no soltar el mismo
+    // parrafo dos veces ante la misma duda reformulada.
+    //
+    // Tambien persistida. Y se incrementa ANTES de redactar, asi que la
+    // primera vez llega como 1: una respuesta solo necesita saber si es la
+    // primera vez que la da.
+    // ------------------------------------------------------------------
+    conversacion.vecesPorTema = { ...(conversacion.vecesPorTema || {}) };
+    for (const t of loQuePregunta.temas) {
+      conversacion.vecesPorTema[t] = Number(conversacion.vecesPorTema[t] || 0) + 1;
+    }
+
     const preparada = responder.preparar({
       situacion,
+      vecesPorTema: conversacion.vecesPorTema || {},
       vezDeLaObjecion: Math.max(1, Number(conversacion.objecionesDePrecio || 0)),
       // POR QUE se escala, cuando se escala. Sin esto, las tres situaciones
       // que de verdad necesitan una persona -un reclamo, un cliente

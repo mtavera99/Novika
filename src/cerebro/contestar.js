@@ -186,6 +186,12 @@ function deTema(
     // sin esto, las cuatro objeciones seguidas de un cliente real recibian
     // el mismo parrafo palabra por palabra.
     vezDeLaObjecion = 1,
+    // CUANTAS VECES SE HA CONTESTADO YA ESTE TEMA en la conversacion (1 = la
+    // primera). Dos respuestas identicas seguidas son la marca mas
+    // reconocible de un bot, y en la objecion de CONFIANZA pasaba con dos
+    // mensajes normalisimos: "no confío en estas páginas" y "ya me estafaron
+    // una vez" recibian el mismo parrafo palabra por palabra.
+    vecesEsteTema = 1,
   } = {}
 ) {
   const nombre = comoSeLlama(producto);
@@ -473,6 +479,37 @@ function deTema(
       // alguien", que es lo contrario de dar confianza, teniendo el
       // argumento bueno -el contraentrega- en la ficha.
       if (pagaAlRecibir(producto, cotizacion)) {
+        // ------------------------------------------------------------
+        // LA SEGUNDA VEZ SE DICE DISTINTO, Y NO ES COSMETICA.
+        //
+        // Lo caza una conversacion de prueba del 09-oct:
+        //
+        //   clienta · "no confío en estas páginas"
+        //   bot     · "Pagas cuando el pedido llega a tus manos…"
+        //   clienta · "ya me estafaron una vez"
+        //   bot     · (el mismo parrafo, palabra por palabra)
+        //
+        // Las dos frases son la MISMA objecion dicha de dos formas, asi que
+        // la guarda anti-eco no actua -y no debe: la respuesta es correcta-.
+        // Pero quien insiste en que no confia no necesita el mismo argumento
+        // otra vez: necesita que le reconozcan lo que acaba de contar.
+        //
+        // El hecho de fondo no cambia -el contraentrega sigue siendo el
+        // argumento- pero se dice desde el lado de ella, no del nuestro.
+        if (vecesEsteTema >= 2) {
+          // Y NO empieza por "te entiendo": la apertura de CONFIANZA ya es
+          // "Te entiendo perfectamente.", y las dos juntas salian como
+          // «Te entiendo perfectamente. Te entiendo de verdad…».
+          const partes = [
+            "con más razón te sirve así: no pones un peso hasta tenerlo en la mano. " +
+              "Si no llega, no pagas nada — el riesgo lo corremos nosotros, no tú.",
+          ];
+          if ((producto && (producto.imagenes || []).length) > 0) {
+            partes.push("Y ahí arriba te dejé las fotos reales del producto, no son de catálogo.");
+          }
+          return partes.join(" ");
+        }
+
         const partes = [
           "pagas cuando el pedido llega a tus manos, así que no arriesgas nada: si no te llega, no pagas.",
         ];
@@ -1064,7 +1101,12 @@ function aTemas(temas, contexto, { maximo = 2 } = {}) {
 
   for (const tema of lista) {
     if (respondidos.length >= maximo) break;
-    const frase = deTema(tema, contexto);
+    // `vecesPorTema` viaja en el contexto y aqui se resuelve al numero de
+    // ESTE tema. Asi `deTema` recibe un escalar y no tiene que saber nada
+    // del mapa: una respuesta solo necesita saber si es la primera vez que
+    // la da.
+    const veces = Number((contexto && contexto.vecesPorTema && contexto.vecesPorTema[tema]) || 1);
+    const frase = deTema(tema, { ...contexto, vecesEsteTema: Math.max(1, veces) });
     if (!frase) continue;
     // Sin repetir la misma frase dos veces: "¿cuánto vale con envío?" marca
     // PRECIO y ENVIO, y las dos respuestas pueden coincidir en el texto.

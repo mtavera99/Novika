@@ -6,6 +6,21 @@ gastar la mitad del contexto redescubriendo lo ya hecho.
 **Léelo completo antes de tocar nada.** Y lee también
 `docs/VOZ-DE-BIKERPRO.md`, que es el material de referencia ya extraído.
 
+> ### ⚠️ Antes de nada: lee la auditoría del 09-oct
+>
+> **[`AUDITORIA-2026-10-09.md`](AUDITORIA-2026-10-09.md)**
+>
+> Este documento describe el estado al 08-oct, cuando el panel llevaba **33
+> chats y 0 pedidos**. La auditoría del día siguiente encontró la causa: un
+> `/^no\b/` en la lista de negaciones hacía que cualquier mensaje que
+> empezara por «no» se leyera como una cancelación y **el bot se pausara 12
+> horas**. También encontró que los tres casos que sí necesitan una persona
+> —un reclamo, un cliente molesto, quien pide hablar con alguien— no
+> escalaban, y que el embudo del panel medía mal.
+>
+> Lo de aquí abajo sigue siendo válido como historia. Para saber qué está
+> pendiente HOY, la lista buena es la de la auditoría.
+
 ---
 
 ## Dónde está todo

@@ -1044,8 +1044,34 @@ const PIDE_HUMANO = [
  */
 const ESTA_MOLESTO = [
   /\bson\s+unos?\s+(estafadores|ladrones|sinverguenzas|mentirosos|tramposos)\b/,
-  /\b(me|nos)\s+(estafaron|robaron|tumbaron|enga[nñ]aron)\b/,
-  /\bes\s+un\s+(robo|fraude|enga[nñ]o|descaro)\b/,
+  // ⚠️ LA ACUSACION TIENE QUE SER CONTRA NOSOTROS. ESTO LO CAZO UNA
+  //    CONVERSACION DE PRUEBA, Y HABRIA SIDO UN DEFECTO PEOR QUE EL ORIGINAL.
+  //
+  // La primera version ponia `/\b(me|nos)\s+(estafaron|robaron|tumbaron)\b/`,
+  // y con eso "ya me estafaron una vez" se leia como cliente enfadado:
+  //
+  //   clienta · "no confío en estas páginas"
+  //   bot     · "Pagas cuando el pedido llega a tus manos…"     ✅
+  //   clienta · "ya me estafaron una vez"
+  //   bot     · "Prefiero que esto lo vea una persona del equipo"  ⛔
+  //             …y el bot se callo 12 h. Los seis mensajes siguientes
+  //             -incluido "bueno, dale" y la direccion completa- no se
+  //             enviaron.
+  //
+  // Y es LO CONTRARIO de un cliente molesto: es la objecion de confianza en
+  // su forma mas clara. Quien cuenta que ya la estafaron esta explicando por
+  // que duda, y el contraentrega es la respuesta perfecta. Tiene tema propio
+  // (CONFIANZA) con esa frase incluida.
+  //
+  // Un escalado en falso es ahora el fallo mas caro que puede tener este
+  // bot -se lleva la conversacion entera por delante-, asi que las tres
+  // señales que escalan son estrechas a proposito: hace falta un sujeto en
+  // segunda persona, una amenaza o un insulto.
+  /\b(ustedes|uds|usted|vos)\s+me\s+(estafaron|estafaste|robaron|robaste|tumbaron|enga[nñ]aron|enga[nñ]aste)\b/,
+  /\bme\s+(estafaron|robaron|tumbaron|enga[nñ]aron)\s+(ustedes|uds)\b/,
+  // `robo` NO va aqui: "está muy caro, es un robo" es una objecion de
+  // precio, no una acusacion. Los otros tres no tienen ese doble uso.
+  /\bes\s+un\s+(fraude|enga[nñ]o|descaro)\b/,
   /\b(los|te|le)\s+voy\s+a\s+(denunciar|demandar|reportar)\b/,
   /\b(denuncia|demanda)\s+(a|ante)\s+(la\s+)?(sic|superintendencia|fiscalia)\b/,
   /\bpesimo\s+servicio\b/,

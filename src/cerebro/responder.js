@@ -670,6 +670,10 @@ function analizarTurno(mensajeCliente) {
  */
 function textoDeterminista({
   situacion,
+  // Cuantas veces se ha contestado ya cada tema en esta conversacion.
+  // Sirve para no soltar el mismo parrafo dos veces ante la misma duda
+  // reformulada. Lo lleva el cerebro, en la conversacion persistida.
+  vecesPorTema = {},
   // Cuantas veces ha objetado el precio en esta conversacion. Viaja desde
   // el cerebro, que es quien lleva la cuenta en la conversacion persistida.
   vezDeLaObjecion = 1,
@@ -940,7 +944,7 @@ function textoDeterminista({
           const comerciales = lectura.temas.filter((t) => TEMAS_COMERCIALES.includes(t));
           const politicas = contestar.aTemas(
             comerciales.filter((t) => t !== preguntas.TEMAS.PRECIO),
-            { producto, cotizacion: null, vezDeLaObjecion },
+            { producto, cotizacion: null, vezDeLaObjecion, vecesPorTema },
             { maximo: 2 }
           );
           if (politicas.texto) partes.push(politicas.texto);
@@ -962,7 +966,7 @@ function textoDeterminista({
       // argumento, y sin este aviso las repetia en el mismo mensaje.
       const resto = contestar.aTemas(
         otros,
-        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot), vezDeLaObjecion },
+        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot), vezDeLaObjecion, vecesPorTema },
         { maximo: 2 }
       );
       if (resto.texto) partes.push(resto.texto);
@@ -1423,10 +1427,10 @@ function textoDeterminista({
         respuesta = { texto: "ya respondido" };
         // Y las dudas que NO sean comerciales, detras.
         const otras = lectura.temas.filter((t) => !TEMAS_COMERCIALES.includes(t));
-        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder, vezDeLaObjecion }, { maximo: 1 });
+        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema }, { maximo: 1 });
         if (extra.texto) partes.push(extra.texto);
       } else {
-        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder, vezDeLaObjecion }, { maximo: 2 });
+        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema }, { maximo: 2 });
         if (respuesta.texto) partes.push(respuesta.texto);
       }
 
@@ -1646,7 +1650,7 @@ function textoDeterminista({
         );
       }
 
-      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion, vezDeLaObjecion }, { maximo: 2 });
+      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion, vezDeLaObjecion, vecesPorTema }, { maximo: 2 });
       return componer([
         saludo || voz.apertura(lectura.temas),
         resto.texto,
@@ -1843,6 +1847,7 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
  */
 function preparar({
   situacion,
+  vecesPorTema = {},
   vezDeLaObjecion = 1,
   motivoEscalado = null,
   cotizacion = null,
@@ -1865,6 +1870,7 @@ function preparar({
 }) {
   const determinista = textoDeterminista({
     situacion,
+    vecesPorTema,
     vezDeLaObjecion,
     motivoEscalado,
     cotizacion,
