@@ -678,7 +678,9 @@ function crearRutasDelPanel({ obtenerCerebro }) {
           enviado: true,
           wamid: envio.wamid,
           hora: fecha.horaBogota(Date.now()),
-          aviso: "Meta acepto el mensaje. El bot queda pausado en este chat. La entrega se confirma con el acuse.",
+          aviso:
+            "Meta acepto el mensaje. El bot queda pausado en este chat: pulsa «Devolver al bot» cuando termines, " +
+            "o se devuelve solo en 12 h. La entrega se confirma con el acuse.",
         });
       }
 
@@ -788,7 +790,7 @@ function crearRutasDelPanel({ obtenerCerebro }) {
         de: informe.cuantas,
         aviso:
           informe.enviadas === informe.cuantas
-            ? `Meta acepto las ${informe.enviadas} fotos. El bot queda pausado en este chat. La entrega se confirma con los acuses.`
+            ? `Meta acepto las ${informe.enviadas} fotos. El bot queda pausado en este chat: pulsa «Devolver al bot» cuando termines, o se devuelve solo en 12 h.`
             : `Se mandaron ${informe.enviadas} de ${informe.cuantas}. ${informe.problemas.join(" ")}`,
       });
     } catch (e) {

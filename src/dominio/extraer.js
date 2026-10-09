@@ -214,34 +214,74 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
   //   · no puede traer un tipo de via: eso es una direccion.
   // ----------------------------------------------------------------------
   if (seLoPidieron) {
-    const limpio = crudo.replace(/[.,;:!¡?¿]/g, " ").replace(/\s+/g, " ").trim();
-    const palabras = limpio.split(/\s+/).filter(Boolean);
-    const plano = aplanar(limpio);
-    const todasLetras = palabras.every((p) => /^[\p{L}'’-]{2,}$/u.test(p));
-    // ⚠️ LA LISTA LARGA, Y LA CAZO UNA PRUEBA DE ESTA MISMA SESION.
+    // ------------------------------------------------------------------
+    // ⚠️ Y SE PRUEBA LINEA POR LINEA. VENTA PERDIDA MEDIDA (chat de
+    //    Popayan, 08-oct, encontrada por Marco el 10-oct).
     //
-    // La primera version solo filtraba con `NO_ES_NOMBRE`, que esta pensada
-    // para lo que va DETRAS de un marcador ("soy X"). Sin marcador no basta:
-    // "Me gusta" son dos palabras, todas letras, no es ciudad y no lleva
-    // tipo de via — asi que se guardaba como NOMBRE DEL CLIENTE, y el
-    // mensaje salia con "¡Perfecto, gracias!" como si hubiera dado un dato.
+    // La clienta contesto los tres datos en UN SOLO MENSAJE, que es como
+    // los contesta medio mundo cuando se los piden juntos:
     //
-    // Es el riesgo propio de capturar un nombre sin marcador, y se paga con
-    // esta lista: las palabras que la gente escribe en un chat de ventas y
-    // que NUNCA son un nombre de persona.
-    const algunaProhibida = palabras.some(
-      (p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)) || NO_SON_NOMBRE_SUELTO.has(aplanar(p))
-    );
+    //   bot      · "...me pasas tu nombre completo, la ciudad y la
+    //               dirección"
+    //   cliente  · "Alejandro león Garzón
+    //               Popayán Cauca
+    //               Barrio pueblillo en la cantera la pintada"
+    //
+    // La ciudad y la direccion SI se capturaron -sus patrones buscan dentro
+    // del texto-. El nombre no, porque este bloque mira EL MENSAJE ENTERO
+    // como un solo candidato: doce palabras, con una ciudad y un tipo de
+    // via dentro, falla los cuatro candados a la vez.
+    //
+    // En el panel quedo "Destinatario: sin confirmar", y el bot se paso la
+    // conversacion pidiendo un nombre que ya tenia escrito delante. Despues
+    // le dijo "Perdón, creo que no te entendí bien" a una clienta que habia
+    // contestado TODO. A las 21:36 seguia sin pedido.
+    //
+    // El mensaje completo se prueba PRIMERO, para no cambiar el
+    // comportamiento de los mensajes de una sola linea; las lineas se
+    // prueban despues, y gana la primera que pase los candados. Cada linea
+    // pasa exactamente las mismas comprobaciones que antes: no se relaja
+    // ningun candado, solo se aplican al trozo correcto.
+    // ------------------------------------------------------------------
+    const trozos = [crudo];
+    if (/[\r\n]/.test(crudo)) {
+      for (const linea of crudo.split(/\r?\n/)) {
+        if (linea.trim()) trozos.push(linea);
+      }
+    }
 
-    if (
-      palabras.length >= 1 &&
-      palabras.length <= 4 &&
-      todasLetras &&
-      !algunaProhibida &&
-      !VIA.test(plano) &&
-      !ciudadEn(limpio).valor
-    ) {
-      return { valor: palabras.join(" "), porQue: "contesto al nombre que se le acababa de pedir" };
+    for (const trozo of trozos) {
+      const limpio = trozo.replace(/[.,;:!¡?¿]/g, " ").replace(/\s+/g, " ").trim();
+      if (!limpio) continue;
+      const palabras = limpio.split(/\s+/).filter(Boolean);
+      const plano = aplanar(limpio);
+      const todasLetras = palabras.every((p) => /^[\p{L}'’-]{2,}$/u.test(p));
+      // ⚠️ LA LISTA LARGA, Y LA CAZO UNA PRUEBA DE ESTA MISMA SESION.
+      //
+      // La primera version solo filtraba con `NO_ES_NOMBRE`, que esta
+      // pensada para lo que va DETRAS de un marcador ("soy X"). Sin
+      // marcador no basta: "Me gusta" son dos palabras, todas letras, no es
+      // ciudad y no lleva tipo de via — asi que se guardaba como NOMBRE DEL
+      // CLIENTE, y el mensaje salia con "¡Perfecto, gracias!" como si
+      // hubiera dado un dato.
+      //
+      // Es el riesgo propio de capturar un nombre sin marcador, y se paga
+      // con esta lista: las palabras que la gente escribe en un chat de
+      // ventas y que NUNCA son un nombre de persona.
+      const algunaProhibida = palabras.some(
+        (p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)) || NO_SON_NOMBRE_SUELTO.has(aplanar(p))
+      );
+
+      if (
+        palabras.length >= 1 &&
+        palabras.length <= 4 &&
+        todasLetras &&
+        !algunaProhibida &&
+        !VIA.test(plano) &&
+        !ciudadEn(limpio).valor
+      ) {
+        return { valor: palabras.join(" "), porQue: "contesto al nombre que se le acababa de pedir" };
+      }
     }
   }
 
@@ -380,7 +420,36 @@ const NOMBRES_DE_CIUDAD = Object.keys(CIUDADES_SEMILLA).sort((a, b) => b.length 
  *
  * @returns {{valor: string|null, porQue: string}}
  */
-function ciudadEn(textoCrudo) {
+/**
+ * Frases que no son el nombre de una ciudad aunque lleguen como respuesta a
+ * "¿para qué ciudad sería?". Espejo de `destino.NO_SON_CIUDAD`, aplicado
+ * aqui para no PROPONER lo que alla se va a rechazar.
+ */
+const NO_ES_CIUDAD_SUELTA =
+  /^(mi|la|el)\s+(casa|apartamento|apto|oficina|trabajo|finca)|^(aca|aqui|alla|ahi)\b|^(donde|lo\s+que|como|cuando|cuanto|que)\b|^(si|no|ok|listo|gracias|hola|buenas|bueno|vale|claro|dale)\b|^(el\s+)?mismo\b|^(contraentrega|contra\s+entrega|efectivo|nequi|transferencia|daviplata)\b|^(no\s+se|ninguna|cualquiera)\b/;
+
+/**
+ * Un "si" mal escrito no es una ciudad.
+ *
+ * ⚠️ LO CAZO EL SONDEO DE LAS 65 PREGUNTAS REALES, y es el efecto
+ *    secundario de aceptar ciudades fuera del listado:
+ *
+ *   cliente · "sihh"
+ *   bot     · "¡Perfecto! A Sihh te llega en 1 a 3 días hábiles"
+ *
+ * "sihh" es un "sí" escrito a toda prisa desde el movil. Cuatro letras,
+ * todas minusculas, no esta en ninguna lista de rechazo: entraba como
+ * toponimo. Y despachar a "Sihh" es despachar a ningun sitio.
+ *
+ * `NO_ES_CIUDAD_SUELTA` no lo pillaba porque sus patrones anclan con `\b`
+ * detras de "si", y en "sihh" detras de "si" viene una letra. Esto cubre
+ * las formas ESTIRADAS, que son las que escribe la gente: "siii", "sihh",
+ * "noo", "okk", "ahh", "mmm", "jajaja".
+ */
+const RUIDO_DE_TECLADO =
+  /^(s+i+h*s*|n+o+h*|o+k+s*|a+h+|e+h+|u+h+|m+h*m+h*|(ja|je|ji){2,}|y+a+|u+y+)$/;
+
+function ciudadEn(textoCrudo, { seLaPidieron = false } = {}) {
   const plano = aplanar(textoCrudo);
   if (!plano) return { valor: null, porQue: "texto vacio" };
 
@@ -391,7 +460,79 @@ function ciudadEn(textoCrudo) {
     if (m) encontradas.push({ nombre, posicion: m.index });
   }
 
-  if (!encontradas.length) return { valor: null, porQue: "no se reconoce ninguna ciudad del listado" };
+  if (!encontradas.length) {
+    // --------------------------------------------------------------------
+    // LA CIUDAD QUE NO ESTA EN EL LISTADO TAMBIEN ES UNA CIUDAD
+    //
+    // ⚠️ VENTA PERDIDA MEDIDA (panel del 10-oct):
+    //
+    //   bot     · "¿Para qué ciudad sería?"
+    //   cliente · "Ciénaga guacamayal"
+    //   bot     · "¿Te lo aparto, o quieres que te cuente...?"
+    //
+    // Guacamayal es un corregimiento de Zona Bananera (Magdalena). No esta
+    // en `CIUDADES_SEMILLA` —que esta incompleta A PROPOSITO, son ~60
+    // entradas de los 1.100 municipios del pais— asi que no se proponia
+    // NADA, la ficha se quedaba sin ciudad y el turno no tenia ningun dato
+    // nuevo. El cliente contesto la pregunta del bot y el bot le contesto
+    // con otra cosa.
+    //
+    // `destino.resolverCiudad` YA SABE QUE HACER con una ciudad
+    // desconocida: la acepta con `revisar: true` y una persona confirma el
+    // destino antes de la guia. La regla del repositorio es "MARCAR, NO
+    // BLOQUEAR". El hueco estaba AQUI: la heuristica no le daba nada que
+    // resolver.
+    //
+    // POR QUE SOLO CUANDO SE LA ACABAN DE PEDIR: sin ese contexto, esto
+    // leeria cualquier palabra suelta como una ciudad. Con el contexto, lo
+    // normal es que la respuesta a "¿para qué ciudad sería?" sea una
+    // ciudad.
+    //
+    // Y POR QUE ADEMAS PIDE QUE EL NOMBRE YA ESTE RESUELTO (o una pista
+    // geografica): porque "Alejandro león Garzón" y "Ciénaga guacamayal"
+    // son indistinguibles para una maquina —tres palabras, todas letras—.
+    // Cuando el nombre todavia falta, el mensaje corto se lo queda el
+    // NOMBRE, que es quien lo pedia primero. Asi dos reglas que miran lo
+    // mismo no se pelean por el mismo mensaje.
+    // --------------------------------------------------------------------
+    if (!seLaPidieron) return { valor: null, porQue: "no se reconoce ninguna ciudad del listado" };
+
+    // Se pela el marcador: "soy de X", "vivo en X", "para X", "municipio de X".
+    const pelado = plano
+      .replace(
+        /^(soy\s+de|vivo\s+en|estoy\s+en|desde|para|en|hacia|a)\s+|^(el\s+)?(municipio|corregimiento|pueblo|vereda)\s+(de\s+)?/,
+        ""
+      )
+      .replace(/[.,;!¡?¿]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const palabras = pelado.split(/\s+/).filter(Boolean);
+    const esPalabraDeLugar = palabras.every((p) => /^[a-z'’-]{3,}$/.test(p));
+
+    if (
+      pelado &&
+      palabras.length >= 1 &&
+      palabras.length <= 4 &&
+      esPalabraDeLugar &&
+      // Ni muletillas, ni "mi casa", ni "aqui cerca": son las mismas
+      // frases que `destino.NO_SON_CIUDAD` rechaza, y aqui no se proponen
+      // para no hacerle gastar el viaje.
+      !NO_ES_CIUDAD_SUELTA.test(pelado) &&
+      !RUIDO_DE_TECLADO.test(pelado) &&
+      !palabras.some((p) => NO_SON_NOMBRE_SUELTO.has(p)) &&
+      // Una sola palabra de tres letras es casi siempre una muletilla, no un
+      // municipio. Con dos o mas palabras se permiten, porque ahi el
+      // conjunto ya parece un toponimo ("Zona Bananera", "San Juan").
+      !(palabras.length === 1 && pelado.length < 4) &&
+      // Una direccion no es una ciudad.
+      !VIA.test(pelado)
+    ) {
+      return { valor: pelado, porQue: "la dio cuando se le pidio la ciudad, pero no esta en el listado: hay que revisarla" };
+    }
+
+    return { valor: null, porQue: "no se reconoce ninguna ciudad del listado" };
+  }
 
   // ----------------------------------------------------------------------
   // "SAN ANDRES DE SOTAVENTO" NO ES "SAN ANDRES"
@@ -554,7 +695,7 @@ function direccionEn(textoCrudo) {
  *
  * @returns {{candidatos: object, porQue: object}}
  */
-function deTexto(textoCrudo, { seLoPidieron = false } = {}) {
+function deTexto(textoCrudo, { seLoPidieron = false, seLaPidieronCiudad = false } = {}) {
   const candidatos = {};
   const porQue = {};
 
@@ -564,7 +705,7 @@ function deTexto(textoCrudo, { seLoPidieron = false } = {}) {
   }
   porQue.cantidad = cantidad.porQue;
 
-  const ciudad = ciudadEn(textoCrudo);
+  const ciudad = ciudadEn(textoCrudo, { seLaPidieron: seLaPidieronCiudad });
   if (ciudad.valor !== null) candidatos.ciudad = ciudad.valor;
   porQue.ciudad = ciudad.porQue;
 

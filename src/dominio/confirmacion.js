@@ -168,6 +168,119 @@ function coincide(plano, patrones) {
   return patrones.some((re) => re.test(plano));
 }
 
+// ==========================================================================
+// EL "SI" DESPUES DE UNA PREGUNTA DE CIERRE
+//
+// ⚠️ ESTE ERA EL DEFECTO MAS CARO DEL 10-OCT, Y MARCO LO ENCONTRO MIRANDO
+//    CUATRO CONVERSACIONES SEGUIDAS DEL PANEL:
+//
+//   bot      · "¿Te lo aparto, o quieres que te cuente algo más...? 🙌"
+//   Santiago · "Mándamelo"        -> el bot REPITIO la misma pregunta
+//   Jhon     · "Si claro por favor" -> repitio el precio y volvio a preguntar
+//   Precioso · "Si Agame el favor"  -> otra vez "¿Te lo aparto...?"
+//   Popayan  · "Si" -> "¿Te lo aparto...?"   y luego
+//              "Claro" -> "Perdón, creo que no te entendí bien"
+//
+// Cuatro clientes diciendo que si, de cuatro formas que en Colombia son
+// inequivocas, y ninguno paso a la compra. El ultimo acabo escuchando que
+// no se le entendio.
+//
+// POR QUE PASABA: estas frases no estaban en ninguna lista. `AFIRMACIONES_FUERTES`
+// exige la palabra "confirm" detras del si (`\b(si|claro|...)[\s,]*(confirm)`),
+// y `ACUSES` exige que el mensaje sea SOLO "si" (`^(si|sii+|sip)[\s!.]*$`),
+// asi que "si claro por favor" se salia de los dos y caia en AMBIGUO. Y
+// `SENALES_DE_COMPRA` de preguntas.js tenia `mandame` con `\b` al final, que
+// NO casa con "mandamelo" — por eso "Envíamelo" si funcionaba y "Mándamelo"
+// no. Una errata de una letra costando ventas.
+//
+// POR QUE ESTA LISTA PUEDE SER TAN AMPLIA SIN RIESGO: solo se consulta
+// cuando el bot ACABA DE HACER UNA PREGUNTA DE CIERRE. "Listo" o "por favor"
+// sueltos no significan nada en medio de una conversacion; detras de "¿te lo
+// aparto?" significan si. El contexto es el que da el permiso, y sin el
+// contexto esta funcion no se llama.
+//
+// LO QUE NO HACE: crear el pedido. Un si aqui lleva a PEDIR LOS DATOS QUE
+// FALTAN. El pedido sigue necesitando el resumen a la vista y su propia
+// confirmacion, que es el candado que evita despachar algo que nadie leyo.
+// ==========================================================================
+
+/** Cortesia que rodea un si y no cambia lo que significa. */
+const CORTESIA_DE_CIERRE =
+  /\b(por\s+favor|porfa|porfavor|gracias|muchas\s+gracias|amig[oa]|señor|señora|seño|pues|ya|entonces|hermos[oa]|bell[oa])\b/g;
+
+const AFIRMACIONES_DE_CIERRE = [
+  // Un si pelado, con sus variantes de teclado: "si", "sii", "sip", "sisi".
+  /^(s+i+|sip|sisi|si\s+si)$/,
+  // Las que valen por si solas. "hagale" y "de una" son de las mas
+  // colombianas y las dos estaban ya en AFIRMACIONES_FUERTES.
+  /^(claro|dale|listo|ok|oki|okey|vale|bueno|hagale|hagalo|de\s+una|obvio|exacto|correcto)$/,
+  // Dos o tres de las anteriores pegadas: "si claro", "claro que si",
+  // "si dale", "si listo", "ok listo", "si señor" (la cortesia ya se quito).
+  /^(s+i+|claro|dale|listo|ok|okey|vale|bueno|de\s+una)(\s+(que\s+)?(s+i+|claro|dale|listo|ok|okey|vale|bueno))+$/,
+  // Imperativos de envio. OJO AL SUFIJO: "mandamelo", "mandemelo",
+  // "enviamelo", "mandalo", "mandenlo". Es el grupo que fallaba.
+  /^(me\s+)?(l[oa]\s+)?(manda|mande|manden|envia|envie|envien|despacha|despache)(me|n|nme)?l?[oa]?s?$/,
+  /\b(mandame|mandeme|enviame|envieme|mandenme|envienme)l?[oa]?s?\b/,
+  /\b(mandamel[oa]|mandemel[oa]|mandenmel[oa]|enviamel[oa]|enviemel[oa]|envienmel[oa]|mandal[oa]|mandenl[oa]|envial[oa]|envienl[oa])\b/,
+  // "lo quiero", "la quiero", "los quiero", "me lo llevo".
+  /\b(l[oa]s?)\s+(quiero|llevo|compro|tomo)\b/,
+  /\bme\s+l[oa]s?\s+(llevo|quedo)\b/,
+  // "quiero uno", "quiero una", "quiero pedirlo", "quiero comprarlo".
+  /\bquiero\s+(uno|una|dos|el|la|pedirl[oa]|comprarl[oa]|llevarl[oa])\b/,
+  // "hágame el favor" y su version sin h, que es como se escribe en el movil:
+  // "Agame el favor" es LITERAL del chat de Precioso.
+  /\b[ha]+game\s+(el\s+)?favor\b/,
+  /\bhazme\s+(el\s+)?favor\b/,
+  // "por favor" a secas ya se fue con la cortesia: se mira el original.
+  /^(por\s+favor|porfa|porfavor)$/,
+  // Apartalo / resérvalo: contesta literalmente a "¿te lo aparto?".
+  /\b(apartal[oa]|apartamel[oa]|apartel[oa]|reservamel[oa]|reserval[oa])\b/,
+  /^(apartalo|apartame|resevalo|reservalo)$/,
+];
+
+/** Pulgar arriba y compañia: un si sin palabras. */
+const AFIRMA_SIN_PALABRAS = /^(👍|👍🏼|👍🏽|👌|🙌|✅|☑️|🆗|💪|❤️|😍)+$/u;
+
+/**
+ * ¿Es un "si" a una pregunta de cierre?
+ *
+ * SOLO tiene sentido llamarla cuando el turno anterior del bot hizo una
+ * pregunta de cierre. Fuera de ese contexto, "listo" o "por favor" no
+ * afirman nada.
+ *
+ * @param {string} texto Lo que escribio el cliente.
+ * @returns {boolean}
+ */
+function esAfirmacionDeCierre(texto) {
+  const crudo = String(texto ?? "");
+  const v = vistas(crudo);
+  if (v.vacio) return AFIRMA_SIN_PALABRAS.test(crudo.trim());
+  if (AFIRMA_SIN_PALABRAS.test(crudo.trim())) return true;
+
+  const t = v.plano;
+
+  // Una negacion nunca es un si, por mucha cortesia que lleve alrededor.
+  if (coincide(t, NEGACIONES)) return false;
+  // Una pregunta tampoco: "¿sí? y cuánto vale" pregunta, no acepta.
+  if (/[?¿]/.test(crudo)) return false;
+  // Pedir un cambio no es aceptar.
+  if (coincide(t, CORRECCIONES)) return false;
+  // Preguntar por el estado de un pedido no es aceptar uno nuevo.
+  if (coincide(t, PREGUNTAS_ESTADO)) return false;
+
+  if (coincide(t, AFIRMACIONES_DE_CIERRE)) return true;
+
+  // Con la cortesia quitada: "si claro por favor" -> "si claro",
+  // "listo gracias" -> "listo".
+  const pelado = t.replace(CORTESIA_DE_CIERRE, " ").replace(/\s+/g, " ").trim();
+  if (!pelado) return false;
+  // Un tope de palabras: mas que esto ya es una frase con contenido propio,
+  // y contestarla como un simple "si" seria no leerla.
+  if (pelado.split(/\s+/).length > 4) return false;
+
+  return coincide(pelado, AFIRMACIONES_DE_CIERRE);
+}
+
 /**
  * Clasifica un mensaje del cliente, sin mirar el estado.
  *
@@ -356,9 +469,11 @@ module.exports = {
   ACCIONES,
   clasificar,
   evaluar,
+  esAfirmacionDeCierre,
   // expuestos para las pruebas de regresion
   NEGACIONES,
   PREGUNTAS_ESTADO,
   AFIRMACIONES_FUERTES,
+  AFIRMACIONES_DE_CIERRE,
   CANCELACION_INEQUIVOCA,
 };

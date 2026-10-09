@@ -722,8 +722,30 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
       <button class="primario" id="enviar" onclick="responder()">Enviar</button>
       <span style="font-size:13px;color:var(--suave);align-self:center">
         ${
+          /*
+           * ⚠️ ESTE AVISO DECIA LO CONTRARIO, Y ERA FALSO. Corregido el
+           *    2026-10-10.
+           *
+           * El 09-oct se cambio a "el bot sigue atendiendo este chat", y el
+           * codigo hace justo lo otro: `rutas.js`, al responder a mano, pone
+           * `pausado: true` (y la respuesta de la API lo dice bien: "El bot
+           * queda pausado en este chat"). O sea que el panel se contradecia
+           * consigo mismo en la misma pantalla, y la version que leia el
+           * operador ANTES de escribir era la equivocada.
+           *
+           * Lo que cuesta creerselo: el chat de Popayan del 08-oct. Un
+           * operador escribio "Me confirmas" a las 21:33 -lo cual pauso el
+           * bot 12 horas-, el cliente contesto "Si" a las 21:36, y esa
+           * respuesta NO SALIO: "no enviado: conversacion_pausada". El
+           * cliente dijo que si y nadie le contesto.
+           *
+           * El aviso ahora dice la verdad y dice que hacer, porque el
+           * problema real no es que pause -eso evita hablar a dos voces-
+           * sino que nadie sabia que pasaba.
+           */
           envioManualActivo
-            ? "Al enviar, el bot <strong>sigue atendiendo</strong> este chat. Si quieres que se calle, pulsa «Tomar el control»."
+            ? "Al enviar, <strong>el bot se calla en este chat</strong> (12 h, o hasta que pulses «Devolver al bot»). " +
+              "Qu\u00e9date t\u00fa con la conversaci\u00f3n, o devu\u00e9lvesela cuando termines."
             : "Los env\u00edos manuales est\u00e1n <b>apagados</b>: se registrar\u00e1 el intento y su motivo real, pero no saldr\u00e1 nada. " +
               "Se encienden con <code>PANEL_ENVIO_MANUAL=1</code> en Render."
         }

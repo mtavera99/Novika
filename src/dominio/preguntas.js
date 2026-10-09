@@ -56,7 +56,20 @@ const TEMAS = {
   GARANTIA_TRAMITE: "garantia_tramite",
   ENTREGA: "tiempo_de_entrega",
   MATERIAL: "material",
+  /**
+   * "Para que sirve", "sirve para los colicos". El PROPOSITO del producto.
+   *
+   * Separado de COMO_SE_USA desde el 2026-10-10: son dos preguntas distintas
+   * y durante dias recibieron la misma respuesta.
+   */
   USO: "uso",
+  /**
+   * "Como funciona", "como se pone", "que funciones trae", "que hace".
+   *
+   * LA MECANICA, no el proposito. Se responde con la ficha tecnica: donde se
+   * pone, en cuanto calienta, los niveles, los modos y que es recargable.
+   */
+  COMO_SE_USA: "como_se_usa",
   CONFIANZA: "confianza",
   FOTOS: "fotos",
   /**
@@ -363,6 +376,38 @@ const PATRONES = [
   [TEMAS.MARCA, /\bbuena\s+calidad\b/],
   [TEMAS.MARCA, /\bes\s+de\s+calidad\b/],
 
+  // ---- Como funciona / que funciones trae: va ANTES de EMPAQUE y de USO ----
+  //
+  // ⚠️ DOS DEFECTOS DISTINTOS SE ARREGLAN CON ESTE BLOQUE, y los dos los
+  //    midio Marco en el panel el 2026-10-10.
+  //
+  // 1. "Ese que funciones trae" NO CASABA CON NINGUN TEMA. El patron de
+  //    EMPAQUE es `que (trae|incluye|viene con)`, y aqui "que" va seguido de
+  //    "funciones", no de "trae". Sin tema, la pregunta caia en el camino de
+  //    la duda no catalogada y recibia "esa no te la quiero contestar a
+  //    medias" — teniendo los cuatro modos y los tres niveles EN LA FICHA.
+  //
+  // 2. "Como funciona" vivia en TEMAS.USO, que responde con
+  //    `paraQueSirve.texto`. Esa respuesta empieza con "Sí, es justo para
+  //    eso", que a "como funciona" afirma algo que nadie pregunto y no
+  //    explica la mecanica. David lo pregunto DOS VECES y recibio el mismo
+  //    parrafo las dos.
+  //
+  // POR QUE VA ANTES DE EMPAQUE: para que "¿que funciones trae?" no se lea
+  // como "¿que trae en la caja?". El "que trae" pelado sigue siendo EMPAQUE,
+  // que es lo correcto: quien pregunta eso quiere saber que hay dentro.
+  //
+  // POR QUE VA ANTES DE USO: "como funciona" casa tambien con el `sirve
+  // (para|contra)` de USO en frases como "como funciona, sirve para
+  // colicos?", y la mecanica es la respuesta mas util de las dos.
+  [TEMAS.COMO_SE_USA, /\bcomo\s+(funciona|se\s+usa|se\s+pone|lo\s+uso|lo\s+pongo|se\s+utiliza|se\s+aplica)\b/],
+  // "que funciones trae", "que funciones tiene", "cuales funciones".
+  [TEMAS.COMO_SE_USA, /\bfunciones\b/],
+  // "que hace" a secas. RUIDO va antes, asi que "¿hace ruido?" sigue siendo
+  // RUIDO y no cae aqui.
+  [TEMAS.COMO_SE_USA, /\bque\s+hace\b/],
+  [TEMAS.COMO_SE_USA, /\bque\s+modos\s+(trae|tiene)\b/],
+
   // ---- Empaque, regalo, instrucciones ----
   [TEMAS.EMPAQUE, /\bempaque\b/],
   [TEMAS.EMPAQUE, /\bviene\s+en\s+caja\b/],
@@ -601,8 +646,13 @@ const PATRONES = [
   [TEMAS.MATERIAL, /\bde\s+que\s+(esta\s+hecho|es)\b/],
   [TEMAS.MATERIAL, /\b(tela|cuero|plastico|algodon)\b/],
 
-  // ---- Como funciona / para que sirve ----
-  [TEMAS.USO, /\bcomo\s+(funciona|se\s+usa|se\s+pone|lo\s+uso)\b/],
+  // ---- Para que sirve ----
+  //
+  // ⚠️ "COMO FUNCIONA" YA NO ESTA AQUI. Se fue a TEMAS.COMO_SE_USA el
+  //    2026-10-10, mas arriba en esta misma lista. El motivo esta escrito
+  //    alli: esta rama responde con `paraQueSirve.texto`, que empieza con
+  //    "Sí, es justo para eso" — correcto para "¿sirve para los cólicos?" y
+  //    absurdo para "¿cómo funciona?".
   [TEMAS.USO, /\bpara\s+que\s+sirve\b/],
   // "¿esto sirve para los cólicos?" es EL EJEMPLO que dio Marco, y no se
   // reconocia: no casa con "para que sirve". Caia en el camino de la duda
@@ -759,6 +809,42 @@ const SENALES_DE_COMPRA = [
   /\b(dale|hagale|hagamoslo|de\s+una|despachalo|despachelo)\b/,
   /\b(como\s+)?(hago|hacemos)\s+para\s+(pedir|comprar|que\s+me\s+llegue)\b/,
   /\b(mandem?el[oa]|envielo|enviamelo|envienmelo|despachenlo)\b/,
+  // ----------------------------------------------------------------------
+  // ⚠️ "MÁNDAMELO" NO SE RECONOCIA, Y ERA UNA ERRATA DE UNA LETRA.
+  //
+  // Chat de Santiago, del panel del 10-oct:
+  //
+  //   bot      · "¿Te lo aparto...?"
+  //   Santiago · "Mándamelo"   -> el bot REPITIO la pregunta
+  //   Santiago · "Envíamelo"   -> y esta SI la entendio
+  //
+  // El mismo cliente, la misma intencion, dos palabras equivalentes, y una
+  // funcionaba y la otra no. El motivo:
+  //
+  //   · arriba hay `\bmandame\b`, y NO casa con "mandamelo": detras de
+  //     "mandame" viene una "l", que es caracter de palabra, asi que `\b`
+  //     no cierra ahi.
+  //   · y `mandem?el[oa]` cubre "mandelo" y "mandemelo", pero no
+  //     "manda-melo", que es la forma del imperativo en segunda persona.
+  //
+  // Entre los dos patrones quedaba un hueco con la forma mas natural de
+  // decirlo. Esto lo cierra para las dos personas y los dos verbos.
+  // ----------------------------------------------------------------------
+  /\b(manda|mande|manden|envia|envie|envien|despacha|despache|despachen)(me|nme)?l[oa]s?\b/,
+  // "hágame el favor" / "ágame el favor" (como se escribe en el movil).
+  // LITERAL del chat de Precioso: "Si Agame el favor".
+  //
+  // El lookahead deja fuera "hágame el favor DE DECIRME el precio", que es
+  // una pregunta con cortesia, no una compra.
+  /\b[ha]+game\s+(el\s+)?favor\b(?!\s+de\s+(decir|contar|explicar|confirmar|avisar|mandar\s+la\s+foto))/,
+  // Contesta literalmente a "¿te lo aparto?".
+  /\b(apartal[oa]|apartamel[oa]|apartemel[oa]|apartel[oa]|reservamel[oa]|reserval[oa]|separalo)\b/,
+  // "si claro", "si claro por favor", "claro que si" PEGADO a nada mas: es
+  // un si con enfasis. Se exige que sea el mensaje casi entero -con
+  // cortesia alrededor como mucho- para no leer "si, claro, pero cuanto
+  // vale el envio" como una compra.
+  /^\s*(si|sii+|sip)[\s,.]*(claro|dale|listo|señor|señora|por\s+favor|porfa)[\s,.]*(por\s+favor|porfa|gracias)?\s*$/,
+  /^\s*claro\s+que\s+si[\s!.]*$/,
   /\bvoy\s+a\s+(llevar|comprar|pedir)\b/,
   /\bcomo\s+pido\b/,
   /\bquiero\s+(hacer|realizar)\s+(el|un)\s+pedido\b/,

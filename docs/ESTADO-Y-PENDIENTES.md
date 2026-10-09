@@ -138,6 +138,12 @@ correa **graduable** · **para qué sirve** (el calor alivia el cólico) ·
 - `node herramientas/auditar.js --mios=… [--crudo] [--detalle]` — auditoría en
   **modo lectura**, cruza el chat con el diario de acuses
 - `node herramientas/probar-panel.js` — arranca el panel y recorre las rutas
+- `node herramientas/sondear.js [--malas]` — 65 preguntas reales del panel
+- `node herramientas/revivir.js` — las 3 ventas perdidas, de punta a punta
+- `node herramientas/reproducir-10oct.js [caso]` — los 7 chats de los ocho
+  defectos del 10-oct, **imprimiendo la ficha tras cada turno**: sin eso no
+  se ve que un dato entró como candidato y nunca se confirmó
+  (ver `docs/CORRECCIONES-2026-10-10.md`)
 
 ---
 
