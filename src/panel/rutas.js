@@ -361,9 +361,19 @@ function crearRutasDelPanel({ obtenerCerebro }) {
       estado,
       wamid: envio.wamid || null,
     });
-    // Igual que al responder a mano: si una persona escribe, el bot se calla
-    // en ese chat para que el cliente no reciba dos voces.
-    conv.atencion = { ...atencion.leer(conv), pausado: true, por: "panel", desde: new Date().toISOString() };
+    // ------------------------------------------------------------------
+    // ⚠️ AQUI LA PAUSA ERA PEOR QUE EN NINGUN OTRO SITIO, Y SE QUITO EL
+    //    10-OCT con el resto.
+    //
+    // Este camino lo usa SOLO el boton "Confirmar por WhatsApp", que manda
+    // al cliente el resumen de su pedido para que contESTE "sí". Y acto
+    // seguido callaba al bot 12 horas.
+    //
+    // O sea: se le pedia a la clienta que confirmara y se desconectaba
+    // justo al que iba a recibir la confirmacion. Su "sí" llegaba y no
+    // pasaba nada. Es la misma familia de defecto que el chat de Popayan,
+    // pero en el boton que existe precisamente para cerrar la venta.
+    // ------------------------------------------------------------------
     await repos.conversaciones.guardar(conv);
 
     diario.anotar("panel_confirmacion_manual", { idCliente: id, texto, estado, wamid: envio.wamid || null });
@@ -658,10 +668,35 @@ function crearRutasDelPanel({ obtenerCerebro }) {
         wamid: envio.wamid || null,
       });
 
-      // Tomar el control va JUNTO con la respuesta manual: si una persona
-      // contesta y el bot sigue suelto, el cliente recibe dos voces. Es la
-      // misma decision que tomo BIKERPRO, y por el mismo motivo.
-      conv.atencion = { ...atencion.leer(conv), pausado: true, por: "panel", desde: new Date().toISOString() };
+      // ------------------------------------------------------------------
+      // ⚠️ RESPONDER A MANO YA NO CALLA AL BOT. Lo decidio Marco el 10-oct,
+      //    y es la correccion de un defecto que le costo una venta.
+      //
+      // Aqui habia un `pausado: true`: escribir un mensaje desde el panel
+      // dejaba el chat mudo 12 horas. El razonamiento era el de BIKERPRO
+      // -que el cliente no reciba dos voces- y suena bien hasta que se mira
+      // lo que paso de verdad, en el chat de Popayan del 08-oct:
+      //
+      //   21:33  operador · "Me confirmas"      <- esto callo al bot
+      //   21:36  cliente  · "Si"
+      //   21:36  bot      · no enviado: conversacion_pausada
+      //
+      // El cliente dijo que si y nadie le contesto. A las cuatro horas
+      // seguia sin pedido. Un operador que pasa a saludar no quiere
+      // adoptar la conversacion: quiere empujarla.
+      //
+      // Marco lo dijo asi: «si yo me meto en una conversación y respondo, el
+      // bot debería seguir ahí, a menos de que yo lo silencie».
+      //
+      // CALLAR AL BOT SIGUE SIENDO POSIBLE, y ahora es siempre explicito:
+      //   · el boton "Tomar el control" del panel, que es una decision;
+      //   · o el propio bot, cuando pasa el caso a una persona (eso lo hace
+      //     `cerebro/orquestar.js` en la rama de escalado).
+      //
+      // Lo que se gana: el operador puede contestar una duda puntual y
+      // dejar que el bot siga cerrando la venta, que es lo que mas ventas
+      // produce de las dos cosas.
+      // ------------------------------------------------------------------
       await repos.conversaciones.guardar(conv);
 
       diario.anotar("panel_respuesta_manual", {
@@ -679,8 +714,8 @@ function crearRutasDelPanel({ obtenerCerebro }) {
           wamid: envio.wamid,
           hora: fecha.horaBogota(Date.now()),
           aviso:
-            "Meta acepto el mensaje. El bot queda pausado en este chat: pulsa «Devolver al bot» cuando termines, " +
-            "o se devuelve solo en 12 h. La entrega se confirma con el acuse.",
+            "Meta acepto el mensaje. El bot SIGUE atendiendo este chat: si quieres que se calle, pulsa " +
+            "«Tomar el control». La entrega se confirma con el acuse.",
         });
       }
 
@@ -749,11 +784,10 @@ function crearRutasDelPanel({ obtenerCerebro }) {
         forzar,
       });
 
-      // Tomar el control, igual que al responder a mano.
-      if (informe.enviadas > 0) {
-        conv.atencion = { ...atencion.leer(conv), pausado: true, por: "panel", desde: new Date().toISOString() };
-        await repos.conversaciones.guardar(conv);
-      }
+      // Igual que al responder a mano: mandar las fotos NO calla al bot.
+      // Ver el comentario largo en la ruta /responder. Mandar fotos es
+      // todavia menos "adoptar la conversacion" que escribir un mensaje: es
+      // darle al cliente algo que pidio y dejar que la venta siga.
 
       diario.anotar("panel_fotos", {
         idCliente: id,
@@ -790,7 +824,7 @@ function crearRutasDelPanel({ obtenerCerebro }) {
         de: informe.cuantas,
         aviso:
           informe.enviadas === informe.cuantas
-            ? `Meta acepto las ${informe.enviadas} fotos. El bot queda pausado en este chat: pulsa «Devolver al bot» cuando termines, o se devuelve solo en 12 h.`
+            ? `Meta acepto las ${informe.enviadas} fotos. El bot sigue atendiendo este chat. La entrega se confirma con los acuses.`
             : `Se mandaron ${informe.enviadas} de ${informe.cuantas}. ${informe.problemas.join(" ")}`,
       });
     } catch (e) {

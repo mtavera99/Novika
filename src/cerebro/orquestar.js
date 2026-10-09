@@ -1510,9 +1510,49 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // El ESTADO sigue pasando a ESCALADO y la tarea sigue abriendose, asi
     // que el chat aparece igual en /panel/sin-responder.
     // ======================================================================
+    // ======================================================================
+    // ⚠️ CORRECCION DEL 10-OCT: CUANDO EL BOT PASA EL CASO A UNA PERSONA, SE
+    //    CALLA. Lo pidio Marco, y cierra la otra mitad de esta decision.
+    //
+    // El bloque de arriba sigue siendo verdad para el MANUAL: que una
+    // persona escriba un mensaje NO calla al bot. Eso se quito hoy de
+    // `panel/rutas.js` y es lo que costo el chat de Popayan.
+    //
+    // Pero hay un caso en el que callarse SI es lo correcto, y es este: el
+    // bot acaba de decirle al cliente, con sus palabras, "te paso con una
+    // persona del equipo". Seguir vendiendo detras de esa frase la convierte
+    // en mentira. Marco lo dijo asi: «a menos de que yo lo silencie, o
+    // cuando ya la respuesta del bot literalmente es que estamos pasándolo
+    // al humano».
+    //
+    // POR QUE AHORA ES SEGURO Y EL 09-OCT NO LO ERA. No ha cambiado la idea,
+    // ha cambiado CUANTO se escala. El 09-oct cualquier pregunta sin tema
+    // acababa en escalado -29 de 65 respuestas malas, 7 con pausa- asi que
+    // pausar al escalar equivalia a pausar por cualquier cosa. Hoy el
+    // sondeo da 5 de 65 y los cinco son legitimos: pide una persona, reclama
+    // garantia, esta molesto, o pide al mayor. En esos cinco, el bot callado
+    // es lo correcto.
+    //
+    // LA RED QUE SE MANTIENE, y hay que decirla porque el riesgo medido
+    // sigue ahi: los escalados del 08-oct tardaron entre 4 y 5 horas en
+    // contestarse. Durante ese rato este chat queda mudo. Lo que lo limita:
+    //   · la pausa CADUCA (HORAS_DE_PAUSA, 12 h por defecto);
+    //   · el chat sale en /panel/sin-responder desde el primer minuto;
+    //   · y "Devolver al bot" lo reactiva en un clic.
+    // ======================================================================
     if (situacion === "escalado") {
       contar("escalado_a_persona");
-      traza.avisos.push("escalado: se avisa a una persona y el bot SIGUE atendiendo la venta");
+      // `por: "bot"` distingue en el panel quien se llevo el chat: no fue un
+      // operador pulsando un boton, fue el bot admitiendo que esto no lo
+      // contesta el. Con `desde` arranca el reloj de la caducidad.
+      conversacion.atencion = {
+        ...atencionDeChat.leer(conversacion),
+        pausado: true,
+        por: "bot",
+        desde: new Date().toISOString(),
+      };
+      contar("pausado_por_escalado");
+      traza.avisos.push("escalado: el bot paso el caso a una persona y se calla en este chat");
     }
 
     if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro)) {
