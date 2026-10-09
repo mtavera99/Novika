@@ -866,6 +866,16 @@ async function cancelar(codigo) {
   else avisar(r.error, "mal");
 }
 
+async function cambiarCantidad(codigo, actual) {
+  var v = prompt("Cuantas unidades? (el total se recalcula solo)", String(actual));
+  if (v === null) return;
+  var n = parseInt(v, 10);
+  if (!(n >= 1 && n <= 50)) { avisar("La cantidad tiene que ser un numero entre 1 y 50.", "mal"); return; }
+  var r = await pedir("/panel/pedido/cantidad", { codigo: codigo, cantidad: n });
+  if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 600); }
+  else avisar(r.error, "mal");
+}
+
 `)
   );
 }
@@ -2019,7 +2029,16 @@ function datosDeEntrega({ conversacion, pedido = null, editable = false, envioMa
               )}</td></tr>`
             : ""
         }
-        <tr><td data-label="Cantidad"><b>Cantidad</b></td><td>${esc(cot.cantidad || 1)}</td></tr>
+        <tr><td data-label="Cantidad"><b>Cantidad</b></td><td>${esc(cot.cantidad || 1)}${
+          // Editable SOLO si hay un pedido vivo y sin despachar: cambiarle la
+          // cantidad a algo que ya salio es mentir sobre lo que va en la caja.
+          // Punto 11 de Marco.
+          pedido && pedido.estado !== "despachado" && pedido.estado !== "cancelado"
+            ? ` <button class="chico" onclick="cambiarCantidad('${esc(pedido.codigo || pedido.id)}', ${Number(
+                cot.cantidad || 1
+              )})">Cambiar</button>`
+            : ""
+        }</td></tr>
         <tr><td data-label="Total"><b>Total</b></td><td>${esc(pesos(cot.total || 0))}</td></tr>
         <tr><td data-label="Pago"><b>Pago</b></td><td>${esc(
           (cot.condiciones && cot.condiciones.pagoMetodo) || "no declarado"

@@ -232,7 +232,11 @@ describe("3 · «Algo contra entrega» se contesta desde la ficha", () => {
       mensajeCliente: "cuanto vale?",
       memoria: { saludado: true },
     });
-    assert.match(t, /el precio no te lo quiero decir a medias/i, t);
+    // La frase cambio el 10-oct -Marco prohibio "no te lo quiero decir a
+    // medias"- pero la honestidad que esta prueba protege es la misma: se
+    // dice QUE dato falta y que se confirma, sin inventar una cifra.
+    assert.match(t, /el precio te lo confirmo con el equipo/i, t);
+    assert.equal(/a medias/i.test(t), false, `volvió la frase prohibida: ${t}`);
     assert.equal(/\$/.test(t), false, `se inventó una cifra sin cotización: ${t}`);
   });
 });

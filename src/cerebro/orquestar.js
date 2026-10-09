@@ -197,13 +197,28 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
    * Heuristicas que no necesitan modelo. Son las mas fiables que hay:
    * el telefono del chat es un hecho, no una inferencia.
    */
-  function candidatosHeuristicos(evento, { seLePidioElNombre = false, yaHayNombre = false, seLePidioLaCiudad = false } = {}) {
+  function candidatosHeuristicos(evento, { seLePidioElNombre = false, yaHayNombre = false, seLePidioLaCiudad = false, yaTieneCiudad = false } = {}) {
     const propuestas = {};
+    // Lo que trae WhatsApp de serie, separado de lo que escribio el cliente.
+    const perfil = {};
 
     // El telefono con el que escribe es el mejor candidato que existe: es un
     // hecho del canal, no una inferencia. Ojo: los clientes con nombre de
     // usuario de WhatsApp NO tienen telefono, y en ese caso no se inventa.
-    if (evento.telefono) propuestas.telefono = evento.telefono;
+    // ⚠️ VA AL CUBO DEL PERFIL, NO AL DEL CLIENTE, y por el mismo motivo
+    //    que el nombre: es lo que trae WhatsApp, no lo que dijo nadie.
+    //
+    // Como CLIENTE producia una CORRECCION FALSA EN CADA TURNO: el evento
+    // trae "573116391876" y la ficha guarda "3116391876" ya normalizado, asi
+    // que los dos valores "no coinciden" y `aplicarCandidatos` lo leia como
+    // "el cliente corrigio su telefono". Inflaba la metrica
+    // `dato_corregido_por_el_cliente` en todos los turnos, y al empezar a
+    // DECIR los cambios salio a la luz: el resumen anunciaba "ya cambié el
+    // teléfono" a quien solo habia corregido su nombre.
+    //
+    // En el cubo del perfil no cuenta como correccion, y un telefono que el
+    // cliente escriba a mano sigue pudiendo pisarlo.
+    if (evento.telefono) perfil.telefono = evento.telefono;
 
     // ------------------------------------------------------------------
     // ⚠️ EL NOMBRE DEL PERFIL ES UN RESPALDO, NO UNA CORRECCION.
@@ -235,7 +250,10 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // se calla. Corregir el nombre sigue siendo posible diciendolo ("me
     // llamo X"), que es una correccion de verdad.
     // ------------------------------------------------------------------
-    if (evento.nombre && !yaHayNombre) propuestas.nombre = evento.nombre;
+    // ⚠️ Y VA APARTE DEL RESTO, con origen PERFIL. Ver `campos.ORIGENES`:
+    //    el 09-oct, un nombre de perfil confirmado dejo a una clienta sin
+    //    poder corregir el suyo en cuatro intentos, y la venta se cayo.
+    if (evento.nombre && !yaHayNombre) perfil.nombre = evento.nombre;
 
     // Cantidad, ciudad y direccion salen del texto con reglas, no con
     // modelo. Ver dominio/extraer.js: ante la duda, no propone.
@@ -245,8 +263,12 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     const { candidatos } = extraer.deTexto(evento.texto || "", {
       seLoPidieron: seLePidioElNombre,
       seLaPidieronCiudad: seLePidioLaCiudad,
+      // Para que una direccion no cambie la ciudad ya dada. Ver el bloque de
+      // `ciudadEn`: "Barrio pueblillo en la cantera la pintada" movia el
+      // pedido de Popayán a La Pintada (Antioquia).
+      yaHayCiudad: yaTieneCiudad,
     });
-    return { ...propuestas, ...candidatos };
+    return { delCliente: { ...propuestas, ...candidatos }, delPerfil: perfil };
   }
 
   // ------------------------------------------------------------------
@@ -279,15 +301,22 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
   // y hace falta un "sí" explicito, asi que un cambio mal entendido se ve
   // ANTES de despachar. Ignorarlo en silencio no se veia nunca.
   // ------------------------------------------------------------------
-  function aplicarCandidatos(ficha, propuestas, origen) {
+  function aplicarCandidatos(ficha, propuestas, origen, registroDeCambios = null) {
     let actualizada = { ...ficha };
     for (const [campo, valor] of Object.entries(propuestas || {})) {
       if (!campos.CAMPOS.includes(campo)) continue;
       let antes = actualizada[campo];
 
       const confirmado = campos.valorConfirmado(antes);
+      // Pisar el relleno del PERFIL no es una correccion del cliente: es
+      // rellenar un hueco. Se distingue para que la metrica
+      // `dato_corregido_por_el_cliente` siga significando algo -el cliente
+      // cambio un dato que el mismo habia dado- y para que el aviso del
+      // panel no diga que corrigio algo que nunca dijo.
+      const soloEraElPerfil = campos.vieneDelPerfil(antes);
       const esCorreccionDelCliente =
         origen === campos.ORIGENES.CLIENTE &&
+        !soloEraElPerfil &&
         confirmado !== null &&
         valor !== null &&
         valor !== undefined &&
@@ -299,6 +328,23 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         actualizada[campo] = antes;
         contar("dato_corregido_por_el_cliente");
         registrar("info", "dato_corregido_por_el_cliente", { campo });
+        // Se apunta para que el mensaje pueda DECIR que se cambio. Sin esto,
+        // una correccion aplicada se ve igual que una ignorada: el resumen
+        // sale con una linea distinta en un cuadro de seis, y el cliente no
+        // tiene forma de saber si lo oyeron. Chat de Ailid, 09-oct.
+        if (Array.isArray(registroDeCambios)) registroDeCambios.push(campo);
+      } else if (
+        soloEraElPerfil &&
+        origen === campos.ORIGENES.CLIENTE &&
+        valor &&
+        String(valor).trim().toLowerCase() !== String(confirmado).trim().toLowerCase()
+      ) {
+        // `proponer` no pisa un campo confirmado, asi que hay que abrirlo:
+        // sin esto el nombre del perfil se queda puesto aunque el cliente
+        // escriba el suyo, que es exactamente el defecto del 09-oct.
+        antes = campos.reabrir(antes, `lo dijo el cliente y antes solo estaba el perfil: "${confirmado}" -> "${valor}"`);
+        actualizada[campo] = antes;
+        registrar("info", "nombre_de_perfil_reemplazado", { campo });
       }
 
       actualizada[campo] = campos.proponer(antes, valor, origen);
@@ -494,8 +540,24 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // llama. Y no crea el pedido: lleva a PEDIR LO QUE FALTA. El pedido
     // sigue exigiendo el resumen a la vista y su propia confirmacion.
     // ------------------------------------------------------------------
-    const afirmoElCierre =
-      conversacion.cierrePropuesto === true && confirmacion.esAfirmacionDeCierre(evento.texto || "");
+    // ⚠️ EL CIERRE TAMBIEN CUENTA SI LO HIZO UNA PERSONA DESDE EL PANEL.
+    //
+    // La bandera `cierrePropuesto` solo la escribe el BOT al enviar. Pero
+    // Marco lo señalo en su punto 6: "cuando el cliente responde a un
+    // mensaje del operador, interpretar la respuesta según ese mensaje".
+    //
+    // Su caso: el operador escribio "¿Me confirmas?" y el "Si" del cliente
+    // volvia a "¿Te lo aparto...?". El mensaje del operador SI queda en el
+    // historial, asi que basta con mirar el ultimo mensaje del negocio —
+    // venga del bot o de una persona.
+    const ultimoDelNegocioAhora = [...atencionDeChat.mensajes(conversacion)]
+      .reverse()
+      .find((m) => m && m.de && m.de !== atencionDeChat.QUIEN.CLIENTE);
+    const huboCierre =
+      conversacion.cierrePropuesto === true ||
+      responder.prometeCierre((ultimoDelNegocioAhora && ultimoDelNegocioAhora.texto) || "");
+
+    const afirmoElCierre = huboCierre && confirmacion.esAfirmacionDeCierre(evento.texto || "");
     if (afirmoElCierre) {
       // Se guarda como señal de compra permanente, igual que un "lo quiero":
       // una vez que dijo que si, sigue siendo verdad en el turno siguiente.
@@ -661,26 +723,47 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ¿Se le pidio el nombre y todavia no lo tenemos? Entonces un mensaje
     // que solo trae un nombre ES la respuesta a esa pregunta. Lo sabe el
     // cerebro, que es quien guarda la memoria de lo que ya se pidio.
+    // ⚠️ "VIENE DEL PERFIL" CUENTA COMO "NO TENEMOS NOMBRE".
+    //
+    // Sin esta condicion, el nombre del perfil de WhatsApp cerraba la
+    // captura para siempre: el campo no estaba vacio, asi que un mensaje
+    // con solo el nombre no se leia. Es lo que dejo a Ailid sin poder dar
+    // el suyo en cuatro intentos el 09-oct.
     const seLePidioElNombre =
-      conversacion.datosPedidos === true && !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre);
-    conversacion.ficha = aplicarCandidatos(
-      conversacion.ficha,
-      candidatosHeuristicos(evento, {
-        seLePidioElNombre,
-        // Para que el nombre de perfil de WhatsApp no pise el que escribio
-        // el cliente. Ver el comentario en `candidatosHeuristicos`.
-        yaHayNombre: Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)),
+      conversacion.datosPedidos === true &&
+      (!campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre) ||
+        campos.vieneDelPerfil(conversacion.ficha && conversacion.ficha.nombre));
+    const heuristicos = candidatosHeuristicos(evento, {
+      seLePidioElNombre,
+      // Para que el nombre de perfil de WhatsApp no pise el que escribio
+      // el cliente. Ver el comentario en `candidatosHeuristicos`.
+      //
+      // Un nombre que solo viene del PERFIL no cuenta como "ya hay nombre":
+      // si contara, el perfil se quedaria pegado para siempre y el cliente
+      // no podria dar el suyo. Es lo que paso el 09-oct.
+      yaHayNombre:
+        Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)) &&
+        !campos.vieneDelPerfil(conversacion.ficha && conversacion.ficha.nombre),
         // ¿Se le pidio la ciudad y todavia no la tenemos? Entonces una
         // ciudad fuera del listado -un corregimiento, una vereda- se acepta
         // marcada para revisar, en vez de perderse. Se exige que el NOMBRE
         // ya este resuelto: con los dos pendientes, un mensaje de dos
         // palabras es ambiguo y se lo queda el nombre, que se pidio primero.
-        seLePidioLaCiudad:
-          (conversacion.saludado === true || conversacion.datosPedidos === true) &&
-          !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.ciudad) &&
-          Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)),
-      }),
-      campos.ORIGENES.CLIENTE
+      yaTieneCiudad: Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.ciudad)),
+      seLePidioLaCiudad:
+        (conversacion.saludado === true || conversacion.datosPedidos === true) &&
+        !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.ciudad) &&
+        Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)),
+    });
+
+    // El perfil PRIMERO, para que lo que escriba el cliente pueda pisarlo.
+    const corregidosEnEsteTurno = [];
+    conversacion.ficha = aplicarCandidatos(conversacion.ficha, heuristicos.delPerfil, campos.ORIGENES.PERFIL);
+    conversacion.ficha = aplicarCandidatos(
+      conversacion.ficha,
+      heuristicos.delCliente,
+      campos.ORIGENES.CLIENTE,
+      corregidosEnEsteTurno
     );
 
     // ------------------------------------------------------------------
@@ -928,6 +1011,17 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
             ? "pedido_mayorista"
             : null;
 
+    // ⚠️ SE LEE AQUI, ANTES DE LA CADENA DE ACCIONES, y no mas abajo.
+    //
+    // La cadena necesita saber si el cliente pide cambiar la cantidad de un
+    // pedido ya confirmado, y esa rama va ANTES del blindaje de
+    // "ya_confirmado" -si no, el blindaje gana y contesta "tu pedido está
+    // confirmado" a quien pide dos unidades-. Declararla abajo producia
+    // "Cannot access 'loQuePregunta' before initialization".
+    //
+    // Solo depende del texto del evento, asi que subirla no cambia nada.
+    const loQuePregunta = preguntas.leer(evento.texto || "");
+
     if (motivoDeHumano) {
       situacion = "escalado";
       estadoDestino = estados.ESTADOS.ESCALADO;
@@ -941,6 +1035,70 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
             : atencionDeChat.MOTIVOS_PENDIENTE.NO_SUPO,
         pregunta: evento.texto || "",
       });
+    } else if (
+      // ------------------------------------------------------------------
+      // CAMBIAR LA CANTIDAD DE UN PEDIDO YA CONFIRMADO Y SIN DESPACHAR.
+      //
+      // ⚠️ VENTA DE $85.000 PERDIDA POR NO TENER ESTA RAMA (ANDRE, 09-oct):
+      //
+      //   cliente · "Si"                  -> pedido de 1 confirmado
+      //   cliente · "Mejor me mandas los 2"
+      //   bot     · "Tu pedido está confirmado…"
+      //   cliente · "Por favor"
+      //   bot     · "Perdón, creo que no te entendí"
+      //   cliente · "Quiero 2 equipos"
+      //   bot     · "Para pedir otro te ayuda una persona del equipo"
+      //
+      // Un operador salvo la venta a mano, pero el pedido se quedo en 1
+      // unidad y $49.900: se despacho de menos y se cobro de menos.
+      //
+      // EL BOT PROPONE, NO CAMBIA. Se calcula el total nuevo, se muestra y
+      // se pide un "sí". Mutar un pedido confirmado sin que el cliente vea
+      // el precio nuevo es como cambiarle las condiciones a sus espaldas —
+      // y aqui el cambio SUBE el total, asi que tiene que verlo.
+      //
+      // Marco lo pidio explicito: "No escalar por esto".
+      // ------------------------------------------------------------------
+      pedidoActivo &&
+      loQuePregunta.cambioDeCantidad !== null &&
+      loQuePregunta.cambioDeCantidad !== undefined &&
+      pedidoActivo.estado !== "despachado" &&
+      pedidoActivo.estado !== "cancelado" &&
+      producto
+    ) {
+      const pedida = loQuePregunta.cambioDeCantidad;
+      // 0 significa "uno mas": lo resuelve aqui, que es quien sabe cuantos hay.
+      const nueva = pedida === 0 ? Number(pedidoActivo.cantidad || 1) + 1 : pedida;
+      const otra = cotizador.cotizar({
+        producto,
+        cantidad: nueva,
+        destino: null,
+        variante: (pedidoActivo.producto && pedidoActivo.producto.variante) || null,
+      });
+
+      if (!otra.ok || nueva === Number(pedidoActivo.cantidad)) {
+        // Sin tarifa aprobada para esa cantidad no se improvisa un precio:
+        // eso lo mira una persona. Es el mismo candado del cotizador.
+        situacion = "ya_confirmado";
+        estadoDestino = conversacion.estado;
+        atencionDeChat.anotarPendiente(conversacion, {
+          motivo: atencionDeChat.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO,
+          pregunta: evento.texto || "",
+        });
+        traza.avisos.push(`pidio cambiar a ${nueva} unidades y no hay tarifa aprobada: lo mira una persona`);
+      } else {
+        conversacion.cambioPropuesto = {
+          cantidad: nueva,
+          total: otra.cotizacion.total,
+          pedidoId: pedidoActivo.id,
+        };
+        conversacion.cotizacion = otra.cotizacion;
+        traza.cotizacion = otra.cotizacion;
+        traza.cambioDeCantidad = { de: Number(pedidoActivo.cantidad), a: nueva, total: otra.cotizacion.total };
+        situacion = "cambio_de_cantidad";
+        estadoDestino = estados.ESTADOS.MODIFICANDO;
+        contar("cambio_de_cantidad_propuesto");
+      }
     } else if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
       // "si" / "ok" / "gracias" sobre un pedido ya confirmado. NO se cotiza,
       // NO se crea pedido. Esta es la regla que pidio Marco.
@@ -988,6 +1146,43 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         transportadora: (pedidoActivo.despacho && pedidoActivo.despacho.transportadora) || null,
       };
       estadoDestino = estados.ESTADOS.POSVENTA;
+    } else if (decision.accion === confirmacion.ACCIONES.CORREGIR && !estados.tienePedido(conversacion.estado)) {
+      // ----------------------------------------------------------------
+      // "ALGO ESTA MAL" — Y HABIA QUE PREGUNTAR QUE.
+      //
+      // ⚠️ ESTA RAMA NO EXISTIA, Y SU AUSENCIA COSTO $85.000.
+      //
+      // `CORREGIR` caia al flujo normal (`avanzarVenta`). Si el mensaje
+      // traia el dato corregido, bien: el resumen se rehacia. Pero si era
+      // un "No" pelado -que es lo que escribe quien ya se cansó- no habia
+      // ningun dato nuevo, el resumen salia IDENTICO, y la guarda anti-eco
+      // remataba con "Te dejé el resumen aquí arriba 👆".
+      //
+      // Chat de Ailid (09-oct), cuatro veces seguidas. El bot nunca le
+      // pregunto QUE estaba mal. Ella tampoco podia adivinar que el bot no
+      // la entendia.
+      //
+      // Dos caminos, y la diferencia es si el turno trajo un dato:
+      //   · trajo dato -> sigue al flujo normal, que rehace el resumen, y
+      //     se le pone delante "¡Listo, ya lo cambié!" diciendo QUE cambio.
+      //   · no trajo nada -> se pregunta que esta mal. Una pregunta
+      //     concreta, no un empujon al resumen.
+      // ----------------------------------------------------------------
+      if (datosAportados.length) {
+        const r = avanzarVenta({ conversacion, producto, resolucion, candidato, evento });
+        situacion = r.situacion;
+        estadoDestino = r.estadoDestino;
+        traza.cotizacion = r.cotizacion;
+        traza.cotizacionInformativa = r.cotizacionInformativa || null;
+        traza.faltan = r.faltan;
+        // Para que el resumen diga QUE se cambio y el cliente lo vea.
+        traza.cambiosAplicados = datosAportados;
+      } else {
+        situacion = "corregir_que";
+        estadoDestino = conversacion.estado;
+        contar("pregunto_que_dato_esta_mal");
+        traza.avisos.push('dijo que algo esta mal sin decir que: se le pregunta en vez de repetir el resumen');
+      }
     } else if (decision.accion === confirmacion.ACCIONES.CANCELAR) {
       // ----------------------------------------------------------------
       // CANCELAR ALGO QUE NO EXISTE NO ES UN ESCALADO.
@@ -1030,6 +1225,45 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
           traza.avisos.push("hay pedido y no se pudo cancelar: lo gestiona una persona");
           contar("escalado_a_persona");
         }
+      }
+    } else if (
+      // El "sí" al cambio de cantidad: AQUI se aplica sobre el pedido.
+      decision.accion === confirmacion.ACCIONES.CONFIRMAR &&
+      conversacion.estado === estados.ESTADOS.MODIFICANDO &&
+      conversacion.cambioPropuesto &&
+      pedidoActivo &&
+      pedidoActivo.id === conversacion.cambioPropuesto.pedidoId
+    ) {
+      const r = pedidos.modificar({
+        pedido: pedidoActivo,
+        cambios: { cantidad: conversacion.cambioPropuesto.cantidad },
+        cotizacionNueva: conversacion.cotizacion,
+        porQue: "el cliente pidio cambiar la cantidad por WhatsApp",
+        wamid: evento.wamid,
+      });
+      if (r.ok) {
+        await repos.pedidos.reemplazar(r.pedido);
+        contar("cambio_de_cantidad_aplicado");
+        registrar("info", "cantidad_cambiada", {
+          pedidoId: r.pedido.id,
+          cantidad: r.pedido.cantidad,
+          total: r.pedido.cotizacion.total,
+        });
+        conversacion.cambioPropuesto = null;
+        traza.pedido = { id: r.pedido.id, estado: r.pedido.estado, creado: false };
+        traza.cotizacion = r.pedido.cotizacion;
+        situacion = "confirmado";
+        estadoDestino = estados.ESTADOS.CONFIRMADO;
+      } else {
+        // No se pudo aplicar -ya salio, por ejemplo-: lo mira una persona y
+        // NO se le dice que quedo cambiado.
+        situacion = "escalado";
+        estadoDestino = estados.ESTADOS.ESCALADO;
+        traza.avisos.push(`no se pudo cambiar la cantidad: ${r.motivo}`);
+        atencionDeChat.anotarPendiente(conversacion, {
+          motivo: atencionDeChat.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO,
+          pregunta: evento.texto || "",
+        });
       }
     } else if (decision.accion === confirmacion.ACCIONES.CONFIRMAR) {
       const r = await confirmarPedido({ conversacion, producto, evento, revisiones: validacion.revisiones });
@@ -1085,7 +1319,6 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // Si quiere las dos de verdad, lo dira ("las quiero"), y entonces pasa
     // por el camino normal con su resumen y su confirmacion.
     // ------------------------------------------------------------------
-    const loQuePregunta = preguntas.leer(evento.texto || "");
     let cotizacionConsultada = traza.cotizacionInformativa || null;
     let cantidadSinTarifa = null;
 
@@ -1149,6 +1382,36 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // primera vez llega como 1: una respuesta solo necesita saber si es la
     // primera vez que la da.
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // "SERA OTRO DIA" SE ANOTA, PARA VOLVER UNA SOLA VEZ.
+    //
+    // Punto 7 de Marco: a quien aplaza no se le insiste ahora -su respuesta
+    // no lleva cierre, ver TEMAS_SIN_CIERRE- pero tampoco se le olvida.
+    // Pidio un recordatorio a las 20 horas, UNA vez.
+    //
+    // Se guarda la marca aqui y el barrido de recordatorios usa su propio
+    // plazo para estos: ver `dominio/recordatorios.js`.
+    // ------------------------------------------------------------------
+    if (loQuePregunta.temas.includes(preguntas.TEMAS.OTRO_DIA)) {
+      conversacion.aplazadoEn = new Date().toISOString();
+      contar("cliente_aplazo");
+    }
+
+    // Y quien pide para una FECHA concreta queda en la bandeja.
+    //
+    // ⚠️ PORQUE EL BOT NO PUEDE CUMPLIR ESE SEGUIMIENTO SOLO. Marco pidio
+    //    "te escribo unos dias antes para confirmar", y pasada la ventana de
+    //    24 h de WhatsApp hace falta una plantilla aprobada que todavia no
+    //    existe. La respuesta no lo promete -dice que queda anotado- y la
+    //    nota es lo que hace que eso sea verdad: alguien lo ve y lo retoma.
+    if (loQuePregunta.temas.includes(preguntas.TEMAS.PARA_DESPUES)) {
+      atencionDeChat.anotarPendiente(conversacion, {
+        motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
+        pregunta: evento.texto || "",
+      });
+      contar("compra_para_mas_adelante");
+    }
+
     conversacion.vecesPorTema = { ...(conversacion.vecesPorTema || {}) };
     for (const t of loQuePregunta.temas) {
       conversacion.vecesPorTema[t] = Number(conversacion.vecesPorTema[t] || 0) + 1;
@@ -1205,6 +1468,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // Pregunto por una cantidad que la tabla no cubre: el texto lo dice
       // en vez de contestar con el precio de otra cantidad.
       cantidadSinTarifa,
+      // Los datos que se acaban de CORREGIR, para que el resumen diga que
+      // cambio en vez de salir calcado y parecer que no se leyo nada.
+      cambiosAplicados: [...new Set([...(traza.cambiosAplicados || []), ...corregidosEnEsteTurno])],
       // Para no prometer fotos que la deduplicacion no va a reenviar.
       // El campo lo anota el envio por producto: `fotosEnviadas[productoId]`.
       // La señal de compra de ESTE turno o de cualquiera anterior.
@@ -1313,6 +1579,78 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // mando dos caritas, no.
     // ------------------------------------------------------------------
     const clienteNoDijoNada = !String(evento.texto || "").replace(/[^\p{L}\p{N}]/gu, "").trim();
+
+    // ------------------------------------------------------------------
+    // NI "NO TE ENTENDI" A QUIEN SOLO FUE AMABLE, NI EL MISMO TEXTO DOS
+    // VECES A QUIEN MANDO UN STICKER. Puntos 6 y 8 de Marco.
+    //
+    // Dos casos reales del 09-oct, con la misma raiz: un mensaje que no
+    // aporta nada que contestar.
+    //
+    //   ANDRE     · "Por favor"   (tras pedirle el barrio)
+    //               -> "Perdón, creo que no te entendí bien"
+    //   José Polo · un sticker, y otro
+    //               -> "¡Gracias! 🙌 ¿Me cuentas por escrito...?" DOS VECES,
+    //                  y a la tercera con "Te confirmo 👇" delante.
+    //
+    // "Por favor" se entiende perfectamente: es un sí cortés a lo que se le
+    // acaba de pedir. Y dos stickers no son un bot atascado.
+    //
+    // En los dos casos lo correcto es lo mismo: RETOMAR EL PASO. Pedir UN
+    // dato, el primero que falte, en vez de disculparse o repetirse.
+    // ------------------------------------------------------------------
+    // ⚠️ Y SOLO CUANDO LA ALTERNATIVA ES MALA. La primera version de esta
+    //    guarda se disparaba en todos los turnos sin tema y pisaba tres
+    //    respuestas buenas, que las pruebas cazaron:
+    //
+    //      · el AUDIO, que tiene su propio mensaje ("mándamelo por escrito")
+    //        y pasaba a recibir "¿para qué ciudad sería?";
+    //      · el "?" suelto, que se reorienta a proposito;
+    //      · "Si claro por favor", que SI es una señal de compra y merece la
+    //        pedida de datos completa, no una pregunta de un solo campo.
+    //
+    // La leccion: esto no es "que decir cuando el mensaje es flojo", es "que
+    // decir en vez de disculparse o repetirse". Solo entra ahi.
+    const soloFueAmable =
+      !clienteNoDijoNada &&
+      !loQuePregunta.temas.length &&
+      !datosAportados.length &&
+      // Una señal de compra NO es "solo ser amable": se le piden los datos.
+      !loQuePregunta.compra &&
+      confirmacion.esAfirmacionDeCierre(evento.texto || "");
+    const faltanAhora = traza.faltan || [];
+    // Un audio o una foto tienen su propia respuesta: no se pisan.
+    const sinTextoDeVerdad = Boolean(evento.media && evento.media.tipo);
+    // La alternativa real: o la guarda anti-eco ya salto, o el texto iba a
+    // ser la disculpa.
+    const laAlternativaEsMala =
+      noRepetir.repetido === true ||
+      String(preparada.texto || "").includes(responder.PEDIR_CONCRETAR.slice(0, 30));
+
+    if (
+      (clienteNoDijoNada || soloFueAmable) &&
+      !sinTextoDeVerdad &&
+      laAlternativaEsMala &&
+      faltanAhora.length &&
+      situacion === "faltan_datos"
+    ) {
+      const retomado = responder.retomarElPaso(
+        faltanAhora,
+        campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)
+      );
+      if (retomado && retomado.trim() && retomado.trim() !== String(preparada.texto || "").trim()) {
+        preparada.texto = retomado;
+        noRepetir.repetido = false;
+        noRepetir.escalar = false;
+        contar("paso_retomado");
+        traza.avisos.push(
+          clienteNoDijoNada
+            ? "el cliente no dijo nada: se retoma el paso en vez de repetir"
+            : "solo fue amable: se retoma el paso en vez de decirle que no se le entendio"
+        );
+      }
+    }
+
     if (clienteNoDijoNada) {
       noRepetir.repetido = false;
       noRepetir.escalar = false;
@@ -1447,12 +1785,27 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // conserva `preguntoAlgoNoCatalogado`: una pregunta que no se entendio
     // tiene que verla una persona aunque el texto no prometa nada.
     const prometioConfirmar = contestar.prometeConfirmar(preparada.texto);
-    if (situacion === "escalado" || preguntoAlgoNoCatalogado || prometioConfirmar) {
+    // ------------------------------------------------------------------
+    // LA RESPUESTA DE RESERVA TAMBIEN DEJA NOTA, Y SIN FRENAR AL CLIENTE.
+    //
+    // Al borrar el "no te la quiero contestar a medias" (10-oct) se perdia
+    // la unica señal que abria la tarea: el texto ya no promete nada, asi
+    // que `prometeConfirmar` no lo ve.
+    //
+    // Pero la nota sigue valiendo. Marco lo pidio asi: "dejar una nota
+    // interna, sin frenar el bot". Cada una de estas es una pregunta que el
+    // catalogo no cubre, y la bandeja es donde se ve QUE hay que añadirle.
+    // De las siete del 09-oct, cinco se podian contestar con datos que ya
+    // existian: la bandeja es justo lo que habria hecho verlo antes.
+    // ------------------------------------------------------------------
+    const salioLaReserva = contestar.esReservaDeVenta(preparada.texto);
+    if (situacion === "escalado" || preguntoAlgoNoCatalogado || prometioConfirmar || salioLaReserva) {
       atencionDeChat.anotarPendiente(conversacion, {
         motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
         pregunta: evento.texto || "",
       });
       if (prometioConfirmar && !preguntoAlgoNoCatalogado) contar("promesa_anotada");
+      if (salioLaReserva) contar("respuesta_de_reserva");
     }
 
     // ------------------------------------------------------------------
@@ -1560,7 +1913,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       traza.avisos.push("escalado: el bot paso el caso a una persona y se calla en este chat");
     }
 
-    if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro)) {
+    if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro) && !traza.cambioDeCantidad) {
       // Quiere otro teniendo uno confirmado. El bot NO abre el pedido -eso
       // es lo que casi despacho un paquete que nadie pidio en BIKERPRO-
       // pero la intencion de comprar mas no se puede perder.

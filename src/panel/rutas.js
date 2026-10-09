@@ -482,6 +482,88 @@ function crearRutasDelPanel({ obtenerCerebro }) {
   // con la cotizacion vigente, igual que cuando lo manda el bot. Si el panel
   // pudiera teclear un importe, habria dos fuentes de precio.
   // ----------------------------------------------------------------------
+  // ----------------------------------------------------------------------
+  // CAMBIAR LA CANTIDAD DE UN PEDIDO CONFIRMADO
+  //
+  // Lo pidio Marco en su punto 11: "El panel debe permitir cambiar la
+  // cantidad de un pedido confirmado y recalcular el total".
+  //
+  // El bot ya lo hace solo cuando el cliente lo pide, pero hace falta la
+  // puerta manual: el caso de ANDRE lo salvo un operador a mano y el pedido
+  // se quedo en 1 unidad y $49.900 porque no habia por donde corregirlo.
+  //
+  // ⚠️ USA LA MISMA OPERACION DE DOMINIO QUE EL BOT (`pedido.modificar`), y
+  //    eso es deliberado. Esa funcion es la que se niega a cambiar un pedido
+  //    DESPACHADO y la que exige una cotizacion nueva cuando el cambio
+  //    afecta al precio. Escribir aqui un camino propio seria tener dos
+  //    reglas distintas para la misma cosa — y la del panel acabaria siendo
+  //    la que no comprueba nada.
+  // ----------------------------------------------------------------------
+  router.post("/pedido/cantidad", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    const cantidad = Number.parseInt(String((req.body && req.body.cantidad) || ""), 10);
+
+    if (!codigo) return res.status(400).json({ ok: false, error: "falta el codigo del pedido" });
+    if (!Number.isFinite(cantidad) || cantidad < 1 || cantidad > 50) {
+      return res.status(400).json({ ok: false, error: "la cantidad tiene que ser un numero entre 1 y 50" });
+    }
+
+    try {
+      const { repos, catalogo } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "no existe ese pedido" });
+      if (Number(pedido.cantidad) === cantidad) {
+        return res.json({ ok: true, aviso: `El pedido ya tiene ${cantidad} unidad(es).` });
+      }
+
+      const todos = catalogo.productos || [];
+      const producto = todos.find((p) => p.id === (pedido.producto && pedido.producto.id));
+      if (!producto) return res.status(409).json({ ok: false, error: "el producto del pedido no esta en el catalogo" });
+
+      const { cotizar } = require("../dominio/cotizador");
+      const nueva = cotizar({
+        producto,
+        cantidad,
+        destino: null,
+        variante: (pedido.producto && pedido.producto.variante) || null,
+      });
+      if (!nueva.ok) {
+        return res.status(409).json({
+          ok: false,
+          error: `no hay precio aprobado para ${cantidad} unidades: ${nueva.motivo || "sin tarifa"}`,
+        });
+      }
+
+      const r = dominioPedido.modificar({
+        pedido,
+        cambios: { cantidad },
+        cotizacionNueva: nueva.cotizacion,
+        porQue: "lo cambio una persona desde el panel",
+      });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+
+      await repos.pedidos.reemplazar(r.pedido);
+      diario.anotar("panel_cantidad_cambiada", {
+        codigo,
+        de: Number(pedido.cantidad),
+        a: cantidad,
+        total: r.pedido.cotizacion.total,
+      });
+      metricas.incrementar("panel_cantidad_cambiada");
+
+      return res.json({
+        ok: true,
+        cantidad: r.pedido.cantidad,
+        total: r.pedido.cotizacion.total,
+        aviso: `Listo: ${r.pedido.cantidad} unidad(es), total ${r.pedido.cotizacion.total}.`,
+      });
+    } catch (e) {
+      log.error("panel_cantidad_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   router.post("/entrega", async (req, res) => {
     if (!auth.exigirSesion(req, res, config)) return;
 

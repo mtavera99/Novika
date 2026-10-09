@@ -862,6 +862,7 @@ function textoDeterminista({
   ciudadConfirmada = null,
   datosDeEntrega = null,
   cantidadSinTarifa = null,
+  cambiosAplicados = [],
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
   huboSenalDeCompra = false,
@@ -878,6 +879,19 @@ function textoDeterminista({
   if (sinTexto && !String(mensajeCliente || "").trim()) return sinTexto;
 
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
+
+  // ⚠️ AL ALCANCE DE LA FUNCION, NO DENTRO DE UN `if`.
+  //
+  // La primera version la declaro dentro de la rama `else if
+  // (!pasoPropuesto)` y la usaba tambien en la condicion del `else if`
+  // siguiente, que esta FUERA de ese bloque. Es el mismo error de alcance
+  // que tenia `turno` en orquestar.js y que paso semanas sin verse: un
+  // `const` de bloque no existe en la condicion del `else if`.
+  //
+  // Alli el fallo quedaba tapado porque habia una funcion con ese nombre;
+  // aqui reventaba con ReferenceError y rompia el turno entero. Lo cazo una
+  // prueba de esta misma tanda.
+  const noEmpujar = lectura.temas.some((t) => TEMAS_SIN_CIERRE.includes(t));
 
   // El saludo va UNA vez por conversacion. Repetir "¡Hola!" en cada mensaje
   // es la marca mas reconocible de un bot.
@@ -1130,7 +1144,7 @@ function textoDeterminista({
           );
           if (politicas.texto) partes.push(politicas.texto);
           if (comerciales.includes(preguntas.TEMAS.PRECIO)) {
-            partes.push(contestar.loConfirmo("El precio", "lo"));
+            partes.push(contestar.loConfirmo("El precio", "lo", producto, null));
           }
         }
       }
@@ -1341,10 +1355,24 @@ function textoDeterminista({
           return componer(partes, { emoji: "saludo" });
         }
 
-        partes.push(
-          "Esa no te la quiero contestar a medias. La dejo anotada para el equipo: " +
-            "una persona la revisa y te responde por aquí."
-        );
+        // ----------------------------------------------------------------
+        // ⚠️ AQUI VIVIA "no te la quiero contestar a medias", Y LA BORRO
+        //    MARCO EL 10-OCT. Salio SIETE VECES en diecinueve
+        //    conversaciones, y en ninguna hacia falta el equipo.
+        //
+        // La peor de las siete fue una objecion de confianza -"pero que sea
+        // cierto", "en otras páginas he pedido y no llega nada"-, que es
+        // justo el momento de dar seguridad y no de pedir paciencia.
+        //
+        // Ahora se vuelve a la venta con lo que SI se sabe. La nota interna
+        // se sigue abriendo: `contestar.esReservaDeVenta` detecta este
+        // texto y el cerebro apunta la pregunta, sin frenar al cliente.
+        // ----------------------------------------------------------------
+        // Sin repetir el precio si la linea comercial ya salio en este mismo
+        // mensaje: salia "$49.900 con envío incluido" dos veces en dos
+        // frases seguidas.
+        const yaDijoElPrecio = partes.some((x) => /\$/.test(String(x || "")));
+        partes.push(contestar.reservaDeVenta(producto, cot, { yaDijoElPrecio }));
         return componer(partes, { emoji: "atencion" });
       }
 
@@ -1434,8 +1462,11 @@ function textoDeterminista({
         // con una pregunta" esta mal.
         const enManosDeUnaPersona =
           vezDeLaObjecion >= 3 && lectura.temas.includes(preguntas.TEMAS.OBJECION_PRECIO);
-        if (!enManosDeUnaPersona) partes.push("¿Te lo aparto? 🙌");
-      } else if (lectura.temas.length && !partes.some((x) => /\?/.test(String(x || "")))) {
+        // El cierre depende de lo que falte: a quien no ha dicho su ciudad
+        // se le pregunta la ciudad, no se le ofrece apartar algo que no se
+        // sabe a donde va. Es el punto 9 de Marco.
+        if (!enManosDeUnaPersona && !noEmpujar) partes.push(cierreSegunLoQueFalta({ lectura, ciudadConfirmada }));
+      } else if (lectura.temas.length && !noEmpujar && !partes.some((x) => /\?/.test(String(x || "")))) {
         // ------------------------------------------------------------
         // LA REGLA DE ORO DE MARCO: NINGUN MENSAJE SE QUEDA SUELTO
         //
@@ -1456,13 +1487,40 @@ function textoDeterminista({
         // Solo aplica cuando se CONTESTO UN TEMA y el mensaje no trae ya una
         // pregunta: no se le añade un cierre a quien se esta despidiendo, ni
         // dos preguntas al mismo mensaje.
-        partes.push("¿Te lo aparto? 🙌");
+        partes.push(cierreSegunLoQueFalta({ lectura, ciudadConfirmada }));
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
       // el mensaje no trae ya alguno.
       return componer(partes, { emoji: voz.claveDeEmoji(lectura.temas) || (lectura.compra ? "compra" : "atencion") });
     }
+
+    // ----------------------------------------------------------------------
+    // "ALGO ESTA MAL" Y NO DIJO QUE. SE PREGUNTA.
+    //
+    // El texto es el que escribio Marco. Lo que importa de el es que NO
+    // repite el resumen: repetirlo es lo que hizo el bot cuatro veces
+    // seguidas con Ailid mientras ella intentaba corregir su nombre.
+    // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // CAMBIO DE CANTIDAD SOBRE UN PEDIDO CONFIRMADO.
+    //
+    // El texto es el que escribio Marco. Dice la cantidad, el total nuevo y
+    // pide un "sí": el cambio SUBE lo que va a pagar, asi que tiene que
+    // verlo antes, no enterarse cuando llegue el mensajero.
+    // ----------------------------------------------------------------------
+    case "cambio_de_cantidad": {
+      if (!cotizacion) return "Déjame revisarlo bien y te confirmo por aquí 🙌";
+      const condiciones = lineasDeCondiciones(cotizacion).join(" ").toLowerCase();
+      const conEnvio = /envío incluido/i.test(condiciones) ? " con envío incluido" : "";
+      return (
+        `¡De una! Te lo cambio a ${voz.unidades(cotizacion.cantidad)} por ${pesos(cotizacion.total)}${conEnvio} ✅ ` +
+        "¿Confirmo así?"
+      );
+    }
+
+    case "corregir_que":
+      return "¡Uy, perdón! ¿Qué dato está mal? Dime y lo corrijo de una 🙌";
 
     case "resumen": {
       // SIN PROMETER PLAZO. Decia "Dame un momento y te confirmo", que es
@@ -1506,7 +1564,38 @@ function textoDeterminista({
       if (aQuien) entrega.push(`Para: ${aQuien}`);
       if (d.direccion) entrega.push(`Dirección: ${d.direccion}`);
 
+      // ------------------------------------------------------------------
+      // SI ACABA DE CORREGIR ALGO, EL MENSAJE LO DICE PRIMERO.
+      //
+      // ⚠️ SIN ESTO, UNA CORRECCION APLICADA SE VE IGUAL QUE UNA IGNORADA.
+      //
+      // El resumen rehecho es correcto pero se parece mucho al anterior: una
+      // linea cambiada en un cuadro de seis. Ailid corrigio su nombre cuatro
+      // veces el 09-oct y no tenia forma de saber si el bot la habia oido.
+      //
+      // Decir QUE cambio convierte un cuadro repetido en una confirmacion.
+      // El texto es el que pidio Marco.
+      // ------------------------------------------------------------------
+      const COMO_SE_LLAMA = {
+        nombre: "el nombre",
+        direccion: "la dirección",
+        ciudad: "la ciudad",
+        telefono: "el teléfono",
+        cantidad: "la cantidad",
+      };
+      const cambios = (cambiosAplicados || []).filter((c) => COMO_SE_LLAMA[c]);
+      const aviso = [];
+      if (cambios.length === 1 && cambios[0] === "nombre" && d.nombre) {
+        // El caso mas comun merece la frase mas clara: se repite el nombre
+        // nuevo para que el cliente lo vea escrito y no tenga que fiarse.
+        aviso.push(`¡Listo, ya lo cambié! Queda a nombre de ${d.nombre} ✅`);
+      } else if (cambios.length) {
+        aviso.push(`¡Listo, ya lo cambié! Corregí ${enumerar(cambios.map((c) => COMO_SE_LLAMA[c]))} ✅`);
+      }
+
       return [
+        ...aviso,
+        aviso.length ? "" : null,
         "Confirmemos tu pedido:",
         // "1 unidad(es)" era lo mas robot del cuadro, y estaba justo donde
         // la clienta decide pagar. BIKERPRO lo tiene documentado como error
@@ -1516,8 +1605,10 @@ function textoDeterminista({
         ...lineasDeCondiciones(cotizacion),
         ...entrega,
         "",
-        '¿Está todo bien? Respóndeme "sí" y lo dejo listo ✅',
-      ].join("\n");
+        aviso.length ? "¿Así está bien?" : '¿Está todo bien? Respóndeme "sí" y lo dejo listo ✅',
+      ]
+        .filter((x) => x !== null)
+        .join("\n");
     }
 
     // ----------------------------------------------------------------------
@@ -1964,6 +2055,39 @@ const EMPUJON_AL_RESUMEN =
   'Te dejé el resumen aquí arriba 👆 Si está todo bien, respóndeme "sí" y lo dejo listo. ' +
   "Y si hay algo que corregir, dime qué y lo cambio.";
 
+// ==========================================================================
+// TEMAS A LOS QUE NO SE LES PEGA UN CIERRE
+//
+// La regla de oro de Marco es que ningun mensaje se quede suelto. Estos dos
+// son su excepcion, y los dos salieron del panel del 09-oct:
+//
+//   · OTRO_DIA. edgar escribio "Será otro día" y recibio "¿Te lo aparto, o
+//     quieres que te cuente algo más...?" — la misma pregunta que acababa de
+//     aplazar. A quien pide tiempo, insistir lo aleja.
+//   · MENOR_DE_EDAD. Su respuesta ya acaba preguntando a nombre de quien se
+//     deja, asi que un "¿te lo aparto?" detras serian dos preguntas.
+// ==========================================================================
+const TEMAS_SIN_CIERRE = [preguntas.TEMAS.OTRO_DIA, preguntas.TEMAS.MENOR_DE_EDAD];
+
+/**
+ * El cierre correcto segun lo que todavia falta.
+ *
+ * ⚠️ ANTES ERA SIEMPRE "¿Te lo aparto?", Y MARCO LO SEÑALO EN SU PUNTO 9:
+ *    la respuesta de "¿dónde están ubicados?" era buena y terminaba
+ *    ofreciendo apartarlo A QUIEN NO HABIA DICHO SU CIUDAD.
+ *
+ * Apartar algo sin saber a donde va es un paso en falso: lo siguiente que
+ * hace falta es la ciudad, no un sí. Preguntar lo que de verdad toca es lo
+ * que convierte un cierre en un paso.
+ */
+function cierreSegunLoQueFalta({ lectura, ciudadConfirmada }) {
+  // LA PREGUNTA VA AL FINAL, no en medio. La regla de tono es "termina con
+  // una pregunta", y una coletilla detras del "?" la deja a medio cumplir —
+  // lo caza una prueba de tono que ya existia.
+  if (!ciudadConfirmada) return "Para decirte cuánto se demora, ¿tú en qué ciudad estás? 🙌";
+  return "¿Te lo aparto? 🙌";
+}
+
 const INSISTE_SIN_DATO =
   "Esa me la quedé debiendo, y ya está anotada para que te la confirme una persona del equipo. " +
   "Lo que sí te puedo decir es que pagas al recibir, así que puedes revisarlo con calma cuando llegue. " +
@@ -2144,6 +2268,7 @@ function preparar({
   ciudadConfirmada = null,
   datosDeEntrega = null,
   cantidadSinTarifa = null,
+  cambiosAplicados = [],
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
   huboSenalDeCompra = false,
@@ -2167,6 +2292,7 @@ function preparar({
     ciudadConfirmada,
     datosDeEntrega,
     cantidadSinTarifa,
+    cambiosAplicados,
     fotosYaEnviadas,
     pideReenvioDeFotos,
     huboSenalDeCompra,

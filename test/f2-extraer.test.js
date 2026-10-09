@@ -90,7 +90,34 @@ test("dos ciudades distintas en el mismo mensaje NO se eligen", () => {
 
 test("una ciudad que no esta en el listado no la propone la heuristica", () => {
   // La puede proponer la IA, y entonces destino.js la acepta MARCADA.
-  assert.equal(extraer.ciudadEn("vivo en Pueblo Nuevo de Abajo").valor, null);
+  //
+  // ⚠️ EL EJEMPLO CAMBIO EL 2026-10-10. Era "Pueblo Nuevo de Abajo", y al
+  //    cargar los 1.037 municipios del DANE resulta que "Pueblo Nuevo" SI
+  //    existe (Córdoba): la regla del toponimo compuesto lo extiende y lo
+  //    devuelve marcado para revision, que es lo correcto.
+  //
+  // Se usa un lugar que de verdad no es un municipio NI empieza por uno.
+  assert.equal(extraer.ciudadEn("vivo en La Bendicion de Dios").valor, null);
+});
+
+test("pero un municipio del listado completo SI se propone", () => {
+  // Los tres que fallaron en el panel del 09-oct y que la semilla de 60
+  // entradas no tenia. Cada uno dejo una conversacion sin plazo y sin
+  // pedida de datos.
+  assert.equal(extraer.ciudadEn("A orocue").valor, "orocue");
+  assert.equal(extraer.ciudadEn("Málaga Santander").valor, "malaga");
+  assert.equal(extraer.ciudadEn("Ciénaga guacamayal").valor, "cienaga");
+});
+
+test("y «Ciudad Departamento» no se lee como dos ciudades", () => {
+  // Ocho nombres de municipio son tambien nombres de departamento, asi que
+  // al cargar la lista completa "Duitama boyaca" empezo a verse como dos
+  // ciudades y devolvia null: el cliente daba su ciudad bien escrita y el
+  // bot se la volvia a pedir.
+  assert.equal(extraer.ciudadEn("Duitama boyaca").valor, "duitama");
+  assert.equal(extraer.ciudadEn("Medellin Antioquia").valor, "medellin");
+  // Pero dos ciudades DE VERDAD siguen siendo ambiguas.
+  assert.equal(extraer.ciudadEn("soy de Cali pero mandalo a Medellin").valor, null);
 });
 
 // --------------------------------------------------------------------------
