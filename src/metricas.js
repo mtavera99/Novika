@@ -38,6 +38,10 @@ const NOMBRES = [
   "estado_recibido",
   "mensaje_no_entregado",
 
+  // --- recordatorios (el bot escribe primero) ---
+  "recordatorio_enviado",
+  "recordatorio_no_enviado",
+
   // --- producto ---
   "producto_identificado",
   "producto_desconocido",
