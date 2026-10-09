@@ -105,6 +105,39 @@ const NO_ES_NOMBRE = String.raw`y|e|o|u|pero|que|de|del|la|el|los|las|una?|unos|
 /** Si la captura EMPIEZA por una de estas, no es un nombre. */
 const NO_ES_NOMBRE_TRAS_MARCADOR = new RegExp(String.raw`^(?:${NO_ES_NOMBRE})\b`, "i");
 
+/**
+ * Palabras que NUNCA son un nombre de persona en un chat de ventas.
+ *
+ * Solo se usa en el camino SIN MARCADOR -el nombre a secas, cuando el bot
+ * lo acaba de pedir-, que es el unico que no tiene un "soy" delante para
+ * apoyarse. Ahi hace falta esta red: "Me gusta" se estaba guardando como
+ * nombre del cliente.
+ *
+ * Son pronombres, muletillas, verbos de chat y las palabras del propio
+ * negocio. Si falta alguna se añade: equivocarse aqui escribe un nombre
+ * falso en la guia de la transportadora.
+ */
+const NO_SON_NOMBRE_SUELTO = new Set(
+  (
+    "me te se le lo la los las nos yo tu usted ustedes " +
+    "gusta gustan gusto encanta quiero quiere queria necesito necesita sirve interesa " +
+    "listo lista bueno buena buenas buenos hola holaa gracias si no ok oka okey okay vale dale " +
+    "claro perfecto excelente genial chevere bien mal mucho poco mas menos ya ahi aqui alla " +
+    "cuanto cuanta cuantos cuantas cuando donde como cual cuales que quien porque pues " +
+    "favor porfa espera mire oiga oye señor señora senor senora amiga amigo " +
+    "info informacion pedido pedir compra comprar envio envios precio valor costo " +
+    "cinturon termico rosado color talla garantia foto fotos imagen " +
+    "direccion barrio ciudad pueblo vereda calle carrera cra avenida " +
+    "hoy manana ayer dias dia hora horas " +
+    // LAS TRANSPORTADORAS. Un cliente del 08-oct contesto "Interapidisimo"
+    // -preguntando por cual transportadora era- y se guardaba como su
+    // nombre. Y es predecible que las escriban: el propio bot habla de "la
+    // transportadora" y de la guia.
+    "interrapidisimo interapidisimo inter servientrega coordinadora envia enviaa tcc deprisa " +
+    "redex saferbo mensajeros transprensa domina"
+  ).split(/\s+/)
+);
+
 /** Si aparece en MEDIO, ahi termina el nombre y empieza otra frase. */
 const EMPIEZA_OTRA_FRASE = new RegExp(
   String.raw`\s+(?:${NO_ES_NOMBRE.split("|").filter((p) => p !== "de" && p !== "del").join("|")})\s+`,
@@ -178,7 +211,20 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
     const palabras = limpio.split(/\s+/).filter(Boolean);
     const plano = aplanar(limpio);
     const todasLetras = palabras.every((p) => /^[\p{L}'’-]{2,}$/u.test(p));
-    const algunaProhibida = palabras.some((p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)));
+    // ⚠️ LA LISTA LARGA, Y LA CAZO UNA PRUEBA DE ESTA MISMA SESION.
+    //
+    // La primera version solo filtraba con `NO_ES_NOMBRE`, que esta pensada
+    // para lo que va DETRAS de un marcador ("soy X"). Sin marcador no basta:
+    // "Me gusta" son dos palabras, todas letras, no es ciudad y no lleva
+    // tipo de via — asi que se guardaba como NOMBRE DEL CLIENTE, y el
+    // mensaje salia con "¡Perfecto, gracias!" como si hubiera dado un dato.
+    //
+    // Es el riesgo propio de capturar un nombre sin marcador, y se paga con
+    // esta lista: las palabras que la gente escribe en un chat de ventas y
+    // que NUNCA son un nombre de persona.
+    const algunaProhibida = palabras.some(
+      (p) => NO_ES_NOMBRE_TRAS_MARCADOR.test(aplanar(p)) || NO_SON_NOMBRE_SUELTO.has(aplanar(p))
+    );
 
     if (
       palabras.length >= 1 &&

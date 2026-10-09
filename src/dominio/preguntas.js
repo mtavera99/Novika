@@ -1246,11 +1246,35 @@ function leer(texto) {
   // Las señales FUERTES siguen valiendo: "esta caro pero me lo llevo" es
   // una compra, y una objecion no puede bloquear un "me lo llevo".
   const objetaElPrecio = temas.includes(TEMAS.OBJECION_PRECIO);
+
+  // ----------------------------------------------------------------------
+  // "SE LO PIENSA" BLOQUEA LAS SEÑALES DEBILES, COMO YA HACIA LA OBJECION
+  //
+  // Mensaje literal de un chat del 08-oct:
+  //
+  //   "Vale mil gracias, apenas vaya a pedirlo de fijo te aviso, okey, esta
+  //    hermoso, muy amable, listo, gracias por la info, bendiciones🥰"
+  //
+  // Es una despedida de manual: se lo va a pensar y avisara. Y recibio
+  // *«¡Perfecto! ¿Cuántos quieres? Y para preparar tu pedido me pasas tu
+  // nombre completo, la ciudad y la dirección»*.
+  //
+  // La culpa era de las señales DEBILES: ese mensaje contiene "vale" y
+  // "listo" -dos de ellas- y como no lleva interrogacion ni objecion,
+  // contaba como compra. Pero "vale" y "listo" ahi son cortesia, igual que
+  // el "bueno" de resignacion que ya bloquea la objecion de precio.
+  //
+  // Las señales FUERTES siguen ganando: "lo pienso... bueno, me lo llevo"
+  // es una compra, y pensarselo no puede bloquear un "me lo llevo".
+  // ----------------------------------------------------------------------
+  const seLoEstaPensando = SE_LO_PIENSA.some((re) => re.test(plano));
+
   const compraDeclarada = pideInfo
     ? COMPRA_INEQUIVOCA.some((re) => re.test(plano))
     : SENALES_DE_COMPRA.some((re) => re.test(plano)) ||
-      // Las debiles solo valen si el cliente NO esta preguntando ni objetando.
-      (!interrogacion && !objetaElPrecio && SENALES_DEBILES.some((re) => re.test(plano)));
+      // Las debiles solo valen si el cliente NO esta preguntando, NO esta
+      // objetando y NO se lo esta pensando.
+      (!interrogacion && !objetaElPrecio && !seLoEstaPensando && SENALES_DEBILES.some((re) => re.test(plano)));
 
   // ----------------------------------------------------------------------
   // UN RECLAMO NUNCA ES UNA COMPRA, AUNQUE CONTENGA "QUIERO"
@@ -1323,7 +1347,7 @@ function leer(texto) {
       !interrogacion &&
       plano.split(/\s+/).length <= 4,
     // "Ahi le aviso": se lo esta pensando. No se insiste.
-    seLoPiensa: SE_LO_PIENSA.some((re) => re.test(plano)) && !compra,
+    seLoPiensa: seLoEstaPensando && !compra,
 
     // ------------------------------------------------------------------
     // LAS TRES SEÑALES QUE SI TIENEN QUE LLEVAR A UNA PERSONA
