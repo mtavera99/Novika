@@ -99,71 +99,80 @@ falta `DATABASE_URL` de solo lectura, o ejecutarla en el entorno de Render.
 
 ---
 
-## 4 · Los clientes con nombre de usuario de WhatsApp (BSUID)
 
-**Estado:** diagnosticado. Hace falta una decisión de Marco y una
-comprobación en la consola de Meta.
+## 4 · Los clientes con nombre de usuario (BSUID): ya se les escribe, pero no se les puede despachar
 
-**Es el 24 % del tráfico del anuncio, y se está tirando a la basura.**
+**Estado:** el envío está **resuelto** (PR #48). Lo que queda es el despacho, y
+es una decisión de Marco.
 
-En la auditoría del 2026-10-09, **6 de 25 chats** del panel llegaron con un
-identificador tipo `CO.1234567890123456` en vez de un teléfono. El bot prepara
-la respuesta, el emisor la descarta con `destinatario_sin_telefono` y queda la
-tarea. Los mensajes que el operador manda a mano **también fallan**
-(`fallo_de_envio`). Antes de que existiera el candado, Meta los rechazaba con
-el error **131026**.
+### Corrección de un error mío (2026-10-09)
 
-### Qué es esto
+En la primera versión de este documento escribí que a estos clientes **no se
+les puede responder** y lo presenté como la fuga más grande que quedaba, con
+un 24 % del tráfico. **Era falso**, y el error estuvo en cómo leí la
+evidencia.
 
-No es un defecto de NOVIKA: es un cambio de plataforma de Meta.
+Vi seis chats en el panel con `no enviado: destinatario_sin_telefono` y
+concluí que el problema seguía abierto. Pero esos seis mensajes son de las
+**09:38, 11:17 y 12:37 del 08-oct**, y el arreglo (#48) se mezcló a las
+**13:28 de ese mismo día**. Estaba mirando fallos anteriores al arreglo y
+tratándolos como el estado actual.
 
-WhatsApp está desplegando **nombres de usuario**, una opción de privacidad que
-permite al usuario ocultar su teléfono a los negocios con los que escribe. Para
-que el negocio siga pudiendo identificarlo, Meta introduce el
-**business-scoped user ID (BSUID)**: un identificador por usuario y por
-portafolio de negocio, que aparece en los webhooks y **puede sustituir al
-teléfono** en los campos `from` y `wa_id`.
+Es justo el error que este repositorio tiene anotado como regla:
+*«no afirmar nada que no venga de una salida verificada»*. Un chat del panel
+es una foto del pasado, no del código que corre ahora.
 
-- Los webhooks empezaron a incluir el campo de identidad `user_id` el
+### Lo que sí está implementado
+
+`src/whatsapp/enviar.js` distingue un teléfono de un BSUID
+(`{país ISO}.{alfanumérico}`) y los direcciona distinto, porque Meta lo exige
+distinto:
+
+- teléfono → va en `to`
+- BSUID → va en `recipient`, y **se omite `to`**
+
+El comentario del código deja escrito el error anterior: se mandaba el BSUID
+en `to`, y eso es lo que Meta rechazaba con el **131026**. La conclusión de
+entonces —«a estos clientes no se les puede escribir»— era una conclusión sin
+comprobar, y Marco tenía razón al dudarla.
+
+### Lo que sigue pendiente, y es distinto
+
+Un BSUID **no trae teléfono**, y la transportadora llama al cliente para
+entregar. Así que:
+
+- **se le puede vender** y conversar con normalidad;
+- **no se le puede despachar** sin pedirle el celular, porque
+  `REQUERIDOS_PARA_DESPACHAR` lo exige — y con razón: un contraentrega sin
+  número es un paquete que vuelve.
+
+El bot ya lo pide con esas palabras («tu número de celular»), que es la regla
+que pidió Marco. Lo que no está decidido:
+
+- **¿Qué hacer si el cliente no quiere dar el celular?** Hoy queda como tarea
+  en `/panel/sin-responder`. Las opciones son pedirlo una vez más, ofrecer
+  otra forma, o dejarlo en manos de una persona. Es una decisión comercial.
+
+### Qué conviene comprobar
+
+El arreglo está desplegado pero **no se ha verificado contra un cliente BSUID
+real posterior al 13:28 del 08-oct** — en los chats que auditué no hay
+ninguno. Cuando entre el siguiente, mirar en su chat que el mensaje salga sin
+`no enviado`. Si volviera a fallar con 131026, el sitio es
+`destinatarioDe()` en `src/whatsapp/enviar.js`, y el dato a revisar es la
+versión de la Graph API contra la documentación de Meta.
+
+### Fuentes
+
+El BSUID es un cambio de plataforma de Meta, no algo de NOVIKA. Para
+contexto, si hay que volver a mirarlo:
+
+- Los webhooks incluyen el campo de identidad `user_id` desde el
   **31 de marzo de 2026** ([Medium · Meta BSUID is live in WhatsApp Cloud API](https://medium.com/@matthias_20536/meta-bsuid-is-live-in-whatsapp-cloud-api-what-to-change-in-your-webhooks-and-crm-9b6dc69058dd)).
-- El BSUID es **distinto para cada negocio**: la misma persona tiene uno
-  diferente por cada marca a la que escribe ([architjn · BSUID y claves de CRM](https://architjn.com/blog/whatsapp-bsuid-breaks-phone-crm-keys-2026)).
-- Microsoft documenta, para su propio conector, que **enviar a un BSUID queda
-  disponible a partir de junio de 2026**, y que hasta entonces el campo `to`
-  solo acepta teléfonos ([Azure Communication Services · WhatsApp usernames y BSUID](https://learn.microsoft.com/en-us/azure/communication-services/concepts/advanced-messaging/whatsapp/whatsapp-username-support-overview)).
-- Algunos proveedores ya aceptan el BSUID en un campo aparte (`recipient`)
-  junto al `to`, y el teléfono tiene precedencia si van los dos
-  ([YCloud · BSUID API & webhook updates](https://docs.ycloud.com/reference/webhook-updates-bsuid)).
+- El BSUID es **distinto por negocio**: la misma persona tiene uno diferente
+  por cada marca a la que escribe ([architjn · BSUID y claves de CRM](https://architjn.com/blog/whatsapp-bsuid-breaks-phone-crm-keys-2026)).
+- El envío a BSUID se habilitó por fases a partir de **junio de 2026**
+  ([Azure Communication Services · WhatsApp usernames y BSUID](https://learn.microsoft.com/en-us/azure/communication-services/concepts/advanced-messaging/whatsapp/whatsapp-username-support-overview)).
 
 *Contenido reformulado para cumplir las restricciones de licencia de las
 fuentes.*
-
-### Qué hay que hacer, en este orden
-
-1. **Comprobar la versión de la Graph API** que usa `src/whatsapp/enviar.js`
-   contra la documentación oficial de Meta, y si la cuenta de NOVIKA ya tiene
-   habilitado el envío a BSUID. Esto es mirar la consola, no código.
-2. **Si está habilitado:** el cambio es pequeño y vive en un solo sitio
-   —`enviar.js` es el único camino al exterior—. Debe ir **detrás de una
-   variable de entorno** (`WHATSAPP_ENVIAR_A_BSUID=1`, apagada por defecto) y
-   **conservando la tarea como respaldo**: si Meta vuelve a rechazar, el chat
-   tiene que seguir apareciendo en la bandeja. Un reintento que falla en
-   silencio es peor que el candado actual.
-3. **Mientras no esté:** los seis chats son clientes reales que preguntaron el
-   precio y nadie les contestó. Hoy quedan visibles en `/panel/sin-responder`
-   con el motivo en castellano, que es lo único que se puede hacer desde
-   nuestro lado.
-
-### Lo que NO se puede hacer
-
-- **No se puede inventar el teléfono.** El candado de `enviar.js` existe porque
-  antes se intentaba mandar al BSUID y Meta lo rechazaba: ocho fallos el
-  07-oct. Quitarlo sin la capacidad habilitada reproduce exactamente eso.
-- **No se puede responder por otro canal.** No hay ninguno aprobado, y el bot
-  no puede prometer una llamada que nadie va a hacer.
-
-### Por qué importa el número
-
-Si el 24 % se mantiene, de cada 100 clics del anuncio **24 no reciben
-respuesta**. Es la fuga más grande que queda, y es la única de este informe
-que no se arregla escribiendo código en este repositorio.

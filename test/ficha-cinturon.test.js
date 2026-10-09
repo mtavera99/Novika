@@ -165,7 +165,10 @@ test("lo que falta y no bloquea esta en sinDatoConfirmado, que entra al prompt",
   // es el contorno del ajuste.
   // 'el material' salio el 2026-10-08: Marco lo confirmo (plastico y
   // almohadillas). Sigue aqui lo que de verdad no se sabe.
-  for (const tema of [/tres o mas unidades/, /contorno/, /dia exacto/, /trae exactamente el paquete/]) {
+  // `trae exactamente el paquete` SALIO de la lista el 2026-10-09: Marco
+  // autorizo el contenido del paquete, asi que ya no es un hueco. Se cambia
+  // por `Nequi`, que sigue siendo uno de los que el dejo como [CONFIRMAR].
+  for (const tema of [/tres o mas unidades/, /contorno/, /dia exacto/, /Nequi/]) {
     assert.ok(
       p.sinDatoConfirmado.some((s) => tema.test(s)),
       `falta declarar ${tema} como dato sin confirmar: el modelo lo rellenaria`

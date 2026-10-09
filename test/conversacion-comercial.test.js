@@ -48,6 +48,7 @@ const { crearEmisor } = require("../src/whatsapp/enviar");
 const mutex = require("../src/almacen/mutex");
 const preguntas = require("../src/dominio/preguntas");
 const responder = require("../src/cerebro/responder");
+const contestar = require("../src/cerebro/contestar");
 const cotizador = require("../src/dominio/cotizador");
 
 const RAIZ = path.join(__dirname, "..");
@@ -493,6 +494,22 @@ describe("5 · ningún texto nuevo introduce una cifra o una promesa", () => {
     const producto = elCinturon();
     const cot = cotizador.cotizar({ producto, cantidad: 1 }).cotizacion;
 
+    // ⚠️ LA OFERTA DE DOS TAMBIEN ESTA AUTORIZADA, Y HAY QUE DECIRLO AQUI.
+    //
+    // Desde el 2026-10-09 el primer mensaje ofrece la pareja con su cifra
+    // ($85.000), porque es el unico escalon donde bajarle el costo al
+    // cliente nos deja MAS plata. Esa cifra NO esta escrita a mano: la
+    // calcula el cotizador para 2 unidades, igual que `preparar` ya hacia
+    // para el borrador de la IA (ver `importesDeLaOfertaDeDos`).
+    //
+    // Lo que esta prueba protege sigue intacto: que no aparezca ninguna
+    // cifra que no venga del cotizador. Solo se le dice cuales son las
+    // legitimas de este turno.
+    const dos = contestar.ofertaDeDos(producto);
+    const autorizados = [...cot.importesAutorizados, ...((dos && dos.importesAutorizados) || [dos && dos.total])].filter(
+      (x) => x !== null && x !== undefined
+    );
+
     for (const situacion of SITUACIONES) {
       for (const mensajeCliente of MENSAJES) {
         const texto = responder.textoDeterminista({
@@ -503,7 +520,7 @@ describe("5 · ningún texto nuevo introduce una cifra o una promesa", () => {
           producto,
           mensajeCliente,
         });
-        const r = cotizador.revisarImportes(texto, cot.importesAutorizados);
+        const r = cotizador.revisarImportes(texto, autorizados);
         assert.equal(
           r.ok,
           true,

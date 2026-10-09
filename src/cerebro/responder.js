@@ -433,18 +433,156 @@ function cerrarTrasElDato({ datosAportados, ciudadConfirmada, faltan, producto, 
  * Termina sin pedir nada. Deja la puerta abierta y se calla.
  */
 function arranque(cotizacion, producto, { asumida = false } = {}) {
-  const partes = ["¡Hola! Con gusto te cuento:"];
+  // ==========================================================================
+  // EL PRIMER MENSAJE, REESCRITO EL 2026-10-09
+  //
+  // ⚠️ ES EL MENSAJE QUE MAS VECES SE ENVIA Y DONDE MAS GENTE SE CAIA.
+  //
+  // Medido en el panel: de 25 chats, 10 clientes recibieron este mensaje y
+  // NO VOLVIERON A ESCRIBIR. Y el embudo lo confirma: 18 de 25 se quedan
+  // justo despues de ver el producto.
+  //
+  // Terminaba en "Te paso las fotos para que lo veas 🙌". Eso no es un
+  // cierre: es un aviso. El cliente lee, le llegan cinco fotos, y no hay
+  // nada que contestar — asi que no contesta.
+  //
+  // Marco lo pidio explicito: "el mensaje siempre debe terminar con una
+  // pregunta facil". Y la pregunta mas facil que existe aqui es la ciudad:
+  //
+  //   · se contesta con una palabra;
+  //   · no compromete a nada, asi que no asusta;
+  //   · nos deja el dato que necesitamos para el plazo de entrega;
+  //   · y mueve la conversacion al Paso 2 del flujo de venta.
+  //
+  // Tambien entra la OFERTA DE DOS desde el primer mensaje. Antes solo salia
+  // si la preguntaban o ante una objecion de precio, y es el unico escalon
+  // donde bajarle el costo al cliente nos deja MAS plata: la segunda unidad
+  // no paga publicidad otra vez.
+  //
+  // Las CIFRAS salen del cotizador, como siempre: `lineaComercial` y
+  // `ofertaDeDos`. Aqui no se escribe ningun importe a mano.
+  // ==========================================================================
+  const partes = ["¡Hola!"];
 
   if (cotizacion) partes.push(lineaComercial(cotizacion, producto, { asumida }));
 
-  // Las dos primeras caracteristicas aprobadas, no las cuatro: un muro de
-  // texto en el primer mensaje se deja de leer.
-  const rasgos = ((producto && producto.caracteristicasAutorizadas) || []).slice(0, 2);
+  // La pareja, de entrada. Una sola frase y con la cifra puesta: ofrecer
+  // "te paso el precio de dos" obliga a un turno mas.
+  //
+  // ⚠️ SOLO SI HAY COTIZACION, Y NO ES UNA FORMALIDAD.
+  //
+  // Sin cotizacion -producto en borrador, o antes de poder cotizar- NO puede
+  // aparecer NINGUNA cifra: no hay ningun importe autorizado en ese turno, y
+  // una cifra suelta ahi es justo lo que `revisarImportes` existe para
+  // cazar. Lo destapo la prueba "SIN cotización, ningún texto nombra una
+  // cifra", que es de las que protegen de cobrar mal.
+  const dos = cotizacion ? ofertaDeDosAutorizada(producto) : null;
+  if (dos) partes.push(`Si llevas dos, te quedan en ${contestar.pesos(dos.total)} las dos juntas.`);
+
+  // UNA caracteristica, no dos: el mensaje ya trae precio, condiciones y
+  // oferta. Mas que eso es el muro de texto que la gente deja de leer.
+  const rasgos = ((producto && producto.caracteristicasAutorizadas) || []).slice(0, 1);
   if (rasgos.length) partes.push(`${mayuscula(enumerar(rasgos))}.`);
 
-  if (producto && (producto.imagenes || []).length) partes.push("Te paso las fotos para que lo veas.");
+  if (producto && (producto.imagenes || []).length) partes.push("Te mando unas fotos.");
+
+  // Y EL CIERRE, que es el cambio que importa.
+  partes.push("¿Para qué ciudad sería? Así te digo cuánto se demora.");
 
   return componer(partes, { emoji: "compra" });
+}
+
+/**
+ * La oferta de dos, solo si el cotizador dice que conviene.
+ *
+ * Envoltorio sobre `contestar.ofertaDeDos` para no repetir el guardia en
+ * cada sitio. Si la tabla de precios cambia y la pareja deja de convenir, la
+ * frase desaparece sola: nunca se afirma un ahorro que no existe.
+ */
+function ofertaDeDosAutorizada(producto) {
+  try {
+    return contestar.ofertaDeDos(producto);
+  } catch {
+    return null;
+  }
+}
+
+// ==========================================================================
+// MENSAJES QUE NO SON TEXTO
+//
+// EL DEFECTO, MEDIDO EN DOS CHATS REALES: los clientes que mandan stickers,
+// emojis o audios recibian "Perdón, no quiero repetirme. Dime concretamente
+// qué necesitas" — y se iban los dos.
+//
+// Un audio no es un cliente confuso: es un cliente que habla en vez de
+// escribir, que en Colombia es lo normal. Y un sticker es alguien
+// reaccionando, no alguien atascado.
+//
+// Marco dio los textos; aqui se respetan con un solo cambio: NO se dice
+// "enseguida". Es una promesa de tiempo y esta en `claimsProhibidos` desde
+// que el bot prometio "te confirmo enseguida" a las dos de la mañana. "De
+// una" dice lo mismo, es mas colombiano, y no promete a nadie de guardia.
+// ==========================================================================
+const SIN_TEXTO = {
+  audio: "¡Uy! Por aquí no alcanzo a escuchar audios 🙈 ¿Me lo escribes y te ayudo de una?",
+  video: "¡Uy! Por aquí no alcanzo a ver videos 🙈 ¿Me lo escribes y te ayudo de una?",
+  image: "¡Gracias! 🙌 ¿Me cuentas por escrito en qué te ayudo?",
+  document: "¡Gracias! 🙌 ¿Me cuentas por escrito en qué te ayudo?",
+};
+
+/**
+ * Respuesta a un mensaje sin texto utilizable.
+ *
+ * @param {string|null} tipoDeMedia  audio, image, sticker, video, document
+ * @param {string[]} faltan          para retomar el paso pendiente
+ * @returns {string|null} null si este mensaje SI tiene texto que contestar
+ */
+function respuestaSinTexto(tipoDeMedia, faltan = []) {
+  if (!tipoDeMedia) return null;
+  if (SIN_TEXTO[tipoDeMedia]) return SIN_TEXTO[tipoDeMedia];
+
+  // Sticker, emoji o reaccion: se responde con calidez y se retoma el paso
+  // donde iba el pedido. Marco lo pidio con este ejemplo exacto:
+  // "😊 ¿Para qué ciudad sería tu cinturón?"
+  if (tipoDeMedia === "sticker") return `😊 ${siguientePasoCorto(faltan)}`;
+  return null;
+}
+
+/**
+ * Retoma el pedido donde iba, con una frase completa.
+ *
+ * La usa el cerebro como ULTIMA RED cuando el texto saldria identico al
+ * mensaje anterior. Marco lo prohibio sin excepciones -"enviar el mismo
+ * mensaje dos veces seguidas"- y su caso 12 es un "Hola" seguido de un
+ * "Hola?" recibiendo el mismo saludo calcado.
+ *
+ * Lo que hace falta ahi no es otra forma de saludar: es retomar el paso del
+ * pedido, que es lo que la conversacion necesita para avanzar.
+ */
+function retomarElPaso(faltan = [], nombreCliente = null) {
+  // El nombre llega YA CONFIRMADO desde el cerebro, que es el unico que
+  // sabe si lo esta. El redactor no toca la ficha: llamar a alguien por un
+  // nombre que nadie valido es peor que no nombrarlo.
+  const pila = voz.nombreDePila(nombreCliente);
+  return voz.unir([pila ? `¡Claro, ${pila}!` : "¡Claro!", siguientePasoCorto(faltan)]);
+}
+
+/**
+ * El siguiente paso, en UNA pregunta corta.
+ *
+ * Para los mensajes donde no hay nada que contestar -un sticker, un emoji-
+ * pero si hay una conversacion que mover. Pide UN dato, el primero que
+ * falte, en vez de los cuatro: a quien manda una carita no se le contesta
+ * con un formulario.
+ */
+function siguientePasoCorto(faltan = []) {
+  const lista = Array.isArray(faltan) ? faltan : [];
+  if (lista.includes("ciudad")) return "¿Para qué ciudad sería tu cinturón?";
+  if (lista.includes("direccion")) return "¿A qué dirección te lo mandamos?";
+  if (lista.includes("nombre")) return "¿A nombre de quién lo dejo?";
+  if (lista.includes("telefono")) return "¿Me pasas tu número de celular para la transportadora?";
+  if (lista.includes("cantidad")) return "¿Lo quieres de 1 o de 2?";
+  return "¿Te lo aparto?";
 }
 
 /**
@@ -670,6 +808,9 @@ function analizarTurno(mensajeCliente) {
  */
 function textoDeterminista({
   situacion,
+  // El tipo de media del mensaje del cliente: audio, image, sticker…
+  // Un audio o un sticker no se contestan con el flujo de venta normal.
+  tipoDeMedia = null,
   // Cuantas veces se ha contestado ya cada tema en esta conversacion.
   // Sirve para no soltar el mismo parrafo dos veces ante la misma duda
   // reformulada. Lo lleva el cerebro, en la conversacion persistida.
@@ -698,6 +839,17 @@ function textoDeterminista({
   pideReenvioDeFotos = false,
   huboSenalDeCompra = false,
 }) {
+  // ------------------------------------------------------------------
+  // UN AUDIO O UN STICKER SE CONTESTAN ANTES DE TODO LO DEMAS
+  //
+  // Va primero porque el resto de la funcion razona sobre el TEXTO del
+  // cliente, y aqui no hay texto. Sin esta rama, un audio caia en "no
+  // pregunto nada" y recibia el formulario de datos — o, a la segunda, el
+  // "no quiero repetirme" que se llevo a dos clientes por delante.
+  // ------------------------------------------------------------------
+  const sinTexto = respuestaSinTexto(tipoDeMedia, faltan);
+  if (sinTexto && !String(mensajeCliente || "").trim()) return sinTexto;
+
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
 
   // El saludo va UNA vez por conversacion. Repetir "¡Hola!" en cada mensaje
@@ -1246,6 +1398,28 @@ function textoDeterminista({
         const enManosDeUnaPersona =
           vezDeLaObjecion >= 3 && lectura.temas.includes(preguntas.TEMAS.OBJECION_PRECIO);
         if (!enManosDeUnaPersona) partes.push("¿Te lo aparto? 🙌");
+      } else if (lectura.temas.length && !partes.some((x) => /\?/.test(String(x || "")))) {
+        // ------------------------------------------------------------
+        // LA REGLA DE ORO DE MARCO: NINGUN MENSAJE SE QUEDA SUELTO
+        //
+        // "Cada mensaje tuyo termina con UNA pregunta o UNA acción clara que
+        // acerque al pedido."
+        //
+        // El hueco estaba en `memoria.pasoPropuesto`: una vez propuesto el
+        // siguiente paso, el bot dejaba de cerrar. Y como el PRIMER mensaje
+        // ya propone un paso, en la practica todas las respuestas a dudas
+        // posteriores salian sin cierre. Su caso 17:
+        //
+        //   cliente · "En q colores tiene"
+        //   bot     · "Sí, viene únicamente en color rosado 💗"
+        //
+        // Correcto, amable… y ahi se muere la conversacion. No hay nada que
+        // contestar.
+        //
+        // Solo aplica cuando se CONTESTO UN TEMA y el mensaje no trae ya una
+        // pregunta: no se le añade un cierre a quien se esta despidiendo, ni
+        // dos preguntas al mismo mensaje.
+        partes.push("¿Te lo aparto? 🙌");
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
@@ -1645,7 +1819,27 @@ function textoDeterminista({
       }
       if (motivoEscalado === "pidio_una_persona") {
         return componer(
-          ["¡Claro que sí!", "Ya le paso tu mensaje a una persona del equipo y te responde por aquí."],
+          [
+            "¡Claro que sí!",
+            "Ya le aviso a una persona del equipo para que te ayude con esto.",
+            // Y SE SIGUE ATENDIENDO. Marco: "no pausar el flujo de venta".
+            // El bot avisa, pero no se retira de la conversacion.
+            "Mientras tanto, si quieres te voy dejando el pedido listo.",
+          ],
+          { emoji: "atencion" }
+        );
+      }
+      if (motivoEscalado === "pedido_mayorista") {
+        // Es el lead mas grande que entra por aqui: quien revende compra
+        // todos los meses. Se le habla como a un socio, no como a un
+        // problema — y NO se le suelta una cifra, porque la tabla cubre una
+        // y dos unidades y el precio de mayorista no existe en el catalogo.
+        return componer(
+          [
+            "¡Qué bueno que preguntes!",
+            "Para esa cantidad te paso con una persona del equipo, que es quien maneja los precios al por mayor.",
+            "Ya le aviso y te responde por aquí.",
+          ],
           { emoji: "atencion" }
         );
       }
@@ -1689,10 +1883,23 @@ function textoDeterminista({
 //      Es la misma decision que BIKERPRO documento como "bucle cortado".
 // ==========================================================================
 
+// ⚠️ ESTAS DOS FRASES LAS PROHIBIO MARCO EXPRESAMENTE EL 2026-10-09:
+//    "no quiero repetirme" y "dime concretamente qué necesitas".
+//
+// Y tenia razon: suenan a reproche. El cliente no hizo nada mal -reformulo,
+// o mando un sticker, o insistio porque la respuesta anterior no le servia-
+// y recibia una frase que le echa la culpa. En dos chats reales el cliente
+// se fue justo despues de leerla.
+//
+// Lo que sustituye tiene que hacer DOS cosas que la frase vieja no hacia:
+// reconocer que el bot no se explico bien (no que el cliente no se explico),
+// y dejar algo concreto que hacer.
 const PEDIR_CONCRETAR =
-  "Perdón, no quiero repetirme. Dime concretamente qué necesitas y lo reviso con el equipo.";
+  "Perdón, creo que no te entendí bien 🙈 ¿Me lo escribes de otra forma? " +
+  "O si quieres te dejo el pedido listo y me cuentas: precio, envío, garantía… lo que necesites.";
 const PASAR_A_PERSONA =
-  "Déjame pasarte con una persona del equipo para no darte vueltas. Queda anotado y te responden por aquí.";
+  "Ya le aviso a una persona del equipo para que te ayude con esto 🙌 " +
+  "Mientras tanto, si quieres te voy dejando el pedido listo.";
 
 /**
  * El texto que se repetia era una ADMISION de que falta el dato.
@@ -1805,6 +2012,9 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
     return { texto: INSISTE_SIN_DATO, repetido: true, escalar: false };
   }
 
+  if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
+  if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
+
   // ----------------------------------------------------------------------
   // SI LO QUE SE REPETIA ERA EL RESUMEN, NO SE PIDE "CONCRETAR"
   //
@@ -1829,8 +2039,6 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
     return { texto: EMPUJON_AL_RESUMEN, repetido: true, escalar: false };
   }
 
-  if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
-  if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
 
   // Ya se habia pedido concretar y seguimos en el mismo sitio: no hay una
   // tercera forma de decir lo mismo. Pasa a una persona.
@@ -1847,6 +2055,7 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
  */
 function preparar({
   situacion,
+  tipoDeMedia = null,
   vecesPorTema = {},
   vezDeLaObjecion = 1,
   motivoEscalado = null,
@@ -1870,6 +2079,7 @@ function preparar({
 }) {
   const determinista = textoDeterminista({
     situacion,
+    tipoDeMedia,
     vecesPorTema,
     vezDeLaObjecion,
     motivoEscalado,
@@ -2069,6 +2279,7 @@ module.exports = {
   analizarTurno,
   arranque,
   sinRepetir,
+  retomarElPaso,
   PEDIR_CONCRETAR,
   PASAR_A_PERSONA,
   revisarClaims,

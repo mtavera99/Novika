@@ -795,7 +795,39 @@ async function enviarFotos(yaSeEnviaron) {
 }
 
 async function empezarDeCero() {
-  if (!confirm("El bot volvera a tratar este chat como nuevo.\n\nNO se borra el historial ni los pedidos: solo la memoria del bot (que ya saludo, que ya dijo el precio, el escalado y la pausa).\n\n¿Seguimos?")) return;
+  // ⚠️ \\n CON DOS BARRAS, Y NO ES UN DESCUIDO: ES EL ARREGLO DE UN DEFECTO
+  //    QUE DEJO MUERTO EL PANEL ENTERO.
+  //
+  // Esto vive dentro de un TEMPLATE LITERAL de JavaScript, asi que \\n se
+  // interpreta AL GENERAR el HTML y lo que salia a la pagina era un salto de
+  // linea de verdad, en medio de una cadena entre comillas dobles:
+  //
+  //     if (!confirm("El bot volvera a tratar este chat como nuevo.
+  //     <-- salto real
+  //     NO se borra el historial...
+  //
+  // Eso es un SyntaxError. Y un SyntaxError no rompe una funcion: rompe EL
+  // BLOQUE <script> COMPLETO. Ninguna de las funciones de la pagina llegaba
+  // a existir, asi que TODOS los botones del chat no hacian nada:
+  //
+  //     Devolver al bot · Tomar el control · Marcar atendido ·
+  //     Empezar de cero · Reenviar fotos · Responder · Cancelar pedido
+  //
+  // Marco lo reporto asi: "cuando le doy en devolver al bot se queda quieto
+  // no hace nada... lo mismo que el boton de cancelar pedido tampoco". Y las
+  // rutas del servidor estaban PERFECTAS -se comprobaron contra produccion
+  // con curl y devuelven {"ok":true}-, lo que hace que el fallo sea
+  // especialmente dificil de encontrar desde el lado del servidor: no hay
+  // peticion, no hay log, no hay error. El panel simplemente no responde.
+  //
+  // Con \\n, al HTML llega el texto de dos caracteres \\n y el navegador lo
+  // lee como el salto de linea que quiere el confirm().
+  //
+  // Lo vigila test/panel-javascript.test.js, que extrae el <script> de cada
+  // pantalla y comprueba que PARSEA. No existia esa prueba: las que hay
+  // comprueban que la ruta devuelve 200, y la pagina devolvia 200 con el
+  // JavaScript roto dentro.
+  if (!confirm("El bot volvera a tratar este chat como nuevo.\\n\\nNO se borra el historial ni los pedidos: solo la memoria del bot (que ya saludo, que ya dijo el precio, el escalado y la pausa).\\n\\n¿Seguimos?")) return;
   var r = await pedir("/panel/empezar-de-cero", { id: ID });
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
   else avisar(r.error || "No se pudo.", "mal");

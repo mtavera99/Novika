@@ -21,7 +21,7 @@ De `/panel/indicadores` y `/panel/auditoria`, el 2026-10-08:
 | Pedidos | **0** |
 | Cierre | **0 %** |
 | Rescatados a mano por un operador | **3** |
-| Clientes inalcanzables (sin teléfono) | **6 de 25** |
+| Clientes con nombre de usuario en vez de teléfono | **6 de 25** |
 
 Con una campaña de Facebook encendida pagando cada uno de esos chats.
 
@@ -232,14 +232,25 @@ Está en el punto 4 de [`DATOS-PENDIENTES.md`](DATOS-PENDIENTES.md). Hoy el bot
 contesta con honestidad y sigue vendiendo, pero cada una de esas deja una tarea
 en la bandeja.
 
-### 🔴 6 de 25 clientes no se pueden contestar
+### 🟡 Los clientes con nombre de usuario: corrección de un error mío
 
-Seis chats son clientes con **nombre de usuario de WhatsApp** en vez de
-teléfono (identificador `CO.…`). El bot prepara la respuesta y Meta la rechaza;
-los mensajes del operador también fallan. Es **un 24 % del tráfico del anuncio
-tirado a la basura**, y no es un defecto de NOVIKA.
+En la primera versión de este informe escribí que **6 de 25 clientes no se
+pueden contestar** y lo puse como la fuga más grande que quedaba. **Era
+falso.**
 
-Detalle y qué hay que comprobar en
+Vi seis chats con `no enviado: destinatario_sin_telefono` y lo leí como el
+estado actual. Pero son de las 09:38, 11:17 y 12:37 del 08-oct, y el arreglo
+(#48) se mezcló a las **13:28 de ese mismo día**. Estaba mirando fallos
+anteriores al arreglo.
+
+Es el error que este repositorio tiene anotado como regla: *«no afirmar nada
+que no venga de una salida verificada»*. Un chat del panel es una foto del
+pasado, no del código que corre ahora.
+
+**Lo que sí queda**, y es distinto: a esos clientes **se les puede vender pero
+no despachar**, porque un BSUID no trae teléfono y la transportadora llama
+para entregar. El bot ya pide el celular. Lo que no está decidido es qué hacer
+si el cliente no lo da. Detalle en
 [`PENDIENTES-TECNICOS.md`](PENDIENTES-TECNICOS.md).
 
 ### 🟡 La tasa de rechazo sigue sin poder medirse

@@ -187,9 +187,27 @@ describe("1 · el caso exacto de la captura", () => {
     const uno = await c.dice("Ese tiene garantia?");
     const dos = await c.dice("Pregunto si tiene garantia");
 
+    // ⚠️ LA ULTIMA ASERCION CAMBIO EL 2026-10-09, Y ES UN CONFLICTO REAL
+    //    ENTRE DOS REGLAS BUENAS. Se resolvio a favor de Marco, sin perder
+    //    lo que esta prueba protege.
+    //
+    // Esta prueba exigia que los dos textos fueran IDENTICOS: si preguntas
+    // dos veces lo mismo, mereces la misma respuesta. Correcto.
+    //
+    // Pero Marco puso en su lista de NUNCA: "enviar el mismo mensaje dos
+    // veces seguidas". Tambien correcto: un mensaje calcado es la marca mas
+    // reconocible de una maquina.
+    //
+    // Las dos se cumplen a la vez si lo que varia es la ENVOLTURA y no el
+    // contenido. El bot repite la respuesta entera -la clienta recibe su
+    // dato- con un reconocimiento delante, asi que el mensaje no es
+    // identico. Lo que NO se admite es deflectar la pregunta, y eso es lo
+    // que se sigue comprobando aqui.
     assert.match(dos.texto, /garantía/i, `dejó de responder la duda: ${dos.texto}`);
+    assert.match(dos.texto, /1 mes/, `perdió el dato al variar el mensaje: ${dos.texto}`);
     assert.equal(/no quiero repetirme/i.test(dos.texto), false, "se disculpó en vez de contestar");
-    assert.equal(uno.texto, dos.texto, "la misma pregunta merece la misma respuesta");
+    assert.notEqual(uno.texto, dos.texto, "mandó dos veces el mismo mensaje calcado");
+    assert.ok(dos.texto.includes(uno.texto), `no repitió la respuesta, la cambió: ${dos.texto}`);
   });
 });
 
@@ -438,18 +456,33 @@ describe("5 · la posventa suena a persona", () => {
     assert.match(r.texto, /Marco/, `no usó el nombre que ya tenía: ${r.texto}`);
   });
 
-  test("dos saludos seguidos NO caen en la guarda anti-eco", async () => {
-    // Saludar dos veces merece que te saluden dos veces. Un saludo no tiene
-    // temas, asi que la regla de "misma pregunta" no lo cubria.
+  test("dos saludos seguidos: se retoma el paso, no se repite el saludo", async () => {
+    // ⚠️ ESTA REGLA SE INVIRTIO EL 2026-10-09, Y LA INVIRTIO MARCO.
+    //
+    // Decia "saludar dos veces merece que te saluden dos veces", y era
+    // razonable. Pero su caso 12 dice lo contrario, con el chat delante:
+    //
+    //   cliente · "Hola"
+    //   bot     · "¡Hola, Santiago! ¿En qué te puedo ayudar? 😊"
+    //   cliente · "Hola?"
+    //   bot     · "¡Hola, Santiago! ¿En qué te puedo ayudar? 😊"
+    //
+    // Y su instruccion: "retoma desde el paso en que iba el pedido, sin
+    // repetir el mismo mensaje". Tiene razon en el matiz: un "Hola?" con
+    // interrogacion no es un saludo, es alguien comprobando si hay alguien
+    // del otro lado. El saludo calcado le confirma que no.
+    //
+    // Lo que se sigue protegiendo: que NO se le reproche nada por saludar.
     const c = await conversacion();
     await c.conPedidoConfirmado();
 
     const uno = await c.dice("Hola");
     const dos = await c.dice("Buenas noches");
 
-    assert.equal(/no quiero repetirme/i.test(dos.texto), false, `se disculpó por saludar: ${dos.texto}`);
-    assert.match(dos.texto, /¡Hola/);
-    assert.equal(uno.texto, dos.texto, "dos saludos, el mismo saludo");
+    assert.equal(/no quiero repetirme|concretamente/i.test(dos.texto), false, `se disculpó por saludar: ${dos.texto}`);
+    assert.match(uno.texto, /¡Hola/, "el primer saludo sí saluda");
+    assert.notEqual(uno.texto, dos.texto, "mandó el mismo saludo dos veces");
+    assert.ok(dos.texto, "se quedó mudo ante el segundo saludo");
   });
 
   test("reconoce la pregunta antes del dato, igual que en el resto", async () => {
@@ -514,7 +547,11 @@ describe("6 · lo prometido se cumple", () => {
     const c = await conversacion();
     const r = await c.dice("Para que sirve?");
     assert.match(r.texto, /fotos/i, "el texto tiene que ofrecer las fotos");
-    assert.equal(r.fotos.length, 5, `prometió fotos y salieron ${r.fotos.length}`);
+    // ⚠️ TRES, NO CINCO (2026-10-09): el envio automatico se limito a tres
+    //    fotos. Cinco empujan el texto -con el precio y la pregunta de cierre-
+    //    fuera de la pantalla del movil, y 10 de 25 clientes recibieron ese
+    //    primer mensaje y no volvieron a escribir.
+    assert.equal(r.fotos.length, 3, `prometió fotos y salieron ${r.fotos.length}`);
   });
 
   test("y cuando NO las promete, no las manda", async () => {

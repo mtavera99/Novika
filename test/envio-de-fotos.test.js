@@ -229,7 +229,17 @@ describe("2 · interruptores y pausa valen igual para las fotos", () => {
 
 describe("3 · el lote de fotos", () => {
   test("ESCENARIO: manda las cinco EN ORDEN", async () => {
-    // El orden cuenta algo: frente, puesto, detalle, correa, empaque. Con
+    // El orden cuenta algo, y LO DECIDE EL CATALOGO, no esta prueba.
+    //
+    // ⚠️ CAMBIO EL 2026-10-09: ahora es frente, puesto, EMPAQUE, detalle,
+    //    correa. El envio automatico se limito a TRES fotos (lo pidio Marco:
+    //    cinco llenan la pantalla del movil y empujan el texto con el precio
+    //    fuera de la vista), asi que las tres primeras de la lista son las
+    //    que ve el cliente — y las tres que el eligio son frente, puesto y
+    //    con su caja.
+    //
+    // Aqui se llama a `enviarFotosDeProducto` SIN `max`, asi que salen las
+    // cinco: lo que se comprueba es que salgan EN ORDEN y de una en una. Con
     // Promise.all seria mas rapido y llegarian revueltas.
     const { repos, conv, id } = await conversacionNueva();
     try {
@@ -248,7 +258,11 @@ describe("3 · el lote de fotos", () => {
 
       const enviadas = fetchImpl.llamadas.map((c) => c.image.link.split("/").pop());
       assert.deepEqual(enviadas, [
-        "01-frente.jpg", "02-puesto.jpg", "03-detalle.jpg", "04-correa.jpg", "05-empaque.jpg",
+        "01-frente.jpg",
+      "02-puesto.jpg",
+      "05-empaque.jpg",
+      "03-detalle.jpg",
+      "04-correa.jpg",
       ]);
     } finally {
       await repos.cerrar();

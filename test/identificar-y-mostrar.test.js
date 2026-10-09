@@ -280,19 +280,25 @@ describe("2 · el bot explica en vez de repetir la pregunta", () => {
 // ==========================================================================
 
 describe("3 · el envio de fotos esta conectado", () => {
-  test("ESCENARIO: manda el texto y DESPUES las cinco fotos, en orden", async () => {
+  test("ESCENARIO: manda el texto y DESPUES las tres fotos, en orden", async () => {
     const m = await montar();
     try {
       const t = await m.escribe(EL_MENSAJE);
 
-      assert.equal(t.fotos.enviadas, 5, `fotos: ${JSON.stringify(t.fotos)}`);
-      assert.equal(m.salidas.length, 6, "un texto + cinco fotos");
+      // ⚠️ TRES, NO CINCO (2026-10-09). El envio automatico se limito a tres
+      //    fotos porque cinco empujan el texto -precio y pregunta de cierre-
+      //    fuera de la pantalla del movil. Medido: 10 de 25 clientes
+      //    recibieron ese primer mensaje y no volvieron a escribir.
+      assert.equal(t.fotos.enviadas, 3, `fotos: ${JSON.stringify(t.fotos)}`);
+      assert.equal(m.salidas.length, 4, "un texto + tres fotos");
 
       assert.equal(m.salidas[0].type, "text", "el texto va primero: las fotos sin contexto no dicen nada");
       const fotos = m.salidas.slice(1);
       assert.deepEqual(
         fotos.map((c) => c.image.link.split("/").pop()),
-        ["01-frente.jpg", "02-puesto.jpg", "03-detalle.jpg", "04-correa.jpg", "05-empaque.jpg"]
+        // Las tres que eligio Marco, y el orden lo decide el catalogo:
+        // el cinturon de frente encendido, puesto, y con su caja.
+        ["01-frente.jpg", "02-puesto.jpg", "05-empaque.jpg"]
       );
       for (const f of fotos) assert.match(f.image.link, /^https:\/\//);
     } finally {
@@ -338,7 +344,7 @@ describe("3 · el envio de fotos esta conectado", () => {
       await m.escribe(EL_MENSAJE);
       const conv = await m.repos.conversaciones.obtener(CLIENTE);
       const deFoto = atencion.mensajes(conv).filter((x) => x.texto.startsWith("[foto]"));
-      assert.equal(deFoto.length, 5);
+      assert.equal(deFoto.length, 3);
       for (const x of deFoto) assert.equal(x.estado, "enviado");
     } finally {
       await m.cerrar();

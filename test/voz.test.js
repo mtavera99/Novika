@@ -34,6 +34,13 @@ const DIR = ayuda.entornoDePrueba();
 const voz = require("../src/cerebro/voz");
 const responder = require("../src/cerebro/responder");
 const contestar = require("../src/cerebro/contestar");
+
+/** Los importes legitimos de la oferta de dos, que calcula el cotizador. */
+function autorizadosDeLaPareja(producto) {
+  const dos = contestar.ofertaDeDos(producto);
+  if (!dos) return [];
+  return dos.importesAutorizados || [dos.total];
+}
 const cotizador = require("../src/dominio/cotizador");
 const { TEMAS } = require("../src/dominio/preguntas");
 const { cargarCatalogo } = require("../src/catalogo");
@@ -303,9 +310,13 @@ describe("3 · la calidez no introdujo ninguna promesa", () => {
   });
 
   test("ningún texto contiene un importe sin calcular", () => {
+    // ⚠️ La oferta de dos entra en el primer mensaje desde el 2026-10-09, y
+    //    su cifra la calcula el cotizador para 2 unidades. Se autoriza igual
+    //    que hace `preparar` con el borrador de la IA.
     const cot = cotizacionDe(1);
+    const autorizados = [...cot.importesAutorizados, ...autorizadosDeLaPareja(elCinturon())];
     for (const { situacion, mensajeCliente, texto } of todosLosTextos()) {
-      const r = cotizador.revisarImportes(texto, cot.importesAutorizados);
+      const r = cotizador.revisarImportes(texto, autorizados);
       assert.equal(
         r.ok,
         true,
@@ -605,18 +616,43 @@ describe("5 · dar un dato dispara el cierre", () => {
     assert.equal(/Cuántos quieres/i.test(r.texto), false, `asumió compra por la palabra «quiero»: ${r.texto}`);
   });
 
-  test('"uno" cierra la venta: es la respuesta a la pregunta del propio bot', async () => {
-    // Se atascaba aqui y la venta se perdia: el bot preguntaba "si quieres
-    // uno o dos", la clienta contestaba "uno", y el bot no la entendia.
+  test('con todos los datos, el resumen sale SIN tener que preguntar la cantidad', async () => {
+    // ⚠️ ESTE CASO MEJORO EL 2026-10-09, Y POR ESO CAMBIA LA PRUEBA.
+    //
+    // Antes: el bot preguntaba "si quieres uno o dos", la clienta contestaba
+    // "uno", y el bot no la entendia. Se arreglo, y la prueba fijaba que
+    // "uno" llevara al resumen.
+    //
+    // Ahora Marco pidio "cantidad por defecto: 1", asi que en cuanto estan
+    // nombre, ciudad y direccion el resumen SALE SOLO — un turno antes- y la
+    // clienta lo ve con "1 unidad" para confirmarlo o corregirlo. Es un
+    // turno menos para cerrar, que en WhatsApp es donde se pierde la gente.
+    //
+    // Lo que se protege sigue siendo lo mismo: que el resumen llegue con la
+    // cantidad y el importe correctos sin un turno extra de por medio.
+    const v = await ventaReal();
+    await v.dice("hola");
+    await v.dice("Palmira");
+    const r = await v.dice("Calle 20 # 15-30, soy Luz Marina");
+
+    assert.equal(r.traza.respuesta.situacion, "resumen", `situación: ${r.traza.respuesta.situacion}`);
+    assert.match(r.texto, /1 unidad/);
+    assert.match(r.texto, /49\.900/);
+  });
+
+  test('y si despues dice "uno", no se rompe nada', async () => {
+    // La cantidad ya estaba puesta por defecto, asi que "uno" no aporta un
+    // dato nuevo: lo correcto es señalar el resumen que ya esta arriba y
+    // pedir el si. Lo que NO puede hacer es repetir el cuadro entero ni
+    // pedirle que concrete.
     const v = await ventaReal();
     await v.dice("hola");
     await v.dice("Palmira");
     await v.dice("Calle 20 # 15-30, soy Luz Marina");
     const r = await v.dice("uno");
 
-    assert.equal(r.traza.respuesta.situacion, "resumen", `situación: ${r.traza.respuesta.situacion}`);
-    assert.match(r.texto, /1 unidad/);
-    assert.match(r.texto, /49\.900/);
+    assert.equal(/no quiero repetirme|concretamente/i.test(r.texto), false, r.texto);
+    assert.match(r.texto, /s[íi]/i, `no pidió el sí, que es lo único que falta: ${r.texto}`);
   });
 
   test("y la venta se confirma, con un solo pedido", async () => {

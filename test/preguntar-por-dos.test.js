@@ -431,7 +431,31 @@ describe("5 · la respuesta de respaldo es útil, no un formulario", () => {
     // Le pide la direccion a quien pregunta por la seguridad del producto.
     const c = await conversacion();
     await c.dice("cuanto vale");
-    const r = await c.dice("oye y esto me lo puedo poner dormida toda la noche?");
+    // ⚠️ EL EJEMPLO CAMBIO EL 2026-10-09 PORQUE EL DATO YA NO FALTA.
+    //
+    // Usaba "¿me lo puedo poner dormida toda la noche?" como duda sin
+    // respuesta. Marco autorizo la ficha tecnica, asi que ahora el bot
+    // contesta eso con un dato concreto ("para dormir mejor te lo quitas").
+    //
+    // Se cambia por una que SIGUE sin dato confirmado -el pago por Nequi, de
+    // los que Marco dejo como [CONFIRMAR]-. Lo que se protege es identico.
+    // ⚠️ EL EJEMPLO CAMBIO DOS VECES EL 2026-10-09, Y LA SEGUNDA ES LA
+    //    INTERESANTE.
+    //
+    // Usaba "¿me lo puedo poner dormida toda la noche?" como duda sin
+    // respuesta; Marco autorizo la ficha tecnica y eso paso a tener dato.
+    // Se cambio por el pago con Nequi… que TAMBIEN quedo contestado, porque
+    // su instruccion fue decir que se paga en efectivo al mensajero.
+    //
+    // Es decir: ya casi no quedan huecos, y eso es exactamente lo que se
+    // buscaba. Pero el MECANISMO que esta prueba vigila -una duda que el
+    // catalogo no cubre no se contesta con un formulario, y queda anotada-
+    // sigue siendo necesario para la cola larga.
+    //
+    // Asi que el ejemplo pasa a ser una pregunta que de verdad no esta
+    // catalogada, y que NO conviene catalogar: es la clase de duda suelta
+    // que siempre va a existir.
+    const r = await c.dice("oye y esto lo usan los deportistas?");
 
     assert.equal(/me pasas/.test(r.texto), false, `contestó con un formulario: ${r.texto}`);
     assert.equal(/Cuántos quieres/.test(r.texto), false, `contestó con un formulario: ${r.texto}`);
@@ -441,12 +465,12 @@ describe("5 · la respuesta de respaldo es útil, no un formulario", () => {
   test("y queda registrada para que alguien la conteste", async () => {
     const c = await conversacion();
     await c.dice("cuanto vale");
-    await c.dice("oye y esto me lo puedo poner dormida toda la noche?");
+    await c.dice("oye y esto lo usan los deportistas?");
 
     const conv = await c.repos.conversaciones.obtener(CLIENTE);
     const p = atencion.pendienteDe(conv);
     assert.equal(p.hay, true, "prometió una persona y no dejó tarea");
-    assert.match(p.pregunta, /dormida/, "la tarea no guarda la pregunta");
+    assert.match(p.pregunta, /deportistas/i, "la tarea no guarda la pregunta");
   });
 
   test("si el modelo revienta, el turno no se pierde", async () => {
@@ -681,8 +705,12 @@ describe("8 · ni despacho hoy, ni respuesta inmediata", () => {
     const dichos = [
       // El material ya esta confirmado, asi que se contesta. Para esta
       // prueba sirve un dato que SIGUE sin confirmar.
-      (await c.dice("qué trae exactamente el paquete?")).texto,
-      (await c.dice("oye y lo puedo usar dormida?")).texto,
+      //
+      // ⚠️ 2026-10-09: "que trae el paquete" y "usarlo dormida" TAMBIEN se
+      //    confirmaron, asi que ya no sirven de ejemplo. Los que quedan sin
+      //    dato son los que Marco dejo como [CONFIRMAR].
+      (await c.dice("esto lo usan los deportistas?")).texto,
+      (await c.dice("lo venden en Mercado Libre también?")).texto,
       (await c.dice("cuanto cuestan tres?")).texto,
     ];
     for (const t of dichos) {
@@ -840,7 +868,7 @@ describe("10 · la tarea se cierra con un acto explícito", () => {
 
   test("y «marcar atendido» sí la cierra", async () => {
     const c = await conversacion();
-    await c.dice("oye y lo puedo usar dormida?");
+    await c.dice("esto lo usan los deportistas?");
     assert.equal(atencion.pendienteDe(await c.repos.conversaciones.obtener(CLIENTE)).hay, true);
 
     await atencion.marcarAtendido(c.repos, CLIENTE, { por: "marco" });
