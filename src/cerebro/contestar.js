@@ -1280,39 +1280,85 @@ function deTema(
     // anuncio esta prometiendo algo que la politica no cubre. La decision es
     // de negocio: o se cambia el anuncio, o se aprueba la devolucion.
     // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // LA PROMESA DEL ANUNCIO: «PRUÉBALO 7 DÍAS O TE DEVOLVEMOS TU DINERO»
+    //
+    // ⚠️ ESTA RESPUESTA ERA UNA EVASIVA, Y DURANTE DOS DIAS NO HIZO FALTA
+    //    QUE LO FUERA.
+    //
+    // El 09-oct se le pregunto a Marco cual de las dos promesas valia -la
+    // del anuncio o la garantia- COMO SI FUERAN ALTERNATIVAS. Contesto «Si
+    // garantia 1 mes», se interpreto que la prueba de 7 dias no existia, y
+    // sus cinco frases entraron en `claimsProhibidos`. Resultado: a quien
+    // citaba el anuncio de la propia empresa, el bot le contestaba "te lo
+    // confirmo con el equipo".
+    //
+    // El 10-oct Marco lo aclaro: los 7 dias SON REALES y son el gancho del
+    // anuncio. «Se le envia el producto [...] es un gancho para que la
+    // persona compre y pueda probar el producto».
+    //
+    // LA LECCION FUE LA PREGUNTA, NO EL DATO: no eran alternativas, conviven.
+    // Una pregunta mal planteada guardo un dato mal, y el bot fue fiel al
+    // dato.
+    //
+    // Y SON DOS COSAS DISTINTAS, que es lo que no se puede volver a mezclar:
+    //
+    //   · los 7 DIAS cubren que NO LE SIRVA -> se devuelve EL DINERO
+    //   · la GARANTIA cubre DEFECTO DE FABRICA -> se CAMBIA el producto
+    //
+    // Aqui se contesta lo primero, porque es lo que se pregunto.
+    // ----------------------------------------------------------------------
     case TEMAS.PROMESA_DEL_ANUNCIO: {
+      const prueba = producto && producto.pruebaDeSieteDias;
       const partes = [];
+
+      if (prueba && prueba.activa && prueba.texto) {
+        // Se confirma de frente y en primera persona: es la promesa de la
+        // casa, no una concesion que haya que arrancarnos.
+        partes.push(`sí, es verdad: ${prueba.texto.replace(/^Y\s+/, "").replace(/^(\w)/, (c) => c.toLowerCase())}`);
+      }
+
       if (pagaAlRecibir(producto, cotizacion)) {
-        // PRIMERO esto, porque es lo que responde el miedo de fondo: no
-        // necesita una devolucion si no ha soltado la plata todavia.
-        partes.push(
-          "lo bueno es que no tienes que adelantar nada: pagas cuando el pedido está en tus manos, " +
-            "así que lo ves antes de soltar un peso."
-        );
+        // Y detras el argumento que de verdad quita el miedo: ni siquiera
+        // necesita la devolucion, porque no ha soltado la plata todavia.
+        partes.push("Y ni siquiera arriesgas nada por adelantado: pagas cuando el pedido está en tus manos.");
       }
-      const plazo = producto && producto.garantia;
-      const cubre = producto && producto.garantiaCubre;
-      if (plazo && cubre) {
-        partes.push(`Y te va con ${plazo} de garantía por ${cubre}.`);
+
+      // Sin `pruebaDeSieteDias` en la ficha no se inventa: se admite. Pasa
+      // si algun dia se desactiva la promocion y el anuncio sigue vivo.
+      if (!partes.length) {
+        return loConfirmo("Lo de la devolución del dinero", "lo");
       }
-      // Y la parte honesta: lo de la devolución lo confirma una persona. Sin
-      // prometerla y sin desmentir el anuncio.
-      partes.push(
-        "Lo de la devolución del dinero te lo confirmo con el equipo para no decirte nada por mi cuenta, " +
-          "y te responden por aquí."
-      );
       return partes.join(" ");
     }
 
+    // ----------------------------------------------------------------------
+    // "¿Y SI NO ME FUNCIONA?" — AHORA HAY UNA RESPUESTA DE VERDAD
+    //
+    // Esta es LA pregunta que cubre la prueba de 7 dias, y hasta el 10-oct
+    // se contestaba con la garantia, que es otra cosa: la garantia cambia un
+    // aparato roto, no le devuelve la plata a quien dice que no le sirvio.
+    //
+    // Orden deliberado: primero los 7 dias (responde exactamente lo que
+    // pregunto), luego el contraentrega (quita el riesgo del adelanto) y al
+    // final la garantia, que cubre un caso distinto y conviene no mezclar.
+    // ----------------------------------------------------------------------
     case TEMAS.SI_NO_FUNCIONA: {
       const partes = [];
+      const prueba = producto && producto.pruebaDeSieteDias;
+      if (prueba && prueba.activa && prueba.texto) {
+        partes.push(prueba.texto.replace(/^Y\s+/, "").replace(/^(\w)/, (c) => c.toLowerCase()));
+      }
       if (pagaAlRecibir(producto, cotizacion)) {
-        partes.push("lo ves antes de pagar: pagas cuando el pedido está en tus manos, así que no arriesgas plata.");
+        partes.push("Y pagas cuando el pedido está en tus manos, así que no arriesgas plata por adelantado.");
       }
       const plazo = producto && producto.garantia;
       const cubre = producto && producto.garantiaCubre;
-      if (plazo && cubre) partes.push(`Y si llega con ${cubre}, tienes ${plazo} de garantía y te lo cambiamos.`);
-      else if (plazo) partes.push(`Y te va con ${plazo} de garantía.`);
+      // La garantia va al final y DICE QUE CUBRE OTRA COSA. Sin ese "y
+      // aparte", las dos promesas se leen como una y queda la duda de si son
+      // 7 dias o un mes para lo mismo.
+      if (plazo && cubre) partes.push(`Y aparte, si llega con ${cubre}, tienes ${plazo} de garantía y te lo cambiamos.`);
+      else if (plazo) partes.push(`Y aparte te va con ${plazo} de garantía.`);
       if (!partes.length) return loConfirmo("Qué pasa si no te funciona", "lo");
       return partes.join(" ");
     }

@@ -360,19 +360,37 @@ describe("Los 20 casos de Marco", () => {
     assert.match(r.texto, CIERRA_CON_ALGO, `se quedó suelto, sin invitar a nada: ${r.texto}`);
   });
 
-  test("18 · «Quiero hablar con alguien» escala, y el bot sigue atendiendo", async () => {
+  // ⚠️ ESTA PRUEBA AFIRMABA LO CONTRARIO HASTA EL 2026-10-10, Y LA CAMBIO
+  //    MARCO. Vale la pena dejar escrito el porqué de las dos versiones.
+  //
+  // El 09-oct se quitó el `pausado: true` automático del escalado, y era lo
+  // correcto ENTONCES: el bot escalaba por cualquier pregunta sin tema —29 de
+  // 65 respuestas malas— así que pausar al escalar equivalía a pausar por
+  // cualquier cosa. Se midieron escalados de las 08:49 contestados a las
+  // 13:13 con el cliente escribiendo al vacío.
+  //
+  // El 10-oct, con el sondeo ya en 5 de 65 y los cinco legítimos, Marco
+  // cerró la otra mitad: «a menos de que yo lo silencie, o cuando ya la
+  // respuesta del bot literalmente es que estamos pasándolo al humano».
+  //
+  // Y tiene razón en el fondo: seguir vendiendo detrás de «te paso con una
+  // persona» convierte esa frase en mentira. Lo que cambió para que sea
+  // seguro no es la idea, es CUÁNTO se escala.
+  test("18 · «Quiero hablar con alguien» escala, avisa, y el bot se calla", async () => {
     const c = await chat();
     await c.dice(ANUNCIO);
     const r = await c.dice("Quiero hablar con alguien");
 
     assert.equal(r.traza.motivoEscalado, "pidio_una_persona");
-    assert.match(r.texto, /persona del equipo/i, r.texto);
     assert.equal(atencion.pendienteDe(r.conversacion).hay, true, "escaló y no dejó tarea");
-    // Y NO se calla: es la regla que pidió Marco.
-    assert.equal(r.pausado, false, "escalar volvió a pausar el bot");
 
-    const sigue = await c.dice("bueno, igual lo quiero, soy Ana, Cali, Calle 5 # 10-20");
-    assert.ok(sigue.texto, "tras escalar dejó de atender la venta");
+    // EL AVISO SALE PRIMERO. Si se pausara antes de enviarlo, el cliente se
+    // quedaría sin saber que lo están pasando a una persona: lo peor de los
+    // dos mundos.
+    assert.match(r.texto, /persona del equipo/i, r.texto);
+
+    // Y DESPUÉS se calla, porque ya prometió que contesta alguien.
+    assert.equal(r.pausado, true, "el bot siguió vendiendo tras prometer una persona");
   });
 
   test("19 · «Estoy embarazada» deriva al médico, sin consejo médico", async () => {
@@ -418,7 +436,31 @@ describe("Los 20 casos de Marco", () => {
   // (lo dice), o contestar el plazo de la garantía como si fuera lo mismo
   // (es cambiarle las condiciones sin avisar).
   // ------------------------------------------------------------------------
-  describe("el anuncio promete 7 días y la garantía es de 1 mes", () => {
+  // ⚠️ ESTE BLOQUE ENTERO AFIRMABA LO CONTRARIO, Y EL ERROR FUE LA PREGUNTA.
+  //
+  // El 09-oct se le preguntó a Marco cuál de las dos promesas valía —la del
+  // anuncio («pruébalo 7 días o te devolvemos tu dinero») o la garantía— COMO
+  // SI FUERAN ALTERNATIVAS. Contestó «Si garantia 1 mes», se interpretó que
+  // la prueba de 7 días no existía, y sus cinco frases entraron en
+  // `claimsProhibidos`.
+  //
+  // Durante dos días, a quien citaba el anuncio DE LA PROPIA EMPRESA el bot
+  // le contestaba «te lo confirmo con el equipo». Y estas pruebas protegían
+  // esa evasiva.
+  //
+  // El 10-oct Marco lo aclaró: los 7 días son reales y son el gancho del
+  // anuncio. «Se le envía el producto [...] es un gancho para que la persona
+  // compre y pueda probar el producto».
+  //
+  // NO ERAN ALTERNATIVAS, CONVIVEN. Y son dos cosas distintas que el bot no
+  // puede volver a mezclar:
+  //
+  //   · los 7 DÍAS cubren que NO LE SIRVA       -> se devuelve EL DINERO
+  //   · la GARANTÍA cubre DEFECTO DE FÁBRICA    -> se CAMBIA el producto
+  //
+  // La lección es sobre cómo preguntar, no sobre el dato: una pregunta mal
+  // planteada guardó un dato mal, y el bot fue fiel al dato.
+  describe("el anuncio promete 7 días, y es verdad", () => {
     const CITAN_EL_ANUNCIO = [
       "pero el anuncio dice que me devuelven el dinero",
       "si no siento alivio me devuelven la plata?",
@@ -426,51 +468,57 @@ describe("Los 20 casos de Marco", () => {
       "ahí dice que me devuelven el dinero",
     ];
 
-    test("no promete la devolución, pero tampoco desmiente el anuncio", async () => {
+    test("la confirma de frente, sin rodeos", async () => {
       for (const m of CITAN_EL_ANUNCIO) {
         const c = await chat();
         await c.dice(ANUNCIO);
         const r = await c.dice(m);
 
-        // NO promete devolver plata.
+        assert.match(r.texto, /7 d[íi]as/i, `no confirmó la prueba con "${m}": ${r.texto}`);
+        assert.match(r.texto, /devolvemos tu dinero/i, `no confirmó la devolución con "${m}": ${r.texto}`);
+        // Ya NO se escurre: era la respuesta que daba antes.
         assert.equal(
-          /te devolvemos|te devuelvo|se te devuelve|devolución del dinero sí|7 días de prueba/i.test(r.texto),
+          PROHIBIDAS.test(r.texto),
           false,
-          `prometió la devolución con "${m}": ${r.texto}`
+          `se escurrió en vez de confirmar la promesa de su propio anuncio con "${m}": ${r.texto}`
         );
-        // NO desmiente a la clienta.
-        assert.equal(
-          /no es (cierto|verdad)|eso no|está equivocad|no decimos/i.test(r.texto),
-          false,
-          `desmintió a la clienta con "${m}": ${r.texto}`
-        );
-        // Dice lo que SÍ cubre, y pone delante el contraentrega.
-        assert.match(r.texto, /pagas cuando|al recibir|antes de/i, `sin el argumento del riesgo: ${r.texto}`);
-        assert.match(r.texto, /1 mes|defecto de fábrica/i, `sin la garantía real: ${r.texto}`);
-        // Y queda la tarea: cada una es evidencia de que el anuncio genera
-        // una expectativa que la política no cubre.
-        assert.equal(atencion.pendienteDe(r.conversacion).hay, true, `no dejó tarea con "${m}"`);
+        // Y sigue poniendo delante el argumento que quita el riesgo de
+        // verdad: no ha soltado la plata todavía.
+        assert.match(r.texto, /pagas cuando|al recibir/i, `sin el argumento del riesgo: ${r.texto}`);
       }
     });
 
-    test("y el filtro de claims bloquea la promesa aunque el modelo la intente", () => {
-      // La defensa de verdad: si el modelo redacta la promesa del anuncio,
-      // `revisarClaims` tiene que tumbarla. Es plata de vuelta, y es la
-      // única promesa del catálogo que el propio anuncio ya está haciendo.
-      const responder = require("../src/cerebro/responder");
-      const producto = cargarCatalogo({
-        carpeta: path.join(RAIZ, "catalogo", "productos"),
-        refrescar: true,
-      }).porId.get("cinturon-termico-colicos");
+    test("no mezcla la prueba de 7 días con la garantía", async () => {
+      // La confusión caro en las dos direcciones: prometer devolución de
+      // dinero por un aparato roto, o negarle la devolución a quien solo
+      // dice que no le sirvió.
+      const c = await chat();
+      await c.dice(ANUNCIO);
 
-      for (const frase of [
-        "Pruébalo 7 días y si no sientes alivio te devolvemos tu dinero",
-        "Tienes garantía de 7 días",
-        "Si no te gusta te devolvemos tu dinero",
-      ]) {
-        const v = responder.revisarClaims(frase, producto);
-        assert.equal(v.ok, false, `el filtro deja pasar la promesa de devolución: "${frase}"`);
-      }
+      const garantia = await c.dice("tiene garantia?");
+      assert.match(garantia.texto, /1 mes/i, garantia.texto);
+      assert.match(garantia.texto, /defecto de f[áa]brica/i, garantia.texto);
+      assert.equal(
+        /7 d[íi]as|devolvemos tu dinero/i.test(garantia.texto),
+        false,
+        `contestó la garantía con la prueba de 7 días: ${garantia.texto}`
+      );
+    });
+
+    test("«¿y si no me sirve?» es una objeción, no una despedida", async () => {
+      // Se leía como una negación -«no me sirve» está en NEGACIONES- y el bot
+      // se despedía de quien estaba objetando. Lo que cambia el significado
+      // es el «si» delante.
+      const c = await chat();
+      await c.dice(ANUNCIO);
+      const r = await c.dice("y si no me sirve?");
+
+      assert.match(r.texto, /7 d[íi]as/i, `no usó la prueba para contestar la objeción: ${r.texto}`);
+      assert.equal(
+        /m[áa]s adelante lo quieres|aqu[íi] estoy si/i.test(r.texto),
+        false,
+        `se despidió de quien solo estaba preguntando: ${r.texto}`
+      );
     });
 
     test("la garantía del catálogo sigue siendo la que confirmó Marco", () => {
@@ -479,8 +527,32 @@ describe("Los 20 casos de Marco", () => {
         refrescar: true,
       }).porId.get("cinturon-termico-colicos");
 
+      // Confirmada dos veces: «Si garantia 1 mes» (09-oct) y, tras
+      // contradecirse con «un año», «un mes perdon» (10-oct).
       assert.equal(producto.garantia, "1 mes");
       assert.equal(producto.garantiaCubre, "defecto de fábrica");
+    });
+
+    test("y lo médico sigue bloqueado: eso no se desbloqueó con los 7 días", () => {
+      // Al abrir la devolución se quitaron CINCO frases de `claimsProhibidos`.
+      // Esta prueba vigila que no se llevara por delante las demás.
+      const responder = require("../src/cerebro/responder");
+      const producto = cargarCatalogo({
+        carpeta: path.join(RAIZ, "catalogo", "productos"),
+        refrescar: true,
+      }).porId.get("cinturon-termico-colicos");
+
+      for (const frase of [
+        "Cura los cólicos",
+        "Es apto durante el embarazo",
+        "Incluye cargador de pared",
+        "Puedes dormir con él puesto",
+        "Nunca quema",
+        "Te llega mañana",
+      ]) {
+        const v = responder.revisarClaims(frase, producto);
+        assert.equal(v.ok, false, `se desbloqueó una promesa que no debía: "${frase}"`);
+      }
     });
   });
 

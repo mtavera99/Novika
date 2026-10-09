@@ -659,6 +659,32 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
 
   if (comoProceso) {
     const todo = [...pide];
+    // ------------------------------------------------------------------
+    // EL PUNTO DE REFERENCIA VA EN LA PRIMERA PEDIDA, Y VA COMO OPCIONAL.
+    //
+    // Marco lo pidio dos veces: en su lista del 10-oct ("nombre completo,
+    // dirección o barrio, referencia y cantidad") y otra vez al insistir en
+    // que tras la ciudad hay que sacar los datos para cerrar.
+    //
+    // ⚠️ VA EN EL TEXTO, NO EN `faltan`, y la distincion es importante: si
+    //    entrara en los datos REQUERIDOS, un pedido sin referencia no se
+    //    podria crear, y la mayoria de las direcciones urbanas no la
+    //    necesitan. Seria cambiar una venta perdida por otra.
+    //
+    // Lo que SI resuelve es el caso del pueblo: cuando la direccion es "el
+    // barrio" y no hay nomenclatura, el punto de referencia es lo unico que
+    // le permite al mensajero llegar. Pedirlo de entrada ahorra el segundo
+    // mensaje — que es justo donde se murieron dos conversaciones del
+    // 08-oct.
+    //
+    // Solo se ofrece si se esta pidiendo la direccion: colgarselo a una
+    // pedida de nombre no tiene sentido.
+    // ------------------------------------------------------------------
+    // Se pega A LA DIRECCION en vez de añadirse como item suelto: como item
+    // salia "la dirección, si puedes, un punto de referencia y si quieres
+    // uno o dos", con las comas peleandose. Pegado se lee de corrido.
+    const iDir = todo.indexOf(nombres.direccion);
+    if (iDir >= 0) todo[iDir] = `${nombres.direccion} con un punto de referencia`;
     if (faltaCantidad) todo.push("si quieres uno o dos");
     if (!todo.length) return invitar;
     return `Para preparar tu pedido me pasas ${enumerar(todo)} 🙌`;
