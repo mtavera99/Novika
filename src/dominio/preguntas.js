@@ -70,6 +70,16 @@ const TEMAS = {
    * pone, en cuanto calienta, los niveles, los modos y que es recargable.
    */
   COMO_SE_USA: "como_se_usa",
+  /** "¿Cómo se llama eso?" — el nombre del producto. */
+  NOMBRE_DEL_PRODUCTO: "nombre_del_producto",
+  /** "¿Funciona con frío?", "¿da frío?" — solo da calor. */
+  FRIO: "frio",
+  /** "Sería para fin de mes", "para la otra semana" — compra diferida. */
+  PARA_DESPUES: "para_despues",
+  /** "Soy menor de edad". */
+  MENOR_DE_EDAD: "menor_de_edad",
+  /** "Será otro día", "después", "más adelante" — objecion de aplazamiento. */
+  OTRO_DIA: "otro_dia",
   CONFIANZA: "confianza",
   FOTOS: "fotos",
   /**
@@ -383,6 +393,43 @@ const PATRONES = [
   [TEMAS.MARCA, /\bbuena\s+calidad\b/],
   [TEMAS.MARCA, /\bes\s+de\s+calidad\b/],
 
+  // ---- Nombre del producto ----
+  //
+  // "Como se llama eso" salio sin tema el 09-oct y recibio "no te la quiero
+  // contestar a medias". El nombre del producto esta en el catalogo: es de
+  // las preguntas mas faciles que hay.
+  [TEMAS.NOMBRE_DEL_PRODUCTO, /\bcomo\s+se\s+llama\b/],
+  [TEMAS.NOMBRE_DEL_PRODUCTO, /\b(cual|que)\s+es\s+el\s+nombre\s+(del|de\s+el)\s+product/],
+  [TEMAS.NOMBRE_DEL_PRODUCTO, /\bque\s+producto\s+es\b/],
+
+  // ---- Frio: va ANTES de TEMPERATURA y de COMO_SE_USA ----
+  //
+  // "Funciona también con frío" tambien salio sin tema. Se sabe que NO: la
+  // ficha solo declara calor y masaje. Decir que no se sabe es peor que
+  // decir que no, porque deja al cliente creyendo que a lo mejor si.
+  [TEMAS.FRIO, /\b(frio|fria)\b/],
+  [TEMAS.FRIO, /\benfria\b/],
+
+  // ---- Compra para mas adelante ----
+  [TEMAS.PARA_DESPUES, /\b(seria|sera|es)\s+para\s+(fin(es)?\s+de|la\s+otra|el\s+otro|dentro\s+de|el\s+proximo|la\s+proxima)\b/],
+  [TEMAS.PARA_DESPUES, /\bpara\s+(fin(es)?\s+de\s+mes|fin(es)?\s+de\s+este\s+mes|la\s+otra\s+semana|el\s+proximo\s+mes|la\s+quincena)\b/],
+  [TEMAS.PARA_DESPUES, /\blo\s+quiero\s+para\s+(fin|la\s+otra|el\s+proximo|dentro)\b/],
+
+  // ---- Menor de edad ----
+  [TEMAS.MENOR_DE_EDAD, /\b(soy|es)\s+menor\s+de\s+edad\b/],
+  [TEMAS.MENOR_DE_EDAD, /\bmenor\s+de\s+edad\b/],
+  [TEMAS.MENOR_DE_EDAD, /\btengo\s+(1[0-7]|quince|dieciseis|diecisiete|catorce)\s+a(n|ñ)os\b/],
+
+  // ---- "Otro dia": aplazamiento, no rechazo ----
+  //
+  // edgar, 09-oct: "Será otro día" recibio "¿Te lo aparto, o quieres que te
+  // cuente algo más...?". Quien aplaza no quiere que le insistan con la
+  // misma pregunta: quiere que le dejen la puerta abierta.
+  [TEMAS.OTRO_DIA, /\b(sera|seria|mejor)\s+(en\s+)?otro\s+(dia|rato|momento)\b/],
+  [TEMAS.OTRO_DIA, /\botro\s+dia\s+(sera|lo\s+(pido|compro))\b/],
+  [TEMAS.OTRO_DIA, /\b(mas\s+adelante|despuesito|luego\s+te\s+(escribo|aviso)|despues\s+te\s+(escribo|aviso))\b/],
+  [TEMAS.OTRO_DIA, /\blo\s+(pienso|dejo)\s+para\s+(despues|luego|otro\s+dia)\b/],
+
   // ---- Como funciona / que funciones trae: va ANTES de EMPAQUE y de USO ----
   //
   // ⚠️ DOS DEFECTOS DISTINTOS SE ARREGLAN CON ESTE BLOQUE, y los dos los
@@ -655,6 +702,12 @@ const PATRONES = [
   [TEMAS.ENTREGA, /\bcuanto\s+antes\b/],
   [TEMAS.ENTREGA, /\blo\s+necesito\s+(hoy|ya|urgente|para\s+hoy)\b/],
   [TEMAS.ENTREGA, /\burgente\b/],
+  // "Y si lo pido hoy cuándo me está llegando" (ANDRE, 09-oct): sin tema, y
+  // recibio "no te la quiero contestar a medias" teniendo el plazo en el
+  // catalogo.
+  [TEMAS.ENTREGA, /\bsi\s+(lo\s+)?(pido|compro|confirmo)\s+(hoy|ahora|ya|hoy\s+mismo)\b/],
+  [TEMAS.ENTREGA, /\bcuando\s+me\s+(esta|estaria)\s+llegando\b/],
+  [TEMAS.ENTREGA, /\ben\s+cuanto\s+(me\s+)?llega\b/],
 
   // ---- Material ----
   [TEMAS.MATERIAL, /\bmaterial\b/],
@@ -668,7 +721,10 @@ const PATRONES = [
   //    alli: esta rama responde con `paraQueSirve.texto`, que empieza con
   //    "Sí, es justo para eso" — correcto para "¿sirve para los cólicos?" y
   //    absurdo para "¿cómo funciona?".
-  [TEMAS.USO, /\bpara\s+que\s+sirve\b/],
+  // "para que ES QUE sirve" es como se pregunta hablando, y no casaba:
+  // Carlos Carvajal lo escribio asi el 09-oct y el bot le pidio los datos
+  // sin contestarle.
+  [TEMAS.USO, /\bpara\s+que\s+(es\s+que\s+)?sirve\b/],
   // "¿esto sirve para los cólicos?" es EL EJEMPLO que dio Marco, y no se
   // reconocia: no casa con "para que sirve". Caia en el camino de la duda
   // no catalogada y recibia "esa no te la quiero contestar a medias",
@@ -766,6 +822,13 @@ const PATRONES = [
   [TEMAS.CONFIANZA, /\bya\s+me\s+(estafaron|tumbaron|robaron)\b/],
   [TEMAS.CONFIANZA, /\bcomo\s+se\s+que\s+(es|son|no\s+es)\b/],
   [TEMAS.CONFIANZA, /\bes\s+seguro\s+(comprar|pedir|pagar)\b/],
+  // Las dos de Jose Polo (09-oct), que recibieron "a medias" cuando eran EL
+  // momento de dar seguridad:
+  [TEMAS.CONFIANZA, /\b(pero\s+)?que\s+sea\s+(cierto|verdad|real)\b/],
+  [TEMAS.CONFIANZA, /\ben\s+otras?\s+(paginas?|partes|lados|sitios)\b/],
+  [TEMAS.CONFIANZA, /\bhe\s+pedido\s+y\s+no\s+(llega|llego|llegan)\b/],
+  [TEMAS.CONFIANZA, /\bno\s+(llega|llego|llegan)\s+nada\b/],
+  [TEMAS.CONFIANZA, /\bes\s+(una\s+)?estafa\b/],
 
   // ---- Fotos ----
   [TEMAS.FOTOS, /\bfotos?\b/],
@@ -1330,6 +1393,43 @@ const SALUDOS = [
 ];
 
 /**
+ * ¿Pide cambiar la cantidad de un pedido que ya existe? ¿A cuanta?
+ *
+ * ⚠️ VENTA DE $85.000 PERDIDA POR NO TENER ESTO (ANDRE, 09-oct). Confirmo 1
+ *    unidad y enseguida escribio "Mejor me mandas los 2". El bot contesto
+ *    "Tu pedido está confirmado…", luego "Perdón, creo que no te entendí", y
+ *    al final "Para pedir otro te ayuda una persona del equipo". Un operador
+ *    salvo la venta a mano, pero el pedido quedo en 1 unidad y $49.900.
+ *
+ * Es distinto de `quiereOtro`: no son dos pedidos, es el MISMO con mas
+ * unidades. Las frases son las que dio Marco mas las formas naturales.
+ *
+ * Devuelve el numero, 0 para "uno mas" -que lo resuelve el cerebro, que sabe
+ * cuantos hay- o null si no pide ningun cambio.
+ */
+const CAMBIO_DE_CANTIDAD = [
+  /\bmejor\s+(me\s+)?(mandas?|manda|mande|envias?|envia|envie|que\s+sean|sean)\s+(l[oa]s\s+)?(\d{1,2}|dos|tres|cuatro)\b/,
+  /\bque\s+sean\s+(l[oa]s\s+)?(\d{1,2}|dos|tres|cuatro)\b/,
+  /\b(mandame|mandeme|enviame|envieme)\s+(l[oa]s\s+)?(\d{1,2}|dos|tres|cuatro)\b/,
+  /\bquiero\s+(\d{1,2}|dos|tres|cuatro)\s*(equipos?|unidades?|cinturones?)\b/,
+  /\b(agrega|anade|suma)(le|me)?\s+(otro|otra|uno|una|\d{1,2})\b/,
+  /\bmejor\s+(l[oa]s\s+)?(\d{1,2}|dos|tres|cuatro)\b/,
+];
+
+function cantidadNuevaEn(plano) {
+  if (!CAMBIO_DE_CANTIDAD.some((re) => re.test(plano))) return null;
+  // "agregale otro" no dice un numero: significa UNO MAS. Se devuelve 0 y el
+  // cerebro suma, porque es el unico que sabe cuantos hay ahora.
+  if (/\b(agrega|anade|suma)(le|me)?\s+(otro|otra|uno|una)\b/.test(plano)) return 0;
+  const m = plano.match(/\b(\d{1,2}|dos|tres|cuatro)\b/);
+  if (!m) return null;
+  const EN_PALABRAS = { dos: 2, tres: 3, cuatro: 4 };
+  const n = EN_PALABRAS[m[1]] || Number.parseInt(m[1], 10);
+  return Number.isFinite(n) && n >= 1 && n <= 50 ? n : null;
+}
+
+
+/**
  * ¿Qué pregunta este mensaje?
  *
  * @returns {{temas: string[], pregunta: boolean, compra: boolean,
@@ -1582,6 +1682,7 @@ function leer(texto) {
     // ¿Habla de UNO MAS? Es lo que distingue una venta adicional de una
     // simple consulta de precio cuando ya hay un pedido confirmado.
     quiereOtro: QUIERE_OTRO.some((re) => re.test(plano)),
+    cambioDeCantidad: cantidadNuevaEn(plano),
     // Parece una pregunta, aunque no se sepa de que. Basta para no
     // responder con un formulario.
     pareceUnaPregunta: interrogacion || PALABRA_DE_PREGUNTA.test(plano),

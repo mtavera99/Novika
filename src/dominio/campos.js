@@ -40,7 +40,36 @@ const ORIGENES = {
   REFERRAL: "referral", // vino del anuncio de Meta
   CODIGO: "codigo",     // lo calculo o derivo el sistema
   PERSONA: "persona",   // lo puso un humano desde el panel
+  // ----------------------------------------------------------------------
+  // EL NOMBRE DEL PERFIL DE WHATSAPP. ES UN RELLENO, NO UN DATO.
+  //
+  // ⚠️ TIENE SU PROPIO ORIGEN PORQUE COSTO UNA VENTA DE $85.000.
+  //
+  // Antes entraba como CLIENTE, igual que un nombre escrito a mano. Y una
+  // vez confirmado, el cliente YA NO PODIA CAMBIARLO: la captura del nombre
+  // solo se abre cuando el campo esta vacio.
+  //
+  // Chat de Ailid (09-oct): el perfil decia "Ailid🥰", ella escribio "Nevis
+  // Johana Sánchez López" y lo intento corregir cuatro veces. El resumen
+  // salio siempre con el nombre del perfil, confirmo el pedido equivocado y
+  // acabo pidiendo que lo cancelaran.
+  //
+  // Con su propio origen se distingue lo que el cliente DIJO de lo que
+  // WhatsApp trae de serie, y un nombre escrito a mano siempre gana.
+  // ----------------------------------------------------------------------
+  PERFIL: "perfil",
 };
+
+/**
+ * ¿Este valor es solo el relleno del perfil de WhatsApp?
+ *
+ * Lo consulta el cerebro para dos cosas: para volver a pedir el nombre
+ * aunque el campo no este vacio, y para dejar que un nombre escrito a mano
+ * pise este sin tratarlo como una "correccion del cliente".
+ */
+function vieneDelPerfil(campo) {
+  return Boolean(campo && campo.origen === ORIGENES.PERFIL && campo.estado === ESTADO_CAMPO.CONFIRMADO);
+}
 
 /** Campos que componen un pedido. Lista cerrada. */
 const CAMPOS = [
@@ -196,6 +225,7 @@ function soloConfirmado(ficha) {
 module.exports = {
   ESTADO_CAMPO,
   ORIGENES,
+  vieneDelPerfil,
   CAMPOS,
   campoVacio,
   fichaVacia,

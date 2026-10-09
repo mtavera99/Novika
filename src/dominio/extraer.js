@@ -22,7 +22,7 @@
 // ==========================================================================
 
 const { aplanar, cantidadesEn, NUMEROS_EN_PALABRAS } = require("./texto");
-const { CIUDADES_SEMILLA } = require("./destino");
+const { CIUDADES, DEPARTAMENTOS } = require("./destino");
 
 /** Tipos de via, para reconocer una direccion. */
 // `barrio`, `corregimiento` y `sector` NO ESTABAN, y en los pueblos la
@@ -92,8 +92,46 @@ const PALABRAS_VACIAS_DE_ZONA = new Set(["el", "la", "los", "las", "de", "del", 
 // Y lo extraido se PROPONE, no se confirma: pasa por `validarNombre`, que
 // ya rechaza numeros, saludos y cosas de menos de tres letras.
 // ==========================================================================
+// ==========================================================================
+// ⚠️ ESTA LISTA TENIA TRES MARCADORES Y COSTO UNA VENTA DE $85.000.
+//
+// Chat de Ailid, 09-oct 00:08. En un solo mensaje mando su nombre completo,
+// dos telefonos y la direccion. El bot armo el resumen con "Ailid🥰" -el
+// nombre de su PERFIL de WhatsApp- e ignoro el que ella escribio.
+//
+// Lo intento corregir CUATRO veces:
+//
+//   "A nombre de Nevis Sánchez López"
+//   "Hay donde dice ailid, no es, es Nevis Johana Sánchez López"
+//   "Es a nombre de Nevis Jhoana Sánchez López"
+//   "Pero a nombre de Nevis Johana Sánchez López"
+//
+// Ninguna casaba: la lista solo tenia "soy", "me llamo" y "mi nombre es".
+// "A nombre de" es LA forma de decirlo cuando el pedido va para alguien, y
+// no estaba. Cansada escribio "No" -queriendo decir "no, el nombre esta
+// mal"- y el bot se despidio.
+//
+// Acabo confirmando un pedido de 2 unidades con el nombre equivocado y
+// despues pidiendo que lo cancelaran.
+// ==========================================================================
 const DICE_SU_NOMBRE = [
-  /\b(?:soy|me\s+llamo|mi\s+nombre\s+es)\s+([^,.;\n]{3,60})/iu,
+  /\b(?:soy|me\s+llamo|mi\s+nombre\s+es)\s+([^,.;\n/]{3,60})/iu,
+  // "a nombre de X", "a nombre: X". El marcador del destinatario.
+  /\ba\s+nombre\s+(?:de|del)?\s*:?\s*([^,.;\n/]{3,60})/iu,
+  // "el nombre es X", "el nombre completo es X".
+  /\bel\s+nombre\s+(?:completo\s+)?(?:es|seria|va\s+a\s+nombre\s+de)\s*:?\s*([^,.;\n/]{3,60})/iu,
+  // "es para X", "va para X", "lo recibe X", "quien recibe es X".
+  /\b(?:es|va)\s+para\s+([^,.;\n/]{3,60})/iu,
+  /\b(?:lo\s+|la\s+)?recibe\s*:?\s*([^,.;\n/]{3,60})/iu,
+  /\bdestinatario\s*:?\s*([^,.;\n/]{3,60})/iu,
+  // "no es X, es Y" -> se queda con la Y, que es la correccion.
+  //
+  // Va DESPUES de los marcadores de arriba a proposito: si el mensaje trae
+  // "a nombre de", ese es mas explicito. Esta forma es la de quien corrige
+  // señalando el error, que es como escribio Ailid la segunda vez.
+  // La parte del medio es OPCIONAL: "no es, es Nevis Johana" es literal del
+  // chat de Ailid, y con `{2,40}` obligatorio no casaba.
+  /\bno\s+es\s*[^,.;\n]{0,40},?\s+es\s+([^,.;\n/]{3,60})/iu,
 ];
 
 /**
@@ -150,6 +188,38 @@ const EMPIEZA_OTRA_FRASE = new RegExp(
   String.raw`\s+(?:${NO_ES_NOMBRE.split("|").filter((p) => p !== "de" && p !== "del").join("|")})\s+`,
   "i"
 );
+
+/**
+ * ¿Este texto es SOLO un lugar, y por tanto no puede ser un nombre?
+ *
+ * ⚠️ ESTO ERA `!ciudadEn(limpio).valor` Y SE ROMPIO AL CARGAR LOS 1.037
+ *    MUNICIPIOS DEL DANE. Es la regresion mas cara que produjo la lista
+ *    completa, y conviene que quede escrita.
+ *
+ * El candado existia para que "Medellin" no se guardara como el NOMBRE del
+ * cliente. Con 60 ciudades funcionaba. Con 1.037 resulta que MUCHOS
+ * APELLIDOS COLOMBIANOS SON MUNICIPIOS: Garzón (Huila), Bolívar, Córdoba,
+ * Mosquera, Ospina, Páez… Asi que "Alejandro león Garzón" contenia una
+ * "ciudad" y dejaba de ser un nombre.
+ *
+ * El chat de Popayan -el que se arreglo ayer- volvio a romperse por esto.
+ *
+ * LA REGLA CORRECTA no es "contiene un lugar" sino "es SOLO lugares": si
+ * TODAS las palabras son nombre de municipio o de departamento, el cliente
+ * esta dando su destino; si alguna no lo es, esta dando su nombre.
+ *
+ *   "Popayán Cauca"           -> las dos son lugares  -> no es un nombre
+ *   "Alejandro león Garzón"   -> "alejandro" no lo es -> SI es un nombre
+ */
+function esSoloUnLugar(texto) {
+  const plano = aplanar(texto);
+  if (!plano) return false;
+  const palabras = plano.split(/\s+/).filter(Boolean);
+  if (!palabras.length) return false;
+  // El texto entero es el nombre de un municipio ("San Andres de Sotavento").
+  if (CIUDADES[plano]) return true;
+  return palabras.every((p) => Boolean(CIUDADES[p]) || DEPARTAMENTOS.has(p));
+}
 
 function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
   const crudo = String(textoCrudo ?? "");
@@ -243,9 +313,22 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
     // pasa exactamente las mismas comprobaciones que antes: no se relaja
     // ningun candado, solo se aplican al trozo correcto.
     // ------------------------------------------------------------------
+    // ⚠️ TAMBIEN SE PARTE POR "/", Y COSTO UNA VENTA DE $85.000.
+    //
+    // Chat de Ailid (09-oct). Mando TODO en un mensaje, separado con barras,
+    // que es la otra forma en que la gente contesta cuando le piden varios
+    // datos juntos:
+    //
+    //   "Nevis Johana Sánchez López / 3105177896 / 3235340018 /
+    //    KR 101#29c-07 / Lagos de suba / BOGOTÁ"
+    //
+    // Con solo el salto de linea, el trozo era el mensaje entero: trece
+    // palabras con cifras dentro, falla todos los candados, y el nombre se
+    // perdio. La direccion y la ciudad si se capturaron, porque sus patrones
+    // buscan DENTRO del texto.
     const trozos = [crudo];
-    if (/[\r\n]/.test(crudo)) {
-      for (const linea of crudo.split(/\r?\n/)) {
+    if (/[\r\n/]/.test(crudo)) {
+      for (const linea of crudo.split(/\r?\n|\s*\/\s*/)) {
         if (linea.trim()) trozos.push(linea);
       }
     }
@@ -278,7 +361,7 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
         todasLetras &&
         !algunaProhibida &&
         !VIA.test(plano) &&
-        !ciudadEn(limpio).valor
+        !esSoloUnLugar(limpio)
       ) {
         return { valor: palabras.join(" "), porQue: "contesto al nombre que se le acababa de pedir" };
       }
@@ -293,6 +376,21 @@ const SENAL_CANTIDAD = /\b(quiero|quisiera|dame|deme|mandame|mandeme|enviame|env
 
 /** Señales de que pide UNO. "lo quiero", "me lo llevo", "quiero el ...". */
 const SENAL_SINGULAR = /\b(lo|la)\s+(quiero|compro|llevo|tomo|necesito)\b|\bquiero\s+(el|la|uno|una)\b|\bme\s+lo\s+llevo\b|\bun[oa]?\s+(solo|sola|nada\s+mas)\b/;
+
+/**
+ * "Los 2", "las dos", "los dos" — el ARTICULO delante del numero.
+ *
+ * ⚠️ NO SE RECONOCIA, y es como se acepta el combo despues de oir su precio.
+ *
+ * Chat de Ailid (09-oct): el bot le dijo "si llevas dos, te quedan en
+ * $85.000", ella contesto "Los 2", y la cantidad quedo sin fijar. El pedido
+ * salio de 1 unidad.
+ *
+ * `SENAL_CANTIDAD` exige un verbo ("quiero 2", "dame 2") y aqui no hay
+ * ninguno: el verbo esta implicito porque el bot acababa de preguntar. El
+ * articulo hace el mismo papel que el verbo.
+ */
+const SENAL_CON_ARTICULO = /^\s*(los|las)\s+(\d{1,2}|dos|tres|cuatro)\s*$/;
 
 /** Señales de plural sin numero: "quiero varios". No se adivina cuantos. */
 const SENAL_PLURAL_VAGA = /\b(varios|varias|unos|unas|cuantos|algunos|muchos)\b/;
@@ -383,6 +481,15 @@ function cantidadEn(textoCrudo) {
     Object.keys(NUMEROS_EN_PALABRAS).includes(pelado) ||
     /^\d{1,2}$/.test(pelado);
 
+  // "Los 2" / "las dos": el articulo delante del numero es una cantidad.
+  const conArticulo = pelado.match(SENAL_CON_ARTICULO) || plano.match(SENAL_CON_ARTICULO);
+  if (conArticulo) {
+    const n = NUMEROS_EN_PALABRAS[conArticulo[2]] || Number.parseInt(conArticulo[2], 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 50) {
+      return { valor: n, porQue: `"${String(textoCrudo).trim()}" dice la cantidad con el articulo delante` };
+    }
+  }
+
   if (SENAL_CANTIDAD.test(plano) || esSoloUnNumero) {
     const numeros = cantidadesEn(textoCrudo).filter((n) => n.valor >= 1 && n.valor <= 20);
     if (numeros.length) {
@@ -408,7 +515,29 @@ function cantidadEn(textoCrudo) {
 }
 
 /** Nombres de ciudad conocidos, los mas largos primero para que gane el especifico. */
-const NOMBRES_DE_CIUDAD = Object.keys(CIUDADES_SEMILLA).sort((a, b) => b.length - a.length);
+// ==========================================================================
+// LOS NOMBRES DE CIUDAD, COMPILADOS UNA SOLA VEZ
+//
+// ⚠️ ESTO SE COMPILABA EN CADA LLAMADA, Y LA LISTA PASO DE 60 A 1.037.
+//
+// `ciudadEn` construia un `new RegExp` por cada nombre, en cada llamada. Con
+// la semilla de 60 era invisible; con el listado del DANE serian 1.037
+// expresiones compiladas por llamada, y `ciudadEn` se llama VARIAS VECES por
+// turno: es el guardia de `nombreEn`, de `cantidadEn` y de `direccionEn`.
+//
+// Compilar una vez al cargar el modulo lo deja en una tabla fija. El coste
+// por turno pasa a ser recorrerla, que sobre un mensaje de chat es trivial.
+//
+// Siguen ordenados de mas largo a mas corto para que gane el toponimo
+// especifico: "san andres de sotavento" antes que "san andres".
+// ==========================================================================
+const NOMBRES_DE_CIUDAD = Object.keys(CIUDADES).sort((a, b) => b.length - a.length);
+
+/** Los mismos nombres con su patron ya compilado. Ver el comentario de arriba. */
+const PATRONES_DE_CIUDAD = NOMBRES_DE_CIUDAD.map((nombre) => ({
+  nombre,
+  re: new RegExp(`\\b${nombre.replace(/\s+/g, "\\s+")}\\b`),
+}));
 
 /**
  * Ciudad mencionada en el texto, si se reconoce alguna del listado.
@@ -449,13 +578,45 @@ const NO_ES_CIUDAD_SUELTA =
 const RUIDO_DE_TECLADO =
   /^(s+i+h*s*|n+o+h*|o+k+s*|a+h+|e+h+|u+h+|m+h*m+h*|(ja|je|ji){2,}|y+a+|u+y+)$/;
 
-function ciudadEn(textoCrudo, { seLaPidieron = false } = {}) {
+function ciudadEn(textoCrudo, { seLaPidieron = false, yaHayCiudad = false } = {}) {
   const plano = aplanar(textoCrudo);
   if (!plano) return { valor: null, porQue: "texto vacio" };
 
-  const encontradas = [];
-  for (const nombre of NOMBRES_DE_CIUDAD) {
-    const re = new RegExp(`\\b${nombre.replace(/\s+/g, "\\s+")}\\b`);
+  // ----------------------------------------------------------------------
+  // UN BARRIO NO ES UNA CIUDAD, Y UNA DIRECCION TAMPOCO.
+  //
+  // ⚠️ ESTO LO REPORTO MARCO (punto 12) Y AL CARGAR LOS 1.037 MUNICIPIOS SE
+  //    VOLVIO MUCHO PEOR: una direccion podia CAMBIAR la ciudad ya dada.
+  //
+  // Su caso: el cliente dijo "Medellín" y luego "Barrio bello oriente".
+  // "Bello" es un municipio de Antioquia, asi que el bot le cambio la ciudad
+  // a Bello — y Bello Oriente es un barrio de Medellín (Manrique).
+  //
+  // Y con la lista completa salio otro peor en el chat de Popayan:
+  //
+  //   cliente · "Popayán Cauca"
+  //   cliente · "Barrio pueblillo en la cantera la pintada"
+  //             -> "La Pintada" es un municipio de Antioquia
+  //             -> la ciudad del pedido paso de Popayán a La Pintada
+  //
+  // Eso es un paquete cruzando el pais. La regla de Marco, literal: "si el
+  // texto empieza con «barrio», es un barrio y nunca cambia la ciudad que el
+  // cliente ya dio".
+  //
+  // Se aplica en DOS niveles:
+  //   · si el texto ARRANCA con un marcador de zona, no es una ciudad nunca;
+  //   · y si YA HAY CIUDAD confirmada, un texto que es una direccion no la
+  //     cambia. Para corregir la ciudad se dice la ciudad, no la direccion.
+  // ----------------------------------------------------------------------
+  if (/^\s*(barrio|brr|bario|vereda|vda|corregimiento|sector|manzana|mz|conjunto|urbanizacion|etapa|torre|bloque)\b/.test(plano)) {
+    return { valor: null, porQue: "empieza con un marcador de zona: es un barrio, no una ciudad" };
+  }
+  if (yaHayCiudad && VIA.test(plano)) {
+    return { valor: null, porQue: "el texto es una direccion y ya hay ciudad: una direccion no cambia la ciudad" };
+  }
+
+  let encontradas = [];
+  for (const { nombre, re } of PATRONES_DE_CIUDAD) {
     const m = plano.match(re);
     if (m) encontradas.push({ nombre, posicion: m.index });
   }
@@ -575,10 +736,94 @@ function ciudadEn(textoCrudo, { seLaPidieron = false } = {}) {
 
   // Si se mencionan dos ciudades distintas, NO se elige. "soy de Cali pero
   // mandalo a Medellin" tiene dos, y escoger mal es despachar a otra ciudad.
-  const distintas = new Set(
+  let distintas = new Set(
     encontradas.filter((e) => !encontradas.some((o) => o.nombre !== e.nombre && o.nombre.includes(e.nombre))).map((e) => e.nombre)
   );
+
+  // --------------------------------------------------------------------
+  // "DUITAMA BOYACA" ES UNA CIUDAD Y SU DEPARTAMENTO, NO DOS CIUDADES.
+  //
+  // ⚠️ ESTO APARECIO AL CARGAR LOS 1.037 MUNICIPIOS DEL DANE, y habria
+  //    sido una regresion cara: la forma mas comun de dar la ciudad en
+  //    Colombia es "Ciudad Departamento".
+  //
+  // Ocho nombres de municipio son tambien nombres de departamento -caldas,
+  // nariño, cordoba, boyaca, risaralda, bolivar, sucre, arauca-. Con la
+  // semilla de 60 entradas ninguno estaba; con el listado completo, "Duitama
+  // boyaca" pasaba a verse como DOS ciudades y `ciudadEn` devolvia null por
+  // ambiguo. El cliente escribia su ciudad perfectamente y el bot le volvia
+  // a preguntar — que es justo el bucle que reporto Marco con Orocue.
+  //
+  // Si entre los nombres hay alguno que NO es departamento, ese es la ciudad
+  // y el otro es su departamento. Solo cuando TODOS son nombres de
+  // departamento, o ninguno lo es, se mantiene la ambigüedad.
+  // --------------------------------------------------------------------
   if (distintas.size > 1) {
+    const noSonDepartamento = [...distintas].filter((n) => !DEPARTAMENTOS.has(n));
+    if (noSonDepartamento.length === 1) {
+      distintas = new Set(noSonDepartamento);
+      encontradas = encontradas.filter((e) => e.nombre === noSonDepartamento[0]);
+    }
+  }
+
+  if (distintas.size > 1) {
+    // ------------------------------------------------------------------
+    // ANTES DE RENDIRSE: PROBAR SEGMENTO A SEGMENTO.
+    //
+    // ⚠️ SIN ESTO, EL MENSAJE QUE TRAE TODOS LOS DATOS JUNTOS PIERDE LA
+    //    CIUDAD — y es el mensaje que mas datos aporta de toda la venta.
+    //
+    // Con los 1.037 municipios cargados, esto:
+    //
+    //   "Alejandro león Garzón
+    //    Popayán Cauca
+    //    Barrio pueblillo en la cantera la pintada"
+    //
+    // menciona DOS municipios: Popayán y La Pintada (Antioquia, dentro de la
+    // direccion). El mensaje entero se leia como ambiguo y la ciudad se
+    // perdia, asi que el bot volvia a pedirla a quien acababa de darla.
+    //
+    // La ambigüedad de verdad -"soy de Cali pero mándalo a Medellín"- es
+    // entre DOS CIUDADES DICHAS COMO DESTINO. Un municipio que aparece
+    // dentro de una direccion no es un destino alternativo: es parte de la
+    // direccion.
+    //
+    // Asi que se parte el mensaje y se descartan los segmentos que son
+    // direccion. Si queda UN solo candidato, ese es el destino. Si quedan
+    // dos de verdad, se sigue preguntando.
+    // ------------------------------------------------------------------
+    // La COMA cuenta como separador, y hace falta: "lo quiero, soy Santiago,
+    // Bogotá, Calle 62bis 67-12" es como de verdad escribe la gente cuando
+    // suelta todo de una. Y "Santiago" es municipio de Putumayo, asi que sin
+    // partir por comas ese mensaje tenia dos ciudades y perdia el destino.
+    const segmentos = textoCrudo.split(/\r?\n|\s*[/;,]\s*/).filter((x) => x && x.trim());
+    if (segmentos.length > 1) {
+      const candidatos = new Set();
+      for (const seg of segmentos) {
+        const plan = aplanar(seg);
+        if (!plan) continue;
+        // Los segmentos que son direccion o zona no aportan destino.
+        if (VIA.test(plan)) continue;
+        if (/^\s*(barrio|brr|bario|vereda|vda|corregimiento|sector|manzana|mz|conjunto|urbanizacion)\b/.test(plan)) continue;
+        // ⚠️ Y EL SEGMENTO TIENE QUE SER SOLO LUGARES.
+        //
+        // Sin esto, el segmento del NOMBRE aportaba una ciudad: "Alejandro
+        // león Garzón" contiene Garzón (Huila), asi que seguian habiendo dos
+        // candidatos y la ciudad se perdia igual. Es el mismo problema que
+        // los apellidos que son municipios, visto desde el otro lado.
+        //
+        // "Popayán Cauca" es todo lugares -> aporta destino.
+        // "Alejandro león Garzón" no -> es un nombre, no aporta destino.
+        if (!esSoloUnLugar(seg)) continue;
+        const dentro = ciudadEn(seg, { seLaPidieron: false });
+        if (dentro.valor) candidatos.add(dentro.valor);
+      }
+      if (candidatos.size === 1) {
+        const unica = [...candidatos][0];
+        return { valor: unica, porQue: "ciudad del listado conocido, tomada del segmento que no es direccion" };
+      }
+    }
+
     return { valor: null, porQue: `el mensaje menciona ${distintas.size} ciudades: hay que preguntar` };
   }
 
@@ -676,12 +921,33 @@ function direccionEn(textoCrudo) {
   );
   if (corte > 0) fragmento = fragmento.slice(0, corte).trim();
 
-  // Si al final viene una ciudad del listado, se quita: la ciudad va en su
-  // propio campo y repetirla en la direccion ensucia la guia.
-  const ciudad = ciudadEn(fragmento);
-  if (ciudad.valor) {
-    const re = new RegExp(`[,;]?\\s*${ciudad.valor.replace(/\s+/g, "\\s+")}\\s*$`, "i");
-    fragmento = fragmento.replace(re, "").trim();
+  // ----------------------------------------------------------------------
+  // SI AL FINAL VIENE LA CIUDAD, SE QUITA: va en su propio campo, y
+  // repetirla en la direccion ensucia la guia.
+  //
+  // ⚠️ ESTO SE HACIA CON UN REGEX Y FALLABA POR DOS MOTIVOS A LA VEZ,
+  //    los dos visibles en el chat de Ailid del 09-oct:
+  //
+  //      "KR 101#29c-07 / Lagos de suba / BOGOTÁ"
+  //
+  //    1. el separador era "/" y el patron solo admitia "," o ";";
+  //    2. `ciudad.valor` viene APLANADO ("bogota") y el texto traia
+  //       "BOGOTÁ": la `i` del regex arregla las mayusculas, no las tildes.
+  //
+  //    Resultado: la direccion del pedido incluia la ciudad en mayusculas.
+  //
+  // Ahora se parte por los separadores y se compara el ULTIMO trozo ya
+  // aplanado. Sin regex construido a mano, y funciona con cualquier
+  // separador y con tildes.
+  // ----------------------------------------------------------------------
+  const partes = fragmento.split(/\s*[/,;]\s*/).filter((x) => x.trim());
+  if (partes.length > 1) {
+    const ultima = partes[partes.length - 1];
+    const comoCiudad = ciudadEn(ultima);
+    if (comoCiudad.valor && aplanar(ultima) === comoCiudad.valor) {
+      partes.pop();
+      fragmento = partes.join(" / ").trim();
+    }
   }
 
   fragmento = fragmento.replace(/[,;.\s]+$/, "").trim();
@@ -695,7 +961,7 @@ function direccionEn(textoCrudo) {
  *
  * @returns {{candidatos: object, porQue: object}}
  */
-function deTexto(textoCrudo, { seLoPidieron = false, seLaPidieronCiudad = false } = {}) {
+function deTexto(textoCrudo, { seLoPidieron = false, seLaPidieronCiudad = false, yaHayCiudad = false } = {}) {
   const candidatos = {};
   const porQue = {};
 
@@ -705,7 +971,7 @@ function deTexto(textoCrudo, { seLoPidieron = false, seLaPidieronCiudad = false 
   }
   porQue.cantidad = cantidad.porQue;
 
-  const ciudad = ciudadEn(textoCrudo, { seLaPidieron: seLaPidieronCiudad });
+  const ciudad = ciudadEn(textoCrudo, { seLaPidieron: seLaPidieronCiudad, yaHayCiudad });
   if (ciudad.valor !== null) candidatos.ciudad = ciudad.valor;
   porQue.ciudad = ciudad.porQue;
 

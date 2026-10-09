@@ -459,7 +459,28 @@ describe("5 · la respuesta de respaldo es útil, no un formulario", () => {
 
     assert.equal(/me pasas/.test(r.texto), false, `contestó con un formulario: ${r.texto}`);
     assert.equal(/Cuántos quieres/.test(r.texto), false, `contestó con un formulario: ${r.texto}`);
-    assert.match(r.texto, /persona|equipo/i, `no ofreció resolverla de verdad: ${r.texto}`);
+    // ⚠️ ANTES SE EXIGIA QUE PROMETIERA AL EQUIPO. Marco borro esa respuesta
+    //    el 10-oct: salio SIETE veces en diecinueve conversaciones y en
+    //    ninguna hacia falta una persona.
+    //
+    // Lo que esta prueba dice que vigila -"una duda que el catalogo no cubre
+    // no se contesta con un formulario, y QUEDA ANOTADA"- sigue intacto, y
+    // ahora se comprueba donde de verdad vive: en la bandeja. El cliente, en
+    // vez de esperar a alguien, recibe lo principal y una pregunta.
+    assert.equal(
+      /no te l[ao] quiero (decir|contestar) a medias/i.test(r.texto),
+      false,
+      `volvió la frase que Marco prohibió: ${r.texto}`
+    );
+    assert.match(r.texto, /Buena pregunta/i, `no volvió a la venta: ${r.texto}`);
+    assert.match(r.texto, /\?/, `no dejó nada que contestar: ${r.texto}`);
+    // La conversación se lee del almacén: este arnés no la devuelve.
+    const conv = await c.repos.conversaciones.obtener(CLIENTE);
+    assert.equal(
+      atencion.pendienteDe(conv).hay,
+      true,
+      "la duda no catalogada no quedó anotada para una persona"
+    );
   });
 
   test("y queda registrada para que alguien la conteste", async () => {
@@ -715,7 +736,19 @@ describe("8 · ni despacho hoy, ni respuesta inmediata", () => {
     ];
     for (const t of dichos) {
       assert.equal(/enseguida|en un momento|ya mismo/i.test(t), false, `prometió inmediatez: ${t}`);
-      assert.match(t, /anot|equipo/i, `no dijo que queda para el equipo: ${t}`);
+      // ⚠️ YA NO SE EXIGE QUE MENCIONE AL EQUIPO. Marco borro esa respuesta
+      //    el 10-oct. Lo que esta prueba protege de verdad -que no se
+      //    prometa inmediatez, arriba- sigue igual; y lo que antes se
+      //    comprobaba en el texto (que la duda quede registrada) ahora se
+      //    comprueba en la bandeja, que es donde vive.
+      assert.equal(
+        /no te l[ao]s? quiero (decir|contestar) a medias/i.test(t),
+        false,
+        `volvió la frase que Marco prohibió: ${t}`
+      );
+      // No se exige pregunta en TODAS: la de "cuánto cuestan tres" es una
+      // admisión legítima -no hay precio aprobado para 3- y cerrarla con un
+      // "¿te lo aparto?" sería ofrecer algo que no se puede cotizar.
     }
   });
 

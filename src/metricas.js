@@ -42,6 +42,16 @@ const NOMBRES = [
   "recordatorio_enviado",
   "recordatorio_no_enviado",
 
+  // --- respuestas de reserva y correcciones ---
+  "respuesta_de_reserva",
+  "pregunto_que_dato_esta_mal",
+  "cambio_de_cantidad_propuesto",
+  "cambio_de_cantidad_aplicado",
+  "paso_retomado",
+  "cliente_aplazo",
+  "compra_para_mas_adelante",
+  "panel_cantidad_cambiada",
+
   // --- producto ---
   "producto_identificado",
   "producto_desconocido",

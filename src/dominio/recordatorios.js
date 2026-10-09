@@ -215,7 +215,23 @@ function decidir({
   const mismaSerie = estado.base === new Date(marca).toISOString();
   const enviados = mismaSerie ? Number(estado.enviados) || 0 : 0;
 
-  const umbrales = (Array.isArray(minutos) ? minutos : []).filter((m) => Number.isFinite(m) && m > 0);
+  // --------------------------------------------------------------------
+  // QUIEN DIJO "SERA OTRO DIA" TIENE SU PROPIO PLAZO: 20 HORAS, UNA VEZ.
+  //
+  // Lo pidio Marco en su punto 7. Y el plazo distinto no es un capricho:
+  // a quien aplaza, un recordatorio a los 30 minutos le dice que no se le
+  // escucho. Veinte horas despues es otra conversacion.
+  //
+  // UNA sola vez, y cabe dentro de la ventana de 24 h de WhatsApp — por los
+  // pelos, y por eso son 20 y no 24: si se pasara de la ventana haria falta
+  // una plantilla aprobada, que todavia no existe.
+  // --------------------------------------------------------------------
+  const aplazo = conversacion.aplazadoEn && Date.parse(conversacion.aplazadoEn);
+  const esAplazado = Number.isFinite(aplazo) && aplazo >= marca - 60000;
+
+  const umbrales = esAplazado
+    ? [20 * 60]
+    : (Array.isArray(minutos) ? minutos : []).filter((m) => Number.isFinite(m) && m > 0);
   if (!umbrales.length) return no(MOTIVOS.APAGADO, silencioMin);
   if (enviados >= umbrales.length) return no(MOTIVOS.COMPLETOS, silencioMin);
 

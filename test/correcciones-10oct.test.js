@@ -218,13 +218,23 @@ describe("1 · el «sí» tras la pregunta de cierre no puede entrar en bucle", 
     // "Perdón, creo que no te entendí bien".
     const c = await chat({ nombrePerfil: "Cliente" });
     await c.dice(ANUNCIO);
-    // Una pregunta cualquiera para que el bot cierre con "¿Te lo aparto?".
+    // ⚠️ LA CIUDAD VA PRIMERO, Y NO ES UN DETALLE DE LA PRUEBA.
+    //
+    // Desde el 10-oct (punto 9 de Marco) el bot NO ofrece apartar nada a
+    // quien todavía no ha dicho su ciudad: pregunta la ciudad, porque
+    // apartar algo sin saber a dónde va es un paso en falso. Así que para
+    // que haya pregunta de cierre, primero hay que tener la ciudad.
+    await c.dice("Bogotá");
     const conCierre = await c.dice("Cómo funciona");
     assert.equal(responder.prometeCierre(conCierre.texto), true, `el bot no cerró: ${conCierre.texto}`);
 
     const r = await c.dice("Si");
     assert.equal(PROHIBIDAS.test(r.texto), false, `frase prohibida: ${r.texto}`);
-    assert.match(r.texto, /me pasas|ciudad/i, `no avanzó tras el sí: ${r.texto}`);
+    // Avanzar es pedir lo que falta, con las palabras que toquen: "me pasas
+    // la dirección" la primera vez y "dime el barrio… o un punto de
+    // referencia" la segunda, que es la reformulación que existe para no
+    // repetir la misma petición.
+    assert.match(r.texto, /me pasas|barrio|dirección|referencia/i, `no avanzó tras el sí: ${r.texto}`);
   });
 });
 
@@ -401,12 +411,24 @@ describe("6 · Bogotá son 1 a 2 días hábiles; el resto del país, 1 a 3", () 
 // 7 · LA CIUDAD QUE NO ESTA EN EL LISTADO
 // ==========================================================================
 describe("7 · una ciudad fuera del listado se acepta, no se ignora", () => {
-  test("Guacamayal se acepta marcada para revisar", () => {
+  test("Ciénaga ya se resuelve sola, y Guacamayal queda marcado", () => {
+    // ⚠️ ESTA PRUEBA CAMBIO EL 2026-10-10 PORQUE MEJORO EL COMPORTAMIENTO.
+    //
+    // Afirmaba que "Ciénaga guacamayal" se aceptaba MARCADA para revision,
+    // que era lo mejor que se podia hacer con una lista de 60 ciudades.
+    // Ahora Ciénaga (Magdalena) esta en el listado del DANE y se resuelve
+    // sola, sin pasar por una persona.
     const r = extraer.ciudadEn("Ciénaga guacamayal", { seLaPidieron: true });
-    assert.ok(r.valor, "no propuso ninguna ciudad");
+    assert.equal(r.valor, "cienaga", "no reconoció el municipio");
     const v = destino.resolverCiudad(r.valor);
     assert.equal(v.ok, true);
-    assert.equal(v.revisar, true, "una ciudad desconocida tiene que quedar marcada antes de despachar");
+    assert.equal(v.revisar, false, "Ciénaga está en el listado: no debería hacer falta revisarla");
+
+    // Y lo que SIGUE necesitando revision humana es lo que no es municipio:
+    // Guacamayal es un corregimiento de Zona Bananera.
+    const suelto = destino.resolverCiudad("guacamayal");
+    assert.equal(suelto.ok, true, "un corregimiento no se rechaza");
+    assert.equal(suelto.revisar, true, "un corregimiento tiene que revisarse antes de despachar");
   });
 
   test("y lo que no es una ciudad sigue rechazándose", () => {
@@ -430,11 +452,12 @@ describe("7 · una ciudad fuera del listado se acepta, no se ignora", () => {
     }
   });
 
-  test("sin que se la hayan pedido, nada cambia", () => {
-    // El contexto es lo que da el permiso: sin el, una palabra suelta no es
-    // una ciudad.
-    assert.equal(extraer.ciudadEn("Ciénaga guacamayal").valor, null);
+  test("sin que se la hayan pedido, un lugar desconocido no se propone", () => {
+    // El contexto es lo que da el permiso para aceptar lo que NO está en el
+    // listado. Lo que sí está se reconoce siempre.
+    assert.equal(extraer.ciudadEn("Guacamayal").valor, null, "un corregimiento sin contexto no se propone");
     assert.equal(extraer.ciudadEn("Bogotá").valor, "bogota");
+    assert.equal(extraer.ciudadEn("Ciénaga").valor, "cienaga", "un municipio del DANE sí, siempre");
   });
 
   test("el chat de Guacamayal sigue a la pedida de datos", async () => {
@@ -678,6 +701,12 @@ describe("12 · `cierrePropuesto` persiste en el almacén de producción", () =>
   test("y sobrevive de un turno al siguiente", async () => {
     const c = await chat({ nombrePerfil: "Cliente" });
     await c.dice(ANUNCIO);
+    // La ciudad primero: sin ella el bot pregunta la ciudad en vez de cerrar
+    // (punto 9 de Marco, 10-oct).
+    const sinCierre = await c.dice("Bogotá");
+    assert.equal(responder.prometeCierre(sinCierre.texto), false, `cerró donde no debía: ${sinCierre.texto}`);
+    assert.equal(sinCierre.conversacion.cierrePropuesto, false, "la bandera se puso sin pregunta de cierre");
+
     const conCierre = await c.dice("Cómo funciona");
     assert.equal(responder.prometeCierre(conCierre.texto), true, `el bot no cerró: ${conCierre.texto}`);
     assert.equal(
@@ -685,11 +714,5 @@ describe("12 · `cierrePropuesto` persiste en el almacén de producción", () =>
       true,
       "el bot hizo una pregunta de cierre y no lo recordó"
     );
-
-    // Y baja cuando el último mensaje ya no cierra: si no, un "ok" de hace
-    // diez mensajes seguiría contando como un sí.
-    const sinCierre = await c.dice("Bogotá");
-    assert.equal(responder.prometeCierre(sinCierre.texto), false, `cerró donde no debía: ${sinCierre.texto}`);
-    assert.equal(sinCierre.conversacion.cierrePropuesto, false, "la bandera se quedó puesta sin pregunta de cierre");
   });
 });

@@ -170,7 +170,7 @@ function declaradoSinConfirmar(producto, re) {
  * dice -para no darte un dato equivocado-, que es la diferencia entre sonar
  * desinformado y sonar cuidadoso.
  */
-function loConfirmo(que, pronombre = "lo") {
+function loConfirmo(que, pronombre = "lo", producto = null, cotizacion = null) {
   // El pronombre va explicito porque el castellano concuerda: "la garantía te
   // LA confirmo", no "te lo confirmo". Sin esto salia "La garantía te lo
   // confirmo", que es exactamente el tipo de error que hace sonar a maquina.
@@ -207,10 +207,104 @@ function loConfirmo(que, pronombre = "lo") {
   // los dos admiten que no lo saben, pero uno deja al cliente parado y el
   // otro le deja algo que hacer. Admitir un hueco no obliga a soltar la
   // conversacion.
-  return (
-    `${enMinuscula} no te ${pronombre} quiero decir a medias: lo confirmo con el equipo ` +
-    `y te cuento. Mientras tanto, si quieres te lo voy dejando apartado.`
-  );
+  // ----------------------------------------------------------------------
+  // ⚠️ ESTA RESPUESTA SE BORRO EL 2026-10-10, Y LA BORRO MARCO.
+  //
+  // Decia: "no te lo quiero decir a medias: lo confirmo con el equipo y te
+  // cuento". Honesta, bien intencionada, y SALIO SIETE VECES en diecinueve
+  // conversaciones. Entre ellas:
+  //
+  //   "Y si lo pido hoy cuándo me está llegando"   <- el plazo SI se sabe
+  //   "Como se llama eso"                          <- el nombre SI se sabe
+  //   "Funciona también con frío"                  <- se sabe que no
+  //   "Pero que sea cierto"                        <- era una objecion de
+  //   "Porque en otras páginas he pedido y no      <- confianza, el momento
+  //    llega nada"                                    de dar seguridad
+  //
+  // Ninguna necesitaba al equipo. El problema de fondo no era la honestidad
+  // del texto: era que admitir el hueco se habia convertido en la salida por
+  // defecto, y cada vez que salia la conversacion se paraba.
+  //
+  // AHORA SE VUELVE A LA VENTA con lo que SI se sabe, que es lo que pidio
+  // Marco palabra por palabra. Los datos salen del catalogo, no del texto:
+  // si el precio cambia, esta frase cambia con el.
+  //
+  // ⚠️ Y LO QUE SE CAMBIA ES LA FRASE, NO EL MECANISMO.
+  //
+  // La primera version de este arreglo devolvia aqui la RESERVA DE VENTA
+  // -"te cuento lo principal: $49.900, pagas al recibir..."- y estaba mal
+  // por dos motivos que saltaron en las pruebas:
+  //
+  //   · `loConfirmo` se llama para VEINTICUATRO huecos distintos, y muchos
+  //     salen DETRAS de la linea comercial. El mensaje acababa diciendo el
+  //     precio dos veces en dos frases seguidas.
+  //   · a una pregunta de PRECIO sin cotizacion le contestaba "pagas al
+  //     recibir y llega en 1 a 3 días"… sin decir el precio. Evasiva, y
+  //     justo en el dato que se pregunto.
+  //
+  // La reserva de venta es la respuesta correcta para una pregunta QUE NO SE
+  // ENTENDIO (eso vive en `responder.js`). Para un dato concreto que falta,
+  // lo honesto sigue siendo nombrarlo y decir que se confirma — sin la
+  // frase que Marco prohibio y sin dejar al cliente parado, porque quien
+  // compone el mensaje le añade el cierre detras.
+  // ----------------------------------------------------------------------
+  return `${enMinuscula} te ${pronombre} confirmo con el equipo para no darte un dato equivocado.`;
+}
+
+/**
+ * La respuesta de reserva: lo principal, y de vuelta a la venta.
+ *
+ * Se usa cuando no hay dato en el catalogo para lo que preguntaron. Dice las
+ * tres cosas que mueven la decision -precio, contraentrega y plazo- y cierra
+ * con la pregunta mas facil de contestar.
+ */
+function reservaDeVenta(producto, cotizacion, { yaDijoElPrecio = false } = {}) {
+  const piezas = [];
+
+  // El precio solo si el mensaje no lo ha dicho ya. Esta frase sale muchas
+  // veces detras de la linea comercial, y repetir la cifra en dos frases
+  // seguidas es lo que mas delata un mensaje armado por partes.
+  if (!yaDijoElPrecio) {
+    const total = cotizacion && cotizacion.total;
+    if (total) piezas.push(`${pesos(total)} con envío incluido`);
+    else {
+      const base = producto && producto.precio && producto.precio.unidad;
+      if (base) piezas.push(`${pesos(base)} con envío incluido`);
+    }
+  }
+
+  // Ni el contraentrega: la linea comercial ya lo dice, y repetirlo en la
+  // frase siguiente es el mismo defecto que el precio repetido.
+  if (!yaDijoElPrecio && pagaAlRecibir(producto, cotizacion)) piezas.push("pagas al recibir");
+
+  const plazo = plazoDeEntrega(producto, null);
+  if (plazo && plazo.texto) piezas.push(`llega en ${plazo.texto}`);
+
+  // Sin ningun dato del catalogo no se rellena con adjetivos: se pregunta.
+  if (!piezas.length) {
+    return "Buena pregunta 🙌 Cuéntame para qué ciudad sería y te confirmo todo con calma.";
+  }
+
+  return `Buena pregunta 🙌 Te cuento lo principal: ${piezas.join(", ")}. ¿Para qué ciudad sería?`;
+}
+
+/**
+ * ¿Este texto es la respuesta de reserva?
+ *
+ * El cerebro la usa para abrir la nota interna: alguien pregunto algo que el
+ * catalogo no cubre, y eso hay que saberlo aunque el bot no se haya parado.
+ *
+ * Se detecta sobre el texto por el mismo motivo que `prometeConfirmar`: una
+ * bandera que cada rama tiene que acordarse de devolver falla en silencio el
+ * dia que alguien añade una rama nueva.
+ */
+// Sin ancla `^` a proposito: la reserva sale DENTRO de un mensaje compuesto,
+// normalmente detras de una apertura ("Claro que sí, ..."), asi que anclarla
+// al principio hacia que la nota interna no se abriera nunca. Lo cazo una
+// prueba que comprueba justo eso.
+const ES_RESERVA = /Buena pregunta 🙌 (Te cuento lo principal|Cuéntame para qué ciudad)/;
+function esReservaDeVenta(texto) {
+  return ES_RESERVA.test(String(texto || "").trim());
 }
 
 /**
@@ -285,7 +379,7 @@ function deTema(
       // necesita cotizacion. Lo que necesita cotizacion es el IMPORTE.
       if (envioVaIncluido(producto, cotizacion)) return "el envío va incluido, no pagas nada aparte.";
       if (cotizacion && cotizacion.envio > 0) return `El envío a tu ciudad son ${pesos(cotizacion.envio)}.`;
-      return loConfirmo("El envío", "lo");
+      return loConfirmo("El envío", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -308,7 +402,7 @@ function deTema(
       if (producto && producto.pago && producto.pago.etiqueta) return String(producto.pago.etiqueta);
       // Preguntar por Nequi o transferencia cuando el metodo es contraentrega
       // es frecuente, y la respuesta honesta es que eso lo confirma alguien.
-      return loConfirmo("La forma de pago", "la");
+      return loConfirmo("La forma de pago", "la", producto, cotizacion);
     }
 
     case TEMAS.COLOR: {
@@ -317,13 +411,13 @@ function deTema(
       // "Sí, Viene únicamente...", con mayuscula en medio de la frase.
       const dato = caracteristica(producto, /color|rosad|negr|blanc|azul/);
       if (dato) return `${dato}.`;
-      return loConfirmo("Los colores disponibles", "los");
+      return loConfirmo("Los colores disponibles", "los", producto, cotizacion);
     }
 
     case TEMAS.TALLA: {
       const dato = caracteristica(producto, /talla/);
       if (dato) return `${dato}.`;
-      return loConfirmo("Las tallas", "las");
+      return loConfirmo("Las tallas", "las", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -386,7 +480,7 @@ function deTema(
     // ----------------------------------------------------------------------
     case TEMAS.GARANTIA: {
       const plazo = producto && producto.garantia;
-      if (!plazo) return loConfirmo("La garantía", "la");
+      if (!plazo) return loConfirmo("La garantía", "la", producto, cotizacion);
       const cubre = producto.garantiaCubre;
       // El plazo y QUE cubre. Las exclusiones no van aqui: ver la nota del
       // catalogo. Abrir con "no cubre si lo mojas" enfria una venta que iba
@@ -418,7 +512,7 @@ function deTema(
     // ----------------------------------------------------------------------
     case TEMAS.GARANTIA_TRAMITE: {
       const plazo = producto && producto.garantia;
-      if (!plazo) return loConfirmo("La garantía", "la");
+      if (!plazo) return loConfirmo("La garantía", "la", producto, cotizacion);
 
       const partes = [];
       const cubre = producto.garantiaCubre;
@@ -458,7 +552,7 @@ function deTema(
       // del cerebro; si todavia no la sabemos, sale el rango general con su
       // matiz, que es lo honesto.
       const t = plazoDeEntrega(producto, ciudadConfirmada);
-      if (!t || !t.texto) return loConfirmo("El tiempo de entrega", "lo");
+      if (!t || !t.texto) return loConfirmo("El tiempo de entrega", "lo", producto, cotizacion);
       // ANTES: "La transportadora normalmente entrega en 1 a 3 días hábiles
       // según la ciudad." Correcto y escrito como un aviso legal: hablaba de
       // la transportadora en tercera persona cuando la clienta pregunta por
@@ -477,7 +571,7 @@ function deTema(
       if (producto && producto.material && producto.material.texto) return producto.material.texto;
       const dato = caracteristica(producto, /material|tela|cuero/);
       if (dato) return `${dato}.`;
-      return loConfirmo("El material", "lo");
+      return loConfirmo("El material", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -522,6 +616,86 @@ function deTema(
     // La segunda vez se contesta con OTRAS PALABRAS, no con el mismo
     // parrafo, porque repetir literal es la marca mas reconocible de un bot.
     // ----------------------------------------------------------------------
+    // ----------------------------------------------------------------------
+    // "¿COMO SE LLAMA ESO?" — la pregunta mas facil que existe, y se
+    // contestaba con "no te la quiero contestar a medias".
+    // ----------------------------------------------------------------------
+    case TEMAS.NOMBRE_DEL_PRODUCTO: {
+      const n = (producto && (producto.nombre || producto.nombreCorto)) || null;
+      if (!n) return loConfirmo("Cómo se llama", "lo", producto, cotizacion);
+      const paraQue = producto && producto.paraQueSirve && producto.paraQueSirve.texto;
+      // Y detras PARA QUE SIRVE, porque quien pregunta el nombre lo que
+      // quiere es saber que es. El nombre solo no le dice nada.
+      const resumen = paraQue
+        ? " Da calor y masaje en la parte baja del abdomen."
+        : "";
+      return `es el ${n} 💗${resumen}`;
+    }
+
+    // ----------------------------------------------------------------------
+    // "¿FUNCIONA CON FRIO?" — SE SABE QUE NO, Y DECIRLO ES LA RESPUESTA.
+    //
+    // Salio "a medias" el 09-oct. La ficha declara calor y masaje, y nada de
+    // frio: eso es un NO, no un hueco. Decir "no lo sé" deja al cliente
+    // creyendo que a lo mejor sí, y es una devolucion esperando.
+    // ----------------------------------------------------------------------
+    case TEMAS.FRIO: {
+      const t = producto && producto.temperatura;
+      const niveles = t && Array.isArray(t.niveles) && t.niveles.length ? ` (${t.niveles.length} niveles)` : "";
+      const m = producto && producto.masaje;
+      const conMasaje = m && m.modos ? " y masaje" : "";
+      return `solo da calor 🔥${niveles}${conMasaje}. No tiene función de frío.`;
+    }
+
+    // ----------------------------------------------------------------------
+    // "SERIA PARA FIN DE MES" — no es un no, es un sí con fecha.
+    //
+    // ⚠️ OJO CON LO QUE SE PROMETE AQUI. Marco pidio "te escribo unos dias
+    //    antes para confirmar", y eso el bot NO lo puede hacer solo: pasada
+    //    la ventana de 24 h de WhatsApp hace falta una plantilla aprobada, y
+    //    todavia no hay ninguna.
+    //
+    // Asi que la frase dice que lo dejamos anotado -que es verdad: se abre la
+    // tarea en la bandeja- y NO promete quien escribe ni cuando. Cuando la
+    // plantilla exista, esta respuesta puede prometer el recordatorio.
+    // ----------------------------------------------------------------------
+    case TEMAS.PARA_DESPUES:
+      return (
+        "¡claro que sí! Te lo podemos despachar cuando me digas 😊 " +
+        "Te lo dejo anotado con tu fecha y lo tenemos listo para cuando lo necesites."
+      );
+
+    // ----------------------------------------------------------------------
+    // "SOY MENOR DE EDAD" — ni se rechaza ni se ignora.
+    //
+    // El 09-oct el bot lo IGNORO y siguio pidiendo la direccion. El dato
+    // importa porque el pago es contraentrega: alguien mayor tiene que
+    // recibir y pagar. El texto es el que escribio Marco.
+    // ----------------------------------------------------------------------
+    case TEMAS.MENOR_DE_EDAD:
+      return (
+        "¡claro! Solo necesitamos que una persona mayor de edad lo reciba y lo pague cuando llegue 😊 " +
+        "¿A nombre de quién lo dejamos?"
+      );
+
+    // ----------------------------------------------------------------------
+    // "SERA OTRO DIA" — se le deja la puerta abierta y NO se le insiste.
+    //
+    // edgar, 09-oct: recibio "¿Te lo aparto, o quieres que te cuente algo
+    // más...?" — la misma pregunta que acababa de aplazar. Quien dice "otro
+    // día" no quiere una pregunta mas: quiere poder volver sin incomodidad.
+    //
+    // ⚠️ ESTA RESPUESTA NO TERMINA EN PREGUNTA, Y ES DELIBERADO. Es la unica
+    //    del catalogo que no empuja, porque empujar aqui es justo el error.
+    // ----------------------------------------------------------------------
+    case TEMAS.OTRO_DIA: {
+      const partes = ["¡sin problema! Cuando quieras me escribes y te lo dejo listo 😊"];
+      if (pagaAlRecibir(producto, cotizacion)) {
+        partes.push("Aquí seguimos, y recuerda que pagas solo cuando te llegue.");
+      }
+      return partes.join(" ");
+    }
+
     case TEMAS.COMO_SE_USA: {
       const u = producto && producto.comoSeUsa;
       if (u && u.texto) {
@@ -547,7 +721,7 @@ function deTema(
       }
       if (m && m.modos) piezas.push(`${m.modos} modos de masaje`);
       if (e && e.recargable) piezas.push("y es recargable, así que no va conectado mientras lo usas");
-      if (!piezas.length) return loConfirmo("Cómo funciona", "lo");
+      if (!piezas.length) return loConfirmo("Cómo funciona", "lo", producto, cotizacion);
       return `${piezas.join(", ").replace(/^(\w)/, (c) => c.toUpperCase())}.`;
     }
 
@@ -574,7 +748,7 @@ function deTema(
       }
 
       const descripcion = producto && producto.descripcionAutorizada;
-      if (!descripcion) return loConfirmo("Para qué sirve", "lo");
+      if (!descripcion) return loConfirmo("Para qué sirve", "lo", producto, cotizacion);
 
       const partes = [String(descripcion)];
       if (producto && (producto.imagenes || []).length && !fotosYaEnviadas) {
@@ -807,7 +981,7 @@ function deTema(
       // Sin condiciones y sin pareja no queda argumento honesto que dar, y
       // un "esta muy caro" sin respuesta es una venta perdida en silencio.
       // Se admite y se pasa a una persona, que es el final de la escalera.
-      return loConfirmo("Un precio especial", "lo");
+      return loConfirmo("Un precio especial", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -842,7 +1016,7 @@ function deTema(
       // cable es si va a quedar amarrada a un enchufe.
       const e = producto && producto.energia;
       if (e && e.texto) return e.texto;
-      return loConfirmo("Si funciona con batería o enchufado", "lo");
+      return loConfirmo("Si funciona con batería o enchufado", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -851,7 +1025,7 @@ function deTema(
     case TEMAS.MASAJE: {
       const m = producto && producto.masaje;
       if (m && m.texto) return m.texto;
-      return loConfirmo("Si tiene masaje", "lo");
+      return loConfirmo("Si tiene masaje", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -863,7 +1037,7 @@ function deTema(
     case TEMAS.ESPALDA: {
       const z = producto && producto.zonasDeUso;
       if (z && z.texto) return `¡sí! ${z.texto}`;
-      return loConfirmo("Si sirve para la espalda", "lo");
+      return loConfirmo("Si sirve para la espalda", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -872,7 +1046,7 @@ function deTema(
     case TEMAS.RUIDO: {
       const m = producto && producto.masaje;
       if (m && m.ruido) return m.ruido.charAt(0).toLowerCase() + m.ruido.slice(1);
-      return loConfirmo("Si hace ruido", "lo");
+      return loConfirmo("Si hace ruido", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -881,7 +1055,7 @@ function deTema(
     case TEMAS.DISCRECION: {
       const z = producto && producto.zonasDeUso;
       if (z && z.discrecion) return z.discrecion.charAt(0).toLowerCase() + z.discrecion.slice(1);
-      return loConfirmo("Si se nota debajo de la ropa", "lo");
+      return loConfirmo("Si se nota debajo de la ropa", "lo", producto, cotizacion);
     }
 
     case TEMAS.FOTOS:
@@ -939,7 +1113,7 @@ function deTema(
           "Por fuera lo pasas con un paño apenas húmedo y listo."
         );
       }
-      return loConfirmo("Cómo se limpia", "lo");
+      return loConfirmo("Cómo se limpia", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -970,7 +1144,7 @@ function deTema(
         const tienePanel = caracteristica(producto, /panel\s+de\s+control/i);
         return tienePanel
           ? "lleva panel de control, así que lo regulas y lo apagas cuando quieras."
-          : loConfirmo("Cuánto tiempo se puede usar", "lo");
+          : loConfirmo("Cuánto tiempo se puede usar", "lo", producto, cotizacion);
       }
       return partes.join(" ");
     }
@@ -1025,7 +1199,7 @@ function deTema(
         if (t.recomendacion) partes.push(t.recomendacion);
         return partes.join(" ");
       }
-      return loConfirmo("A cuántos grados llega", "lo");
+      return loConfirmo("A cuántos grados llega", "lo", producto, cotizacion);
     }
 
     // ----------------------------------------------------------------------
@@ -1071,11 +1245,11 @@ function deTema(
         return `viene en su caja con ${lista}. Por eso queda divino para regalo 🎁`;
       }
       const conEmpaque = caracteristica(producto, /empaque/i);
-      if (!conEmpaque) return loConfirmo("Qué trae el paquete", "lo");
-      return (
-        "se entrega con su empaque. Qué trae exactamente dentro no te lo quiero decir a medias: " +
-        "lo confirmo con el equipo y te cuento. Y como va en su empaque, sirve de regalo."
-      );
+      if (!conEmpaque) return loConfirmo("Qué trae el paquete", "lo", producto, cotizacion);
+      // Sin "a medias": el catalogo SI dice que va en su empaque y que sirve
+      // de regalo. Eso es una respuesta, no un hueco. Lo que no se sabe es
+      // el contenido exacto, y para eso no hace falta parar la conversacion.
+      return "se entrega en su empaque, así que sirve para regalo 🎁 El detalle de lo que trae dentro te lo confirmo con el equipo.";
     }
 
     // ----------------------------------------------------------------------
@@ -1198,7 +1372,7 @@ function deTema(
     // tema ENVIO, que contesta otra cosa.
     // ----------------------------------------------------------------------
     case TEMAS.COBERTURA: {
-      if (!envioVaIncluido(producto, cotizacion)) return loConfirmo("La cobertura", "la");
+      if (!envioVaIncluido(producto, cotizacion)) return loConfirmo("La cobertura", "la", producto, cotizacion);
       return "sí llega, enviamos a todo el país y el envío va incluido: no pagas nada aparte por la zona.";
     }
 
@@ -1327,7 +1501,7 @@ function deTema(
       // Sin `pruebaDeSieteDias` en la ficha no se inventa: se admite. Pasa
       // si algun dia se desactiva la promocion y el anuncio sigue vivo.
       if (!partes.length) {
-        return loConfirmo("Lo de la devolución del dinero", "lo");
+        return loConfirmo("Lo de la devolución del dinero", "lo", producto, cotizacion);
       }
       return partes.join(" ");
     }
@@ -1359,7 +1533,7 @@ function deTema(
       // 7 dias o un mes para lo mismo.
       if (plazo && cubre) partes.push(`Y aparte, si llega con ${cubre}, tienes ${plazo} de garantía y te lo cambiamos.`);
       else if (plazo) partes.push(`Y aparte te va con ${plazo} de garantía.`);
-      if (!partes.length) return loConfirmo("Qué pasa si no te funciona", "lo");
+      if (!partes.length) return loConfirmo("Qué pasa si no te funciona", "lo", producto, cotizacion);
       return partes.join(" ");
     }
 
@@ -1463,6 +1637,9 @@ module.exports = {
   pesos,
   comoSeLlama,
   loConfirmo,
+  reservaDeVenta,
+  esReservaDeVenta,
+  ES_RESERVA,
   prometeConfirmar,
   PROMETE_CONFIRMAR,
   ofertaDeDos,

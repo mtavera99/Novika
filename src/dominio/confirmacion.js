@@ -50,6 +50,21 @@ const CANCELACION_INEQUIVOCA = [
   /\bdevuelv(an|anlo|elo)\b/,
   /\bno\s+lo\s+voy\s+a\s+recibir\b/,
   /\bmejor\s+(ya\s+)?no\s+(lo|la)\s+(quiero|mande|manden)\b/,
+  // ⚠️ LAS CUATRO QUE MARCO ENUMERO EL 10-OCT, literalmente: "solo cancelar
+  //    si el cliente dice explicitamente «no lo quiero», «cancelalo», «ya no
+  //    me interesa» o «no gracias»".
+  //
+  // "no lo quiero" ya estaba, pero exigiendo un "ya" o un "mas" detras, asi
+  // que la forma mas directa de decirlo se quedaba fuera.
+  /\bno\s+(lo|la|los|las)\s+quiero\b/,
+  /\bya\s+no\s+me\s+interesa\b/,
+  /\bno\s+me\s+interesa\s+(ya|mas|nada)\b/,
+  /\bno\s+(muchas\s+)?gracias\b/,
+  // "no confirmo" / "no lo confirmo": es un rechazo EXPLICITO del resumen,
+  // no un "algo esta mal". Se queda como cancelacion a proposito, y la
+  // diferencia con el "No" pelado es justo la que Marco describio: una cosa
+  // es decir que no confirmas, y otra que el bot ADIVINE que no querias.
+  /\bno\s+(lo\s+)?confirm(o|amos)\b/,
 ];
 
 /** Clases de respuesta del cliente. */
@@ -92,7 +107,9 @@ const CLASES = {
 const NEGACIONES = [
   // "no" PELADO, con o sin signos. Esto es lo unico que `^no\b` deberia
   // haber sido.
-  /^no[\s!.,¡¿?]*$/,
+  // `no+` y no `no`: "nooo" y "nooooo" son como se escribe desde el movil, y
+  // con la forma estricta caian en AMBIGUO -> escalado.
+  /^no+[\s!.,¡¿?]*$/,
   // Cortesia al declinar: "no gracias", "no, muchas gracias".
   /^no\s+(muchas\s+)?gracias\b/,
   /\bno\s+(muchas\s+)?gracias\b/,
@@ -188,6 +205,13 @@ const CORRECCIONES = [
   /\bno\s+es\s+(ese|esa|asi)\b/,
   /\bera\s+(otro|otra|a)\b/,
   /\bactualiz(a|ame|ar)\b/,
+  // "el nombre esta mal", "la direccion esta mal", "esta mal el telefono".
+  // Es como se señala el error delante de un resumen, y caia en AMBIGUO ->
+  // escalado. Chat de Ailid, 09-oct.
+  /\best(a|an)\s+mal\b/,
+  /\bmal\s+(el|la|mi)\s+(nombre|direccion|telefono|numero|ciudad|barrio)\b/,
+  /\bno\s+es\s+(ese|esa|asi|mi)\b/,
+  /\b(ese|esa)\s+no\s+es\s+(mi|el|la)\b/,
 ];
 
 // --- 5. Acuses sin valor transaccional. ---
@@ -456,8 +480,37 @@ function evaluar({ texto, estado, resumenMostrado = false }) {
   }
 
   if (estado === ESTADOS.MODIFICANDO) {
-    if (c.clase === CLASES.NO) return { ...base, accion: ACCIONES.CANCELAR, motivo: "cancela durante una modificacion" };
+    // ------------------------------------------------------------------
+    // ⚠️ UN "SI" PELADO AQUI TAMBIEN CONFIRMA. Añadido el 10-oct.
+    //
+    // Solo la clase SI -que exige una afirmacion inequivoca tipo "confirmo"
+    // o "de una"- entraba por CONFIRMAR. Un "Si" a secas es clase ACUSE, asi
+    // que caia en el `return` de abajo y se quedaba "modificando" para
+    // siempre.
+    //
+    // Y es justo lo que contesta la gente: el bot pregunta "¿Confirmo así?"
+    // y el cliente escribe "Si". Chat de ANDRE (09-oct): pidio cambiar a 2
+    // unidades, el bot le propuso el cambio, dijo "Si"… y el pedido se quedo
+    // en 1 unidad y $49.900.
+    //
+    // Es la misma regla que ya rige en `pendiente_confirmacion`, y aqui es
+    // igual de segura: hay una propuesta concreta en pantalla -cantidad y
+    // total nuevos- que el cliente acaba de leer.
+    // ------------------------------------------------------------------
+    if (c.clase === CLASES.NO) {
+      // Un "no" durante una modificacion NO cancela el pedido: rechaza EL
+      // CAMBIO. Cancelar exige intencion inequivoca, igual que sobre un
+      // pedido confirmado — es el mismo razonamiento del "No" junto al
+      // resumen que costo la venta de Ailid.
+      if (coincide(vistas(texto).plano, CANCELACION_INEQUIVOCA)) {
+        return { ...base, accion: ACCIONES.CANCELAR, motivo: "cancela durante una modificacion, sin ambigüedad" };
+      }
+      return { ...base, accion: ACCIONES.CORREGIR, motivo: "rechaza el cambio propuesto, no el pedido" };
+    }
     if (c.clase === CLASES.SI) return { ...base, accion: ACCIONES.CONFIRMAR, motivo: "confirma la modificacion" };
+    if (esAfirmacionDeCierre(texto)) {
+      return { ...base, accion: ACCIONES.CONFIRMAR, motivo: "dijo que si al cambio propuesto" };
+    }
     return { ...base, accion: ACCIONES.CORREGIR, motivo: "sigue modificando" };
   }
 
@@ -470,7 +523,42 @@ function evaluar({ texto, estado, resumenMostrado = false }) {
       // es guardar un pedido que el cliente nunca vio.
       return { ...base, accion: ACCIONES.ESCALAR, motivo: "estado pendiente sin resumen mostrado al cliente" };
     }
-    if (c.clase === CLASES.NO) return { ...base, accion: ACCIONES.CANCELAR, motivo: "rechaza el resumen" };
+    // ------------------------------------------------------------------
+    // ⚠️ UN "NO" JUNTO AL RESUMEN NO ES UNA CANCELACION. ES "ALGO ESTA MAL".
+    //
+    // Esto devolvia CANCELAR y costo una venta de $85.000 el 09-oct.
+    //
+    // Chat de Ailid. El resumen salia con el nombre de su perfil de WhatsApp
+    // en vez del que ella habia escrito. Lo intento corregir cuatro veces,
+    // el bot le repitio el mismo resumen, y cansada escribio:
+    //
+    //   clienta · "No"            (queriendo decir: no, el nombre esta mal)
+    //   bot     · "Tranquila, sin problema. Si más adelante lo quieres..."
+    //
+    // Se despidio de una clienta que tenia el pedido armado, la direccion
+    // puesta y el combo de dos unidades aceptado. Ella insistio -"Necesito
+    // el producto"- y acabo confirmando con el nombre equivocado.
+    //
+    // LA ASIMETRIA ES EL ARGUMENTO: delante de un resumen, "no" casi nunca
+    // significa "no lo quiero". Significa "ese dato esta mal", que es la
+    // frase de alguien que SIGUE comprando. Equivocarse hacia "pregunto que
+    // esta mal" cuesta un mensaje; equivocarse hacia "cancelar" cuesta la
+    // venta — y es el mismo razonamiento que ya protege un pedido ya
+    // confirmado unas lineas mas arriba.
+    //
+    // Se cancela solo con intencion inequivoca: "no lo quiero", "cancelalo",
+    // "ya no me interesa", "no gracias".
+    // ------------------------------------------------------------------
+    if (c.clase === CLASES.NO) {
+      if (coincide(vistas(texto).plano, CANCELACION_INEQUIVOCA)) {
+        return { ...base, accion: ACCIONES.CANCELAR, motivo: "rechaza el resumen sin ambigüedad" };
+      }
+      return {
+        ...base,
+        accion: ACCIONES.CORREGIR,
+        motivo: 'dijo "no" sobre el resumen: casi siempre es un dato mal, no una cancelacion',
+      };
+    }
     if (c.clase === CLASES.CORRECCION) return { ...base, accion: ACCIONES.CORREGIR, motivo: "corrige antes de confirmar" };
     if (c.clase === CLASES.PREGUNTA_ESTADO) {
       return { ...base, accion: ACCIONES.ESCALAR, motivo: "pregunta por un pedido que todavia no existe" };

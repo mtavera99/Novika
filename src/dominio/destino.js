@@ -113,6 +113,80 @@ const CIUDADES_SEMILLA = {
   albania: ["La Guajira", "Caquetá", "Santander"],
 };
 
+// ==========================================================================
+// LOS 1.037 MUNICIPIOS DEL DANE
+//
+// ⚠️ LA LISTA ESCRITA A MANO COSTO TRES VENTAS EN UNA SOLA NOCHE.
+//
+// `CIUDADES_SEMILLA` tenia ~60 entradas y estaba incompleta a proposito: la
+// regla era "marcar, no bloquear". Pero el panel del 09-oct mostro el precio:
+//
+//   "A orocue"            -> no reconocio la ciudad
+//   "Málaga Santander"    -> no reconocio la ciudad
+//   "Ciénaga guacamayal"  -> no reconocio la ciudad
+//
+// En los tres el bot salto a "¿Te lo aparto...?" sin dar el plazo ni pedir
+// datos, y a la clienta de Orocue le volvio a preguntar la ciudad DESPUES de
+// que ya la habia dado. Adivinar cuales de los 1.100 municipios del pais
+// merecian estar en una lista a mano era la decision equivocada.
+//
+// Ahora la lista es la oficial: DIVIPOLA del DANE. Se regenera con
+// `node herramientas/traer-municipios.js`.
+//
+// --------------------------------------------------------------------------
+// LA SEMILLA NO SE BORRA, Y GANA
+// --------------------------------------------------------------------------
+//
+// Se funde ENCIMA del listado del DANE, no debajo, porque contiene decisiones
+// que el DANE no puede tener:
+//
+//   · "san andres de sotavento" resuelto a Córdoba, para que no se despache
+//     al archipielago a 700 km con flete aereo;
+//   · homonimos AMPLIADOS a mano. El DANE da los municipios que existen;
+//     la semilla añade los que ya se han visto confundir en chats reales.
+//     Un homonimo de mas solo cuesta una pregunta; uno de menos despacha al
+//     departamento equivocado.
+// ==========================================================================
+const DEL_DANE = require("./municipios-co.json").municipios;
+
+const CIUDADES = { ...DEL_DANE, ...CIUDADES_SEMILLA };
+
+/**
+ * Los nombres de DEPARTAMENTO, aplanados.
+ *
+ * ⚠️ HACEN FALTA PORQUE OCHO DE ELLOS SON TAMBIEN NOMBRES DE MUNICIPIO:
+ *    caldas, nariño, cordoba, boyaca, risaralda, bolivar, sucre y arauca.
+ *
+ * Y la gente escribe "Ciudad Departamento" todo el tiempo: "Duitama Boyacá",
+ * "Málaga Santander". Con el listado completo cargado, "Duitama boyaca"
+ * empezo a verse como DOS ciudades -Duitama y el municipio de Boyacá- y
+ * `ciudadEn` devolvia null por ambiguo: el cliente daba su ciudad bien
+ * escrita y el bot le volvia a preguntar.
+ *
+ * Con esta lista se distingue "dos ciudades de verdad" de "una ciudad y su
+ * departamento", que es lo normal.
+ */
+const DEPARTAMENTOS = new Set(
+  Object.values(CIUDADES)
+    .flat()
+    .map((d) =>
+      String(d)
+        .toLocaleLowerCase("es")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z\s]/g, "")
+        .trim()
+    )
+    .filter(Boolean)
+);
+
+/**
+ * Ya NO esta incompleta: son los 1.037 nombres de municipio del DANE.
+ *
+ * Se conserva la bandera porque lo que sigue siendo verdad es que hay
+ * destinos que NO son municipios -corregimientos, veredas, barrios- y esos
+ * se siguen aceptando marcados para revision. Ver `resolverCiudad`.
+ */
 const LISTA_INCOMPLETA = true;
 
 /** Frases que NO son una ciudad aunque el modelo las proponga. */
@@ -152,7 +226,7 @@ function resolverCiudad(texto, departamentoSugerido = null) {
     return { ok: false, motivo: `"${String(texto).slice(0, 40)}" no es el nombre de una ciudad` };
   }
 
-  const departamentos = CIUDADES_SEMILLA[plano];
+  const departamentos = CIUDADES[plano];
 
   if (!departamentos) {
     // No esta en la semilla. NO se rechaza: la lista esta incompleta y
@@ -338,6 +412,8 @@ function validarNombre(texto) {
 
 module.exports = {
   CIUDADES_SEMILLA,
+  CIUDADES,
+  DEPARTAMENTOS,
   LISTA_INCOMPLETA,
   resolverCiudad,
   validarDireccion,
