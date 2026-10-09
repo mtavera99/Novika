@@ -331,7 +331,7 @@ const textos = (salidas) => salidas.filter((s) => s.type === "text").map((s) => 
 const imagenes = (salidas) => salidas.filter((s) => s.type === "image").map((s) => s.image.link);
 
 describe("5 · la conversacion completa", () => {
-  test("EL MENSAJE QUE FALLABA: precio, condiciones y las cinco fotos", async () => {
+  test("EL MENSAJE QUE FALLABA: precio, condiciones y las tres fotos", async () => {
     const { hablar } = await montar();
     const { traza, salidas } = await hablar("Muéstrame fotos del cinturón y dime cuánto cuesta y cómo es el envío");
 
@@ -345,10 +345,16 @@ describe("5 · la conversacion completa", () => {
     assert.match(t[0], /incluido/);
     assert.match(t[0], /al recibir/);
 
-    // Las cinco fotos, en orden. Van DESPUES del texto.
+    // Las TRES fotos, en orden. Van DESPUES del texto.
+    //
+    // ⚠️ 2026-10-09: eran cinco. Se limito a tres porque cinco imagenes
+    //    empujan el texto -con el precio y la pregunta de cierre- fuera de
+    //    la pantalla del movil, y 10 de 25 clientes recibieron ese primer
+    //    mensaje y no volvieron a escribir. Las tres las eligio Marco: el
+    //    cinturon de frente encendido, puesto, y con su caja.
     const fotos = imagenes(salidas);
-    assert.equal(fotos.length, 5, `salieron ${fotos.length} fotos`);
-    assert.ok(/01-frente/.test(fotos[0]) && /05-empaque/.test(fotos[4]), "llegaron desordenadas");
+    assert.equal(fotos.length, 3, `salieron ${fotos.length} fotos`);
+    assert.ok(/01-frente/.test(fotos[0]) && /05-empaque/.test(fotos[2]), "llegaron desordenadas");
     assert.ok(salidas.findIndex((s) => s.type === "text") < salidas.findIndex((s) => s.type === "image"));
   });
 

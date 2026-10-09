@@ -53,6 +53,11 @@
       "original": "catalogo/imagenes/cinturon-termico/originales/"
     },
     {
+      "archivo": "catalogo/imagenes/cinturon-termico/05-empaque.jpg",
+      "alt": "El producto con su empaque",
+      "original": "catalogo/imagenes/cinturon-termico/originales/"
+    },
+    {
       "archivo": "catalogo/imagenes/cinturon-termico/03-detalle.jpg",
       "alt": "Detalle de la pantalla y los botones",
       "original": "catalogo/imagenes/cinturon-termico/originales/"
@@ -61,14 +66,9 @@
       "archivo": "catalogo/imagenes/cinturon-termico/04-correa.jpg",
       "alt": "La correa ajustable extendida",
       "original": "catalogo/imagenes/cinturon-termico/originales/"
-    },
-    {
-      "archivo": "catalogo/imagenes/cinturon-termico/05-empaque.jpg",
-      "alt": "El producto con su empaque",
-      "original": "catalogo/imagenes/cinturon-termico/originales/"
     }
   ],
-  "_nota_imagenes": "Las cinco fotos convertidas desde los HEIC originales, que se conservan en originales/. Convertidas a sRGB a proposito: venian en Display P3 y, sin convertir el espacio de color, el cliente veria un rosa distinto al del producto. Redimensionadas a 1600 px de lado largo y sin metadatos. Meta solo acepta jpeg o png, 8 bits, hasta 5 MB; el esquema lo comprueba por los BYTES del archivo al cargar el catalogo, no por la extension.",
+  "_nota_imagenes": "Las cinco fotos convertidas desde los HEIC originales, que se conservan en originales/. Convertidas a sRGB a proposito: venian en Display P3 y, sin convertir el espacio de color, el cliente veria un rosa distinto al del producto. Redimensionadas a 1600 px de lado largo y sin metadatos. Meta solo acepta jpeg o png, 8 bits, hasta 5 MB; el esquema lo comprueba por los BYTES del archivo al cargar el catalogo, no por la extension.\n\nEL ORDEN CAMBIO EL 2026-10-09, Y EL ORDEN AHORA DECIDE CUALES SE MANDAN.\n\nEl envio automatico se limito a TRES (antes iban las cinco), asi que las tres primeras de esta lista son las que ve el cliente en el primer mensaje. Marco eligio cuales: el cinturon de frente encendido, el cinturon puesto, y el producto con su caja.\n\nPOR QUE TRES Y NO CINCO: cinco imagenes seguidas detras de un mensaje de texto llenan la pantalla del movil y empujan el texto -con el precio y la pregunta- fuera de la vista. De 25 chats, 10 clientes recibieron el primer mensaje con las cinco fotos y no volvieron a escribir.\n\nEl detalle de la pantalla y la correa quedan al final: se siguen pudiendo mandar desde el panel, y son las que menos falta hacen para decidir la compra.",
   "datosConfirmados": {
     "nombreComercial": "Cinturón térmico NOVIKA - Marco, 2026-10-07",
     "color": "unicamente rosado - Marco, 2026-10-07",

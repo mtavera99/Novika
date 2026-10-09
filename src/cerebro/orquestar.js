@@ -949,6 +949,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     const preparada = responder.preparar({
       situacion,
+      // El tipo de media, para que un audio o un sticker no caigan en el
+      // flujo de texto. `normalizar.js` ya lo trae en el evento.
+      tipoDeMedia: (evento.media && evento.media.tipo) || null,
       vecesPorTema: conversacion.vecesPorTema || {},
       vezDeLaObjecion: Math.max(1, Number(conversacion.objecionesDePrecio || 0)),
       // POR QUE se escala, cuando se escala. Sin esto, las tres situaciones
@@ -1102,12 +1105,13 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // Dos veces en el mismo sitio: el bot no va a resolverlo. Se toma el
       // chat para que una persona lo vea en el panel, y el bot se calla.
       if (noRepetir.escalar) {
-        conversacion.atencion = {
-          ...atencionDeChat.leer(conversacion),
-          pausado: true,
-          por: "bucle_de_respuesta",
-          desde: new Date().toISOString(),
-        };
+        // ⚠️ AQUI TAMBIEN SE QUITO LA PAUSA AUTOMATICA (2026-10-09).
+        //
+        // El bucle se corta igual -el texto cambia y queda la tarea- pero el
+        // bot NO se calla. La regla de Marco: "no entiendes el mismo mensaje
+        // 2 veces seguidas" es motivo para AVISAR a una persona, no para
+        // dejar de atender. Si el cliente escribe despues "listo, lo
+        // quiero", hay que podersela vender.
         contar("escalado_a_persona");
         // Y queda la tarea, con la pregunta que el bot no supo resolver.
         // Pausar el chat sin anotar la pregunta obligaba a leer el
@@ -1188,16 +1192,45 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // aviso -que SI se manda- del bucle -que no-.
     const estabaPausadoAlEmpezar = atencionDeChat.leer(conversacion).pausado === true;
 
-    if (situacion === "escalado" && !estabaPausadoAlEmpezar) {
-      conversacion.atencion = {
-        ...atencionDeChat.leer(conversacion),
-        pausado: true,
-        por: "escalado",
-        desde: new Date().toISOString(),
-      };
-      traza.avisos.push("escalado: se avisa una vez y el bot deja de responder hasta que lo atienda una persona");
-      contar("escalado_pausa_el_bot");
-    } else if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro)) {
+    // ======================================================================
+    // ESCALAR YA NO CALLA AL BOT. LO PIDIO MARCO, Y ESTABA COSTANDO VENTAS.
+    //
+    // Aqui habia un `pausado: true` automatico: cualquier escalado dejaba el
+    // chat mudo 12 horas. La idea venia de BIKERPRO y era razonable -que el
+    // bot no hable por encima de una persona-, pero en la practica hacia
+    // justo lo contrario de lo que se buscaba.
+    //
+    // LO QUE MEDIMOS EN EL PANEL:
+    //
+    //   · escalados de las 08:49 y las 18:52 se contestaron a las 13:13 y
+    //     19:45. Entre cuatro y cinco horas. Durante todo ese rato el bot
+    //     estaba mudo y el cliente escribiendo.
+    //   · un cliente escribio "Por favor" y no recibio nada.
+    //   · otro mando su direccion completa y tampoco.
+    //
+    // Marco lo dijo asi: "no pausar el flujo de venta. Si el cliente sigue
+    // escribiendo cosas de compra, el bot sigue atendiendo".
+    //
+    // LA DISTINCION QUE ARREGLA LAS DOS COSAS A LA VEZ:
+    //
+    //   escalar  = AVISAR a una persona. Queda la tarea en la bandeja, y el
+    //              bot sigue vendiendo mientras alguien llega.
+    //   pausar   = que una persona TOME el chat. Es una decision humana,
+    //              explicita, desde el boton "Tomar el control" del panel.
+    //
+    // Antes el bot decidia callarse solo. Ahora solo se calla cuando alguien
+    // de verdad entro, que es cuando el riesgo de las dos voces existe. Un
+    // bot callado esperando a nadie no protege nada: pierde al cliente.
+    //
+    // El ESTADO sigue pasando a ESCALADO y la tarea sigue abriendose, asi
+    // que el chat aparece igual en /panel/sin-responder.
+    // ======================================================================
+    if (situacion === "escalado") {
+      contar("escalado_a_persona");
+      traza.avisos.push("escalado: se avisa a una persona y el bot SIGUE atendiendo la venta");
+    }
+
+    if (situacion === "ya_confirmado" && (loQuePregunta.compra || loQuePregunta.quiereOtro)) {
       // Quiere otro teniendo uno confirmado. El bot NO abre el pedido -eso
       // es lo que casi despacho un paquete que nadie pidio en BIKERPRO-
       // pero la intencion de comprar mas no se puede perder.
@@ -1227,9 +1260,18 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // La pausa caduca a las 12 h, asi que si nadie lo atiende el bot
     // retoma en vez de quedarse mudo para siempre.
     // ------------------------------------------------------------------
+    // ⚠️ `estabaPausadoAlEmpezar` YA NO SIGNIFICA "el bot se escalo solo".
+    //
+    // Desde el 09-oct el bot no se pausa nunca por su cuenta: la pausa solo
+    // la pone una PERSONA desde el panel ("Tomar el control"). Asi que esto
+    // dejo de ser "el bot espera a que alguien llegue" y pasa a ser "alguien
+    // ya esta escribiendo en este chat, no hables por encima".
+    //
+    // El candado de verdad esta en el emisor, que comprueba la pausa justo
+    // antes de salir a la red. Esto es la red de seguridad del turno.
     const yaEscalado = estabaPausadoAlEmpezar && situacion === "escalado";
     if (yaEscalado) {
-      traza.avisos.push("ya escalado y pausado: el bot no responde, espera a una persona");
+      traza.avisos.push("una persona tiene el chat: el bot no escribe por encima");
       traza.enviada = false;
       traza.bloqueoDeEnvio = "escalado_esperando_persona";
       contar("silencio_por_escalado");
@@ -1351,6 +1393,21 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         pie: "",
         // Lo pidio: se repiten.
         forzar: pidioReenvio,
+        // ----------------------------------------------------------------
+        // TRES FOTOS, NO CINCO. Y el tope lo pidio Marco.
+        //
+        // Cinco imagenes seguidas detras del primer mensaje llenan la
+        // pantalla del movil y empujan el texto -con el precio y la
+        // pregunta de cierre- fuera de la vista. Medido en el panel: de 25
+        // chats, 10 clientes recibieron ese primer mensaje con las cinco
+        // fotos y NO VOLVIERON A ESCRIBIR.
+        //
+        // Cuales son las tres lo decide el ORDEN del catalogo, no este
+        // numero: frente encendido, puesto, y con su caja. El detalle de la
+        // pantalla y la correa quedan al final de la lista y se pueden
+        // mandar desde el panel.
+        // ----------------------------------------------------------------
+        max: 3,
       });
       traza.fotos = {
         enviadas: informeFotos.enviadas,

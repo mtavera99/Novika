@@ -514,7 +514,11 @@ describe("6 · lo prometido se cumple", () => {
     const c = await conversacion();
     const r = await c.dice("Para que sirve?");
     assert.match(r.texto, /fotos/i, "el texto tiene que ofrecer las fotos");
-    assert.equal(r.fotos.length, 5, `prometió fotos y salieron ${r.fotos.length}`);
+    // ⚠️ TRES, NO CINCO (2026-10-09): el envio automatico se limito a tres
+    //    fotos. Cinco empujan el texto -con el precio y la pregunta de cierre-
+    //    fuera de la pantalla del movil, y 10 de 25 clientes recibieron ese
+    //    primer mensaje y no volvieron a escribir.
+    assert.equal(r.fotos.length, 3, `prometió fotos y salieron ${r.fotos.length}`);
   });
 
   test("y cuando NO las promete, no las manda", async () => {

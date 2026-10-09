@@ -34,6 +34,13 @@ const DIR = ayuda.entornoDePrueba();
 const voz = require("../src/cerebro/voz");
 const responder = require("../src/cerebro/responder");
 const contestar = require("../src/cerebro/contestar");
+
+/** Los importes legitimos de la oferta de dos, que calcula el cotizador. */
+function autorizadosDeLaPareja(producto) {
+  const dos = contestar.ofertaDeDos(producto);
+  if (!dos) return [];
+  return dos.importesAutorizados || [dos.total];
+}
 const cotizador = require("../src/dominio/cotizador");
 const { TEMAS } = require("../src/dominio/preguntas");
 const { cargarCatalogo } = require("../src/catalogo");
@@ -303,9 +310,13 @@ describe("3 · la calidez no introdujo ninguna promesa", () => {
   });
 
   test("ningún texto contiene un importe sin calcular", () => {
+    // ⚠️ La oferta de dos entra en el primer mensaje desde el 2026-10-09, y
+    //    su cifra la calcula el cotizador para 2 unidades. Se autoriza igual
+    //    que hace `preparar` con el borrador de la IA.
     const cot = cotizacionDe(1);
+    const autorizados = [...cot.importesAutorizados, ...autorizadosDeLaPareja(elCinturon())];
     for (const { situacion, mensajeCliente, texto } of todosLosTextos()) {
-      const r = cotizador.revisarImportes(texto, cot.importesAutorizados);
+      const r = cotizador.revisarImportes(texto, autorizados);
       assert.equal(
         r.ok,
         true,
