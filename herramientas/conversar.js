@@ -321,6 +321,106 @@ const ESCENARIOS = {
     },
   },
 
+  // ========================================================================
+  // LAS CUATRO DE ABAJO SON DEL 2026-10-09 Y SON PARA LEERLAS COMPLETAS.
+  //
+  // El resto de los escenarios comprueba momentos sueltos. Estos cuatro son
+  // conversaciones de principio a fin, del tipo que de verdad entra por el
+  // anuncio, y existen para contestar la pregunta que ninguna prueba
+  // contesta: ¿esto se lee como una persona que vende, o como un formulario
+  // con emojis?
+  //
+  // Marco lo dijo asi: "muy seco, sin emojis y muy tipo robot". Esa clase de
+  // defecto no lo caza una assertion; se ve leyendo.
+  // ========================================================================
+
+  "duda-y-cierra": {
+    titulo: "LA CLIENTA QUE PREGUNTA TODO ANTES DE COMPRAR — y acaba comprando",
+    correr: async () => {
+      // El perfil mas comun del anuncio: no pregunta el precio primero,
+      // pregunta si le va a servir. Cada respuesta tiene que dejarla un paso
+      // mas cerca sin empujarla.
+      const c = await abrirChat({ nombrePerfil: "Daniela" });
+      for (const m of [
+        "Hola, quiero información sobre el cinturón térmico de $49.900.",
+        "sirve para los cólicos?",
+        "y me sirve a mi? soy gordita",
+        "se puede lavar?",
+        "me lo puedo dejar puesto dormida?",
+        "tiene garantía?",
+        "y si no me funciona?",
+        "listo, lo quiero",
+        "Daniela Sarmiento",
+        "Medellín, Carrera 70 # 45-12",
+        "si",
+      ]) {
+        await c.dice(m);
+      }
+    },
+  },
+
+  "desconfia-y-cierra": {
+    titulo: "LA QUE NO CONFIA — el contraentrega es todo el argumento",
+    correr: async () => {
+      const c = await abrirChat({ nombrePerfil: "Yuli" });
+      for (const m of [
+        "Hola, quiero información sobre el cinturón térmico de $49.900.",
+        "no confío en estas páginas",
+        "ya me estafaron una vez",
+        "es original?",
+        "tienen tienda física?",
+        "en qué ciudad están",
+        "y si no me llega?",
+        "bueno, dale",
+        "Yulieth Carmona, Pereira, barrio Cuba, casa esquinera blanca",
+        "si",
+      ]) {
+        await c.dice(m);
+      }
+    },
+  },
+
+  "pueblo-sin-nomenclatura": {
+    titulo: "EL CLIENTE DE PUEBLO — sin calle ni numero, y hay que poder venderle",
+    correr: async () => {
+      // La venta que se perdio el 08-oct. En media Colombia la direccion es
+      // el barrio mas un punto de referencia.
+      const c = await abrirChat({ nombrePerfil: "Mauricio" });
+      for (const m of [
+        "Hola, quiero información sobre el cinturón térmico de $49.900.",
+        "llega a un corregimiento?",
+        "cuanto se demora",
+        "me interesa",
+        "San andres de sotavento Córdoba",
+        "uno",
+        "Barrio buenos aires",
+        "Mauricio Benítez",
+        "si",
+      ]) {
+        await c.dice(m);
+      }
+    },
+  },
+
+  "regatea-y-cierra": {
+    titulo: "LA QUE REGATEA TRES VECES — la escalera, y que el bot siga vivo",
+    correr: async () => {
+      const c = await abrirChat({ nombrePerfil: "Marcela" });
+      for (const m of [
+        "Hola, quiero información sobre el cinturón térmico de $49.900.",
+        "uy está muy caro",
+        "no me alcanza",
+        "me lo dejas en 40?",
+        "y si llevo dos?",
+        "las quiero",
+        "Marcela Rios, Cali, Calle 9 # 30-15",
+        "si",
+      ]) {
+        await c.dice(m);
+      }
+    },
+  },
+
   "falla-el-modelo": {
     titulo: "El modelo falla: la respuesta de respaldo",
     correr: async () => {

@@ -98,6 +98,41 @@ const NOMBRES = [
   "panel_despachado",
   "panel_entregado",
 
+  // --- el bot se calla, o casi ---
+  //
+  // ⚠️ LOS CUATRO PRIMEROS SON LOS QUE MIDEN EL DEFECTO MAS CARO QUE HA
+  //    TENIDO ESTE BOT, Y NINGUNO ESTABA EN LA LISTA.
+  //
+  // `rutas.js` ya habia pasado por esto -seis acciones del panel sumando en
+  // "desconocido"- y el mismo agujero estaba en el cerebro. El 08-oct el
+  // bot se pauso solo en varias conversaciones por leer "no" al principio de
+  // una frase como una cancelacion, y en el tablero NO SE VEIA NADA: todo
+  // caia en "desconocido".
+  //
+  // Es exactamente la clase de fallo que una metrica tiene que gritar. Un
+  // bot que deja de responder no da error, no rompe nada y no aparece en
+  // ningun log: desde fuera parece un dia flojo de ventas.
+  "escalado_pausa_el_bot",
+  "silencio_por_escalado",
+  "respuesta_bloqueada_por_pausa",
+  "respuesta_repetida_evitada",
+  // Dijo que no sin tener pedido. Es sano que suba: antes esto escalaba y
+  // pausaba el bot; ahora se cierra con calidez. Si sube MUCHO, la que hay
+  // que mirar es la oferta, no el bot.
+  "declino_sin_pedido",
+  // El bot prometio que una persona confirma un dato y quedo la tarea. Es el
+  // mejor indicador de QUE FALTA EN EL CATALOGO: si sube, hay un dato que
+  // Marco tiene que aprobar.
+  "promesa_anotada",
+
+  // --- cosas que no se podian medir y pasaban ---
+  "cliente_sin_telefono",
+  "producto_en_borrador",
+  "dato_corregido_por_el_cliente",
+  "envio_sin_destino_valido",
+  "imagen_no_enviable",
+  "ia_excepcion",
+
   // --- fallos ---
   "error_interno",
   "transicion_invalida",

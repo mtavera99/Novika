@@ -44,16 +44,50 @@ const CLASES = {
 };
 
 // --- 1. Negaciones. Se revisan primero. ---
+//
+// ⚠️ AQUI ESTUVO EL DEFECTO MAS CARO QUE HA TENIDO ESTE BOT. NO SE AMPLIA
+//    ESTA LISTA CON UN PATRON QUE EMPIECE POR "no" Y SIGA CON CUALQUIER COSA.
+//
+// Habia un `/^no\b/` suelto. Parecia inofensivo -"no" es una negacion- pero
+// `\b` solo marca el final de la palabra: casaba con CUALQUIER mensaje que
+// empezara por "no". Y en un WhatsApp colombiano, empezar por "no" es lo
+// normal:
+//
+//   "No habría manera de que llegue hoy?"   -> una clienta con prisa
+//   "No entiendo"                           -> alguien perdido
+//   "No cargaron"                           -> las fotos no le llegaron
+//   "no me alcanza"                          -> la objecion mas comun
+//   "no confío en estas páginas"             -> la objecion de confianza
+//   "no me ha llegado"                       -> posventa
+//
+// Los seis se clasificaban como NO -> accion CANCELAR. Y como ninguno tenia
+// un pedido que cancelar, `cancelarPedido` devolvia `cancelado:false`, el
+// turno acababa en `situacion = "escalado"` y el bot SE PAUSABA 12 HORAS.
+//
+// Medido en el panel de produccion el 2026-10-08: de 33 chats, 0 pedidos.
+// Tres de las conversaciones perdidas murieron exactamente asi, y una la
+// tuvo que rescatar una persona a mano hora y media despues.
+//
+// La regla: "no" a secas es una negacion. "no" seguido de algo es una frase,
+// y hay que leer el algo. Lo que de verdad niega esta enumerado abajo.
 const NEGACIONES = [
-  /\bno\s+(confirm|quier|lo\s+quier|me\s+interes|gracias|por\s+ahora|todavia|aun)/,
+  // "no" PELADO, con o sin signos. Esto es lo unico que `^no\b` deberia
+  // haber sido.
+  /^no[\s!.,¡¿?]*$/,
+  // Cortesia al declinar: "no gracias", "no, muchas gracias".
+  /^no\s+(muchas\s+)?gracias\b/,
+  /\bno\s+(muchas\s+)?gracias\b/,
+  // Negaciones de intencion: dicen QUE no quieren.
+  /\bno\s+(confirm|quier|lo\s+quier|la\s+quier|los\s+quier|las\s+quier|me\s+interes|me\s+sirve|deseo)/,
+  /\bno\s+(por\s+ahora|todavia|aun)\b/,
   /\bno\s+lo\s+voy/,
+  /\bno\s+me\s+(lo|la|los|las)\s+(llevo|voy)/,
   /\bya\s+no\b/,
   /\bmejor\s+no\b/,
   /\bcancel(a|ar|alo|ame|emos)\b/,
   /\bdejalo\b/,
-  /\bno\s+gracias\b/,
-  /^no\b/,
   /\bnegativo\b/,
+  /\bdesisto\b/,
 ];
 
 // --- 2. Preguntas de estado (posventa). Antes del "si" suelto. ---

@@ -605,6 +605,21 @@ describe("7 · la intención de compra la contesta el código", () => {
   test("y una duda NO catalogada sí la redacta el modelo", async () => {
     // El reparto tiene que seguir funcionando en el otro sentido: donde el
     // determinista no tiene nada bueno que decir, el modelo sí.
+    //
+    // ⚠️ EL EJEMPLO DE ESTA PRUEBA CAMBIO EL 2026-10-09, Y EL MOTIVO ES UNA
+    //    BUENA NOTICIA.
+    //
+    // Usaba "¿me lo puedo poner dormida toda la noche?" como ejemplo de
+    // duda no catalogada. Ya no lo es: el 09-oct se añadio el tema
+    // SEGURIDAD y esa pregunta tiene respuesta propia -regulable por el
+    // panel de control, sin inventar horas de uso-, asi que ahora la
+    // contesta el catalogo. Mantenerla aqui habria significado exigir que
+    // una pregunta CON respuesta aprobada se la inventara el modelo, que es
+    // lo contrario de lo que protege el reparto.
+    //
+    // Se cambia por una que de verdad no esta catalogada -y que no conviene
+    // catalogar, porque es la cola larga que justifica tener modelo-. Lo
+    // que se verifica sigue siendo exactamente lo mismo.
     const responder = require("../src/cerebro/responder");
     const { cargarCatalogo: cargar } = require("../src/catalogo");
     const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
@@ -616,8 +631,8 @@ describe("7 · la intención de compra la contesta el código", () => {
       cotizacion: null,
       faltan: [],
       producto: prod,
-      borradorIA: "Sobre usarlo toda la noche no tengo el dato confirmado, te lo verifico con el equipo.",
-      mensajeCliente: "oye y esto me lo puedo poner dormida toda la noche?",
+      borradorIA: "Nosotros vendemos solo por aquí; si lo viste en otro lado no era nuestro.",
+      mensajeCliente: "lo venden en Mercado Libre tambien?",
     });
 
     assert.equal(r.origen, "ia", `se descartó un borrador útil: ${r.texto}`);

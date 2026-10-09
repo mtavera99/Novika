@@ -91,6 +91,16 @@ const CIUDADES_SEMILLA = {
   ipiales: ["Nariño"],
   tumaco: ["Nariño"],
   "san andres": ["Archipiélago de San Andrés"],
+  // ⚠️ ESTE ENTRO POR UN CASI-INCIDENTE DE DESPACHO (08-oct).
+  //
+  // Una clienta de "San Andrés de Sotavento, Córdoba" quedo registrada con
+  // ciudad "San Andres": el archipielago. Son dos destinos a 700 km, uno de
+  // ellos con flete aereo, y el pedido iba a salir mal.
+  //
+  // La proteccion general esta en `extraer.ciudadEn`, que ya no deja que un
+  // nombre corto se coma uno compuesto. Este se añade ADEMAS para que el
+  // municipio resuelva su departamento sin pasar por revision humana.
+  "san andres de sotavento": ["Córdoba"],
 
   // Homonimos reales: el mismo nombre en varios departamentos. NO se eligen.
   "santa rosa": ["Bolívar", "Cauca", "Antioquia"],
@@ -194,6 +204,19 @@ function titular(plano) {
  */
 const TIPOS_DE_VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal|dg|diag|transversal|tv|trans|manzana|mz|circular|circunvalar|autopista|via|vereda|km|kilometro)\b/;
 
+/**
+ * Una ZONA con nombre propio: "Barrio Buenos Aires", "Vereda La Esperanza".
+ *
+ * Es lo unico que se acepta como direccion SIN numero, y siempre marcado
+ * para revision. Exige al menos una palabra detras que no sea un articulo:
+ * "barrio" a secas no identifica nada, igual que "mi casa".
+ *
+ * Nace de una venta perdida real; el motivo completo esta en
+ * `validarDireccion`.
+ */
+const ZONA_CON_NOMBRE =
+  /\b(barrio|brr|vereda|vda|corregimiento|sector|finca|conjunto|urbanizacion|resguardo|invasion|comuna)\b\s+(?!(?:el|la|los|las|de|del|mi|un|una)\b\s*$)[a-z]{3,}/;
+
 function validarDireccion(texto) {
   const crudo = String(texto ?? "").trim();
   const plano = aplanar(crudo);
@@ -212,7 +235,41 @@ function validarDireccion(texto) {
   const tieneNumero = /\d/.test(plano);
 
   if (!tieneNumero) {
-    return { ok: false, motivo: "una direccion sin ningun numero no sirve para despachar" };
+    // ------------------------------------------------------------------
+    // UNA ZONA CON NOMBRE SE ACEPTA MARCADA. ANTES SE RECHAZABA.
+    //
+    // ⚠️ VENTA PERDIDA MEDIDA (08-oct, rescate manual hora y media despues).
+    //
+    // La clienta de San Andrés de Sotavento escribio "Barrio buenos aires" y
+    // el bot le siguio pidiendo la direccion hasta que ella contesto "No
+    // entiendo". Habia DOS candados en serie rechazandola: el extractor
+    // -que exigia un numero detras del tipo de via- y este.
+    //
+    // Y el argumento para abrir este ya estaba escrito tres lineas mas
+    // abajo, para el caso contrario: *"bloquear aqui pierde ventas en zonas
+    // donde las direcciones no siguen el formato urbano"*. En un pueblo o
+    // una vereda no hay nomenclatura: la direccion ES el barrio mas un punto
+    // de referencia, y el propio bot se lo pide con esas palabras.
+    //
+    // Se acepta con `revisar: true`, que es el mecanismo que este modulo ya
+    // usa para esto: la venta no se pierde y una persona confirma el destino
+    // antes de generar la guia. Rechazar no protegia el despacho —el pedido
+    // no llegaba a existir—, solo perdia el cliente.
+    //
+    // Sigue rechazandose lo que no identifica nada: "mi casa", "barrio" a
+    // secas, "por aca". Eso lo cubren NO_SON_DIRECCION y la exigencia de un
+    // nombre detras del tipo de via.
+    // ------------------------------------------------------------------
+    const esZonaConNombre = ZONA_CON_NOMBRE.test(plano);
+    if (!esZonaConNombre) {
+      return { ok: false, motivo: "una direccion sin ningun numero no sirve para despachar" };
+    }
+    return {
+      ok: true,
+      valor: crudo,
+      revisar: true,
+      motivo: "zona sin nomenclatura: hay que confirmar un punto de referencia antes de la guia",
+    };
   }
 
   if (!tieneVia) {

@@ -32,6 +32,10 @@
 
 const fecha = require("./fecha");
 const atencion = require("../almacen/atencion");
+// Los nombres de los estados salen del dominio, no de literales en el panel.
+// Cuando eran literales, los cuatro del medio del embudo estaban MAL escritos
+// y el embudo entero contaba a todo el mundo en la primera etapa.
+const { ESTADOS } = require("../dominio/estados");
 
 /**
  * Etapas del embudo, de la primera a la ultima.
@@ -53,12 +57,55 @@ const ETAPAS = [
   { id: "entregado", etiqueta: "Entregado" },
 ];
 
-/** Estados de conversacion que acreditan haber llegado a cada etapa. */
+/**
+ * Estados de conversacion que acreditan haber llegado a cada etapa.
+ *
+ * ⚠️ SE LEEN DE `dominio/estados.js`. NO SE ESCRIBEN A MANO.
+ *
+ * Estaban escritos como literales -"producto", "datos", "resumen",
+ * "modificado"- y NINGUNO DE ESOS CUATRO EXISTE. Los estados de verdad se
+ * llaman `producto_identificado`, `capturando_datos`,
+ * `pendiente_confirmacion` y `modificando`.
+ *
+ * Efecto medido en el panel de produccion el 2026-10-08: el embudo decia
+ *
+ *     Escribió              33   100%   se quedaron aquí 33
+ *     Identificó producto    0     0%   se cayeron       33
+ *
+ * con 25 de esas conversaciones en estado `producto_identificado` y varias
+ * en `capturando_datos`. Ningun estado casaba, asi que TODAS caian a
+ * "escribio" y el embudo señalaba el primer paso como el agujero. El
+ * indicador que existe para decir DONDE se escapan los clientes estaba
+ * apuntando al sitio equivocado — y es el que se usa para decidir que
+ * arreglar.
+ *
+ * Es otra vez la leccion que este repositorio ya tiene escrita dos veces
+ * (las dos listas de "pregunta de precio", el literal de `activoDeContacto`
+ * en cada backend): dos copias de la misma regla se separan. Aqui la copia
+ * ni siquiera llego a estar bien.
+ */
+const E = ESTADOS;
 const ESTADOS_POR_ETAPA = {
-  producto: new Set(["producto", "cotizado", "datos", "resumen", "confirmado", "modificado", "posventa"]),
-  cotizado: new Set(["cotizado", "datos", "resumen", "confirmado", "modificado", "posventa"]),
-  datos: new Set(["datos", "resumen", "confirmado", "modificado", "posventa"]),
-  confirmado: new Set(["confirmado", "modificado", "posventa"]),
+  producto: new Set([
+    E.PRODUCTO_IDENTIFICADO,
+    E.INTERESADO,
+    E.COTIZADO,
+    E.CAPTURANDO_DATOS,
+    E.PENDIENTE_CONFIRMACION,
+    E.CONFIRMADO,
+    E.MODIFICANDO,
+    E.POSVENTA,
+  ]),
+  cotizado: new Set([
+    E.COTIZADO,
+    E.CAPTURANDO_DATOS,
+    E.PENDIENTE_CONFIRMACION,
+    E.CONFIRMADO,
+    E.MODIFICANDO,
+    E.POSVENTA,
+  ]),
+  datos: new Set([E.CAPTURANDO_DATOS, E.PENDIENTE_CONFIRMACION, E.CONFIRMADO, E.MODIFICANDO, E.POSVENTA]),
+  confirmado: new Set([E.CONFIRMADO, E.MODIFICANDO, E.POSVENTA]),
 };
 
 /**
@@ -418,6 +465,10 @@ function atendidos({ conversaciones = [] } = {}) {
 
 module.exports = {
   ETAPAS,
+  // Expuesto para que una prueba pueda comprobar que cada estado que el
+  // embudo acredita EXISTE de verdad en el dominio. Cuando eran literales
+  // escritos a mano, cuatro estaban mal y nadie se enteraba.
+  ESTADOS_POR_ETAPA,
   etapaDe,
   embudo,
   atribucion,

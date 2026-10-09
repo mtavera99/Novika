@@ -224,6 +224,21 @@ describe("4 · el precio va antes de pedir la direccion", () => {
       cotizacionInformativa: informativa(),
       faltan: ["cantidad", "ciudad", "direccion"],
       producto: elCinturon(),
+      // ⚠️ `huboSenalDeCompra` ES NUEVO AQUI, Y ES EL ARREGLO DE UN DEFECTO
+      //    DE LA PRUEBA, NO UNA CONCESION.
+      //
+      // Esta llamada no pasaba `mensajeCliente`, asi que el turno no tenia
+      // NINGUNA señal de intencion — y seguia esperando que el bot pidiera
+      // nombre, ciudad y direccion. Eso es justo lo que se corrigio el
+      // 09-oct: pedir los cuatro datos a quien no ha dicho que quiere
+      // comprar. Del panel: "Me gusta", "A ve r", "Por favor" y un sticker
+      // recibian los cuatro campos.
+      //
+      // Lo que esta prueba protege -el precio ANTES de la peticion de
+      // datos- solo tiene sentido con un cliente que ya dijo que lo quiere.
+      // Asi que se dice explicitamente, que es lo que el cerebro hace de
+      // verdad: lleva `huboSenalDeCompra` en la conversacion.
+      huboSenalDeCompra: true,
     }).texto;
 
     assert.match(t, /49\.900/);

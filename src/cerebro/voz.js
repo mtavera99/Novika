@@ -65,6 +65,45 @@ const APERTURAS = {
   // alguien le reconozca que es plata. Se valida y se explica, sin ponerse
   // a la defensiva y sin pedir disculpas por el precio.
   [TEMAS.OBJECION_PRECIO]: "Te entiendo, y te explico:",
+
+  // ======================================================================
+  // APERTURAS DE LOS TEMAS DEL 2026-10-09
+  //
+  // Un tema SIN apertura no se queda sin nada: `apertura()` recorre la lista
+  // y coge la del primer tema que la tenga. Pero eso significa que la duda
+  // mas frecuente puede acabar abriendo con la frase de otra -el defecto de
+  // «Sí, La correa es graduable»-, asi que cada tema nuevo trae la suya.
+  //
+  // Y no son decorativas: la apertura es donde se RECONOCE lo que
+  // preguntaron, que es la mitad de que el mensaje suene a persona.
+  // ======================================================================
+
+  [TEMAS.CUIDADO]: "Buena que lo preguntes:",
+  // Preguntar si es seguro dormir con un aparato encendido es sensato. No
+  // se despacha con un "¡claro que sí!": se reconoce y se contesta.
+  [TEMAS.SEGURIDAD]: "Te entiendo, es importante:",
+  // Aqui la apertura NO puede sonar entusiasta. Quien pregunta por el
+  // embarazo esta pidiendo permiso, y la respuesta es que lo mire con su
+  // medico: abrir con "¡Claro que sí!" delante de eso seria cruel.
+  [TEMAS.CONTRAINDICACION]: "Te respondo con franqueza:",
+  [TEMAS.TEMPERATURA]: "Te cuento:",
+  [TEMAS.MARCA]: "Sí,",
+  [TEMAS.EMPAQUE]: "¡Claro!",
+  [TEMAS.FACTURA]: "Te cuento:",
+  // Un mayorista es un cliente distinto y se le habla como tal.
+  [TEMAS.MAYORISTA]: "¡Qué bueno que preguntes!",
+  [TEMAS.HORARIO]: "Tranquila,",
+  [TEMAS.CANAL]: "Te cuento:",
+  // "¿sirve para mi hija de 13?" es la mama preguntando. Se reconoce.
+  [TEMAS.DESTINATARIO]: "Claro que sí,",
+  [TEMAS.COMPARATIVA]: "Te cuento la diferencia:",
+  // Quien pregunta si llega a su vereda da por hecho que no. Que la
+  // respuesta sea "sí" merece abrirse con ganas.
+  [TEMAS.COBERTURA]: "¡Sí!",
+  [TEMAS.OTRO_MODELO]: "Te cuento:",
+  [TEMAS.UBICACION]: "Con gusto:",
+  // "¿y si no me funciona?" es miedo, no curiosidad.
+  [TEMAS.SI_NO_FUNCIONA]: "Te entiendo, y tranquila:",
 };
 
 /**
@@ -140,6 +179,26 @@ const EMOJIS = {
   [TEMAS.MEDIDAS]: "🙌",
   [TEMAS.CONFIANZA]: "🙌",
   [TEMAS.OBJECION_PRECIO]: "💡",
+
+  // ---- Temas del 2026-10-09 ----
+  //
+  // No todos llevan: `claveDeEmoji` recorre la lista y coge el primero que
+  // tenga, asi que un tema sin emoji hereda el del siguiente tema del turno
+  // — y si no hay ninguno, el compositor pone el de la situacion. Se ponen
+  // en los que son la duda principal de un mensaje entero, que son los que
+  // salian secos.
+  [TEMAS.COBERTURA]: "📦",
+  [TEMAS.SI_NO_FUNCIONA]: "🙌",
+  [TEMAS.UBICACION]: "🙌",
+  [TEMAS.MARCA]: "😊",
+  [TEMAS.DESTINATARIO]: "🙌",
+  [TEMAS.COMPARATIVA]: "💡",
+  [TEMAS.MAYORISTA]: "🙌",
+  [TEMAS.EMPAQUE]: "🎁",
+  // Sin emoji a proposito: CONTRAINDICACION habla de embarazo y condiciones
+  // medicas. Un emoji ahi suena a que no se toma en serio.
+  // Sin emoji a proposito: SEGURIDAD y CUIDADO son advertencias.
+
   // Para los mensajes que NO responden un tema: cuando se admite que un
   // dato no se tiene, cuando pasa a una persona, cuando se acusa recibo de
   // un dato. Salian sin un solo emoji -con `emoji: null`- y son justo los

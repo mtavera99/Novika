@@ -584,6 +584,18 @@ const TEMAS_COMERCIALES = [preguntas.TEMAS.PRECIO, preguntas.TEMAS.ENVIO, pregun
 // venta. El segundo emoji -el del tema- lo coloca `voz.conEmoji` al final de
 // la primera frase, nunca pegado a este.
 // --------------------------------------------------------------------------
+/**
+ * Para quien dijo algo que no es una pregunta ni una compra.
+ *
+ * "Me gusta", "A ve r", "Por favor", un sticker. Interes o ruido, pero no un
+ * "lo quiero" — y antes los cuatro recibian los cuatro campos del
+ * formulario.
+ *
+ * Da DOS salidas y las dos son faciles: seguir preguntando o avanzar. Quien
+ * esta mirando necesita exactamente eso, no un interrogatorio.
+ */
+const RETOMAR = "¿Te lo aparto, o quieres que te cuente algo más de cómo funciona?";
+
 const INVITAR = "¿Quieres que te ayude a pedirlo? 🙌";
 const INVITAR_PLURAL = "¿Quieres que te ayude a pedirlos? 🙌";
 
@@ -658,6 +670,17 @@ function analizarTurno(mensajeCliente) {
  */
 function textoDeterminista({
   situacion,
+  // Cuantas veces se ha contestado ya cada tema en esta conversacion.
+  // Sirve para no soltar el mismo parrafo dos veces ante la misma duda
+  // reformulada. Lo lleva el cerebro, en la conversacion persistida.
+  vecesPorTema = {},
+  // Cuantas veces ha objetado el precio en esta conversacion. Viaja desde
+  // el cerebro, que es quien lleva la cuenta en la conversacion persistida.
+  vezDeLaObjecion = 1,
+  // El motivo del escalado, cuando hay uno. Cambia SOLO el texto de la rama
+  // "escalado": un reclamo de garantia, un cliente enfadado y alguien que
+  // pide hablar con una persona no se contestan con la misma frase.
+  motivoEscalado = null,
   cotizacion = null,
   cotizacionInformativa = null,
   faltan = [],
@@ -921,7 +944,7 @@ function textoDeterminista({
           const comerciales = lectura.temas.filter((t) => TEMAS_COMERCIALES.includes(t));
           const politicas = contestar.aTemas(
             comerciales.filter((t) => t !== preguntas.TEMAS.PRECIO),
-            { producto, cotizacion: null },
+            { producto, cotizacion: null, vezDeLaObjecion, vecesPorTema },
             { maximo: 2 }
           );
           if (politicas.texto) partes.push(politicas.texto);
@@ -943,7 +966,7 @@ function textoDeterminista({
       // argumento, y sin este aviso las repetia en el mismo mensaje.
       const resto = contestar.aTemas(
         otros,
-        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot) },
+        { producto, cotizacion: cot, yaDijoLasCondiciones: Boolean(preguntoComercial && cot), vezDeLaObjecion, vecesPorTema },
         { maximo: 2 }
       );
       if (resto.texto) partes.push(resto.texto);
@@ -1105,6 +1128,30 @@ function textoDeterminista({
       // pregunta por seguridad y recibe un formulario se va.
       // ----------------------------------------------------------------
       if (!lectura.compra && !lectura.temas.length && lectura.pareceUnaPregunta && !lectura.soloSaludo) {
+        // ----------------------------------------------------------------
+        // UN "?" NO ES UNA PREGUNTA QUE NO SEPAMOS: ES UNA QUE NO SE OYO
+        //
+        // Medido el 09-oct. Un cliente escribio literalmente "?" y recibio
+        // *«Esa no te la quiero contestar a medias. La dejo anotada para el
+        // equipo»*. No hay ninguna "esa": no pregunto nada todavia. Y
+        // ademas abria una tarea con la pregunta "?" dentro, que es ruido
+        // puro en la bandeja.
+        //
+        // Un mensaje que NO TIENE PALABRAS -o tiene una sola, del tipo
+        // "como?", "ah?", "y?"- es alguien que no entendio o que se quedo a
+        // medias. Lo que toca es reorientar, no admitir un hueco que no
+        // existe.
+        // ----------------------------------------------------------------
+        const palabras = String(mensajeCliente || "")
+          .replace(/[^\p{L}\p{N}\s]/gu, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        if (palabras.length <= 1) {
+          partes.push("Cuéntame qué quieres saber del cinturón y te ayudo: precio, envío, garantía… lo que necesites.");
+          return componer(partes, { emoji: "saludo" });
+        }
+
         partes.push(
           "Esa no te la quiero contestar a medias. La dejo anotada para el equipo: " +
             "una persona la revisa y te responde por aquí."
@@ -1113,15 +1160,55 @@ function textoDeterminista({
       }
 
       if (lectura.compra || (!lectura.pregunta && !lectura.soloSaludo)) {
-        // Hay señal de compra, o el cliente esta ya en la captura y no
-        // pregunto nada: se piden los datos que falten.
+        // ----------------------------------------------------------------
+        // EL FORMULARIO NO PUEDE SER LA RESPUESTA POR DEFECTO
         //
-        // Y si DIJO QUE LO QUIERE, se celebra antes de pedirle nada. Antes
-        // "lo quiero" recibia "Para despacharlo me pasas la ciudad y la
-        // dirección": ni un "perfecto". Es el momento mas importante de la
-        // conversacion y se trataba como un tramite.
-        if (lectura.compra && !preguntoComercial) partes.push("¡Perfecto!");
-        partes.push(pedirLoQueFalta(faltan, { cantidadInformada: cot && cot.cantidad, yaSePidieron: Boolean(memoria.datosPedidos) }));
+        // Esta rama se come TODO lo que no es una pregunta reconocida ni un
+        // saludo, y el resultado era pedirle los cuatro datos a cualquiera.
+        // Del panel de produccion del 08-oct, todos mensajes reales:
+        //
+        //   "Me gusta"         -> "¿Cuántos quieres? Y para preparar tu
+        //                          pedido me pasas la ciudad y la dirección"
+        //   "A ve r"           -> lo mismo
+        //   "Por favor"        -> lo mismo
+        //   "Interapidisimo"   -> lo mismo
+        //   un sticker         -> lo mismo, y al segundo "no quiero
+        //                          repetirme"
+        //
+        // Cinco clientes distintos recibiendo el mismo formulario por decir
+        // cosas que no son un "lo quiero". "Me gusta" es interes, no una
+        // compra: lo que toca ahi es un micro-cierre de una sola pregunta,
+        // no cuatro campos.
+        //
+        // La condicion: solo se piden los datos a quien YA dio una señal de
+        // compra -en este turno o antes- o a quien ya esta en la captura.
+        // Al resto se le ofrece el paso siguiente y se le deja hablar.
+        // ----------------------------------------------------------------
+        // ⚠️ `memoria.datosPedidos` NO ENTRA AQUI, Y ES LA PARTE SUTIL.
+        //
+        // Significa "ya se le pidieron los datos una vez", no "el cliente
+        // quiere comprar". Usarlo como permiso creaba un bucle perfecto:
+        // basta que el bot haya pedido los datos UNA vez -y con el mensaje
+        // del anuncio eso pasa en el primer turno, porque pregunta el
+        // precio- para que a partir de ahi cualquier sticker vuelva a
+        // recibir el formulario. El permiso lo da la INTENCION del cliente.
+        const puedePedirDatos = lectura.compra || huboSenalDeCompra || datosAportados.length > 0;
+
+        if (!puedePedirDatos) {
+          partes.push(RETOMAR);
+        } else {
+          // Y si DIJO QUE LO QUIERE, se celebra antes de pedirle nada. Antes
+          // "lo quiero" recibia "Para despacharlo me pasas la ciudad y la
+          // dirección": ni un "perfecto". Es el momento mas importante de la
+          // conversacion y se trataba como un tramite.
+          if (lectura.compra && !preguntoComercial) partes.push("¡Perfecto!");
+          partes.push(
+            pedirLoQueFalta(faltan, {
+              cantidadInformada: cot && cot.cantidad,
+              yaSePidieron: Boolean(memoria.datosPedidos),
+            })
+          );
+        }
       } else if (preguntoComercial) {
         // ----------------------------------------------------------------
         // PREGUNTO EL PRECIO, PERO NO DIJO QUE LO QUIERA
@@ -1149,7 +1236,16 @@ function textoDeterminista({
         // es lo que SI hacemos -queda su ficha con lo que pidio- y es la
         // misma palabra que ya usa `loConfirmo`.
         // ----------------------------------------------------------------
-        partes.push("¿Te lo aparto? 🙌");
+        // ⚠️ SALVO EN EL ULTIMO ESCALON DE LA OBJECION DE PRECIO.
+        //
+        // Ahi el mensaje acaba de decir "déjame pasarle tu caso a una
+        // persona del equipo", y pegarle detras "¿te lo aparto?" deja un
+        // mensaje que se contradice solo: pasa el caso y a la vez sigue
+        // cerrando. Es el unico sitio donde la regla de "termina siempre
+        // con una pregunta" esta mal.
+        const enManosDeUnaPersona =
+          vezDeLaObjecion >= 3 && lectura.temas.includes(preguntas.TEMAS.OBJECION_PRECIO);
+        if (!enManosDeUnaPersona) partes.push("¿Te lo aparto? 🙌");
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
@@ -1331,10 +1427,10 @@ function textoDeterminista({
         respuesta = { texto: "ya respondido" };
         // Y las dudas que NO sean comerciales, detras.
         const otras = lectura.temas.filter((t) => !TEMAS_COMERCIALES.includes(t));
-        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder }, { maximo: 1 });
+        const extra = contestar.aTemas(otras, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema }, { maximo: 1 });
         if (extra.texto) partes.push(extra.texto);
       } else {
-        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder }, { maximo: 2 });
+        respuesta = contestar.aTemas(lectura.temas, { producto, cotizacion: cotParaResponder, vezDeLaObjecion, vecesPorTema }, { maximo: 2 });
         if (respuesta.texto) partes.push(respuesta.texto);
       }
 
@@ -1437,6 +1533,36 @@ function textoDeterminista({
       return "Listo, lo cancelamos sin ningún problema. Si cambias de opinión me escribes y lo armamos de nuevo 🙌";
 
     // ----------------------------------------------------------------------
+    // DECLINA: DIJO QUE NO, Y NO HAY NINGUN PEDIDO QUE CANCELAR
+    //
+    // Antes este caso no existia: caia en "escalado", le decia "esto lo
+    // revisa una persona" y PAUSABA EL BOT 12 HORAS. A quien habia dicho
+    // "no gracias". No hay nada que revisar y no hay por que callarse.
+    //
+    // Lo que si hay es una venta que todavia puede pasar: en contraentrega
+    // el "no por ahora" se vuelve compra con mucha frecuencia, porque el
+    // cliente no arriesga plata. Asi que se cierra bien, se recuerda la
+    // unica condicion que de verdad quita el miedo -pagar al recibir- y se
+    // deja la puerta abierta SIN presionar y SIN pedir datos.
+    //
+    // Y no termina en pregunta, a proposito. Es la unica rama donde el
+    // cierre con pregunta esta mal: a quien acaba de decir que no, otra
+    // pregunta se le lee como insistencia.
+    // ----------------------------------------------------------------------
+    case "declina": {
+      const pagaAlRecibir = contestar.pagaAlRecibir(producto);
+      return componer(
+        [
+          "Tranquila, sin problema.",
+          pagaAlRecibir
+            ? "Si más adelante lo quieres, aquí estoy: recuerda que pagas al recibir, así que no arriesgas nada."
+            : "Si más adelante lo quieres, aquí estoy.",
+        ],
+        { emoji: "saludo" }
+      );
+    }
+
+    // ----------------------------------------------------------------------
     // ESCALADO: se pasa a una persona. Y SE RESPONDE LO QUE PREGUNTO IGUAL.
     //
     // "Dame un momento, te confirmo en seguida" era lo unico que salia, y
@@ -1480,7 +1606,51 @@ function textoDeterminista({
     // la venta, no protegerla.
     // ----------------------------------------------------------------------
     case "escalado": {
-      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion }, { maximo: 2 });
+      // ------------------------------------------------------------------
+      // LOS TRES ESCALADOS QUE SI LO SON TIENEN TEXTO PROPIO
+      //
+      // La frase generica -"esto lo reviso con una persona del equipo"- es
+      // correcta para un hueco de catalogo. Para un reclamo, para alguien
+      // enfadado o para quien pidio hablar con una persona, es exactamente
+      // la frase equivocada: suena a tramite justo donde el cliente
+      // necesita sentir que alguien se hizo cargo.
+      //
+      // Y NO SE VENDE EN NINGUNO DE LOS TRES. En el reclamo, ademas, no se
+      // repite el argumento de la garantia: al cliente que la esta
+      // reclamando ya se le vendio una vez.
+      // ------------------------------------------------------------------
+      if (motivoEscalado === "reclamo_de_garantia") {
+        const comoSeTramita = producto && producto.garantiaComoSeTramita;
+        return componer(
+          [
+            "Uy, qué pena que te haya llegado así.",
+            comoSeTramita
+              ? "Eso lo gestiona directamente una persona del equipo: ya le paso tu mensaje para que te ayude con el cambio."
+              : "Eso lo gestiona una persona del equipo: ya le paso tu mensaje.",
+            "Si puedes, mándame una foto de cómo llegó por aquí mismo, que así lo resuelven más rápido.",
+          ],
+          { emoji: null }
+        );
+      }
+      if (motivoEscalado === "cliente_molesto") {
+        // Sin emoji y sin una sola palabra de venta. Un 🙌 delante de
+        // alguien que amenaza con denunciar se lee como burla.
+        return componer(
+          [
+            "Te entiendo, y siento que hayas tenido esta experiencia.",
+            "Prefiero que esto lo vea una persona del equipo y no yo: ya le paso tu mensaje y te responde por aquí.",
+          ],
+          { emoji: null }
+        );
+      }
+      if (motivoEscalado === "pidio_una_persona") {
+        return componer(
+          ["¡Claro que sí!", "Ya le paso tu mensaje a una persona del equipo y te responde por aquí."],
+          { emoji: "atencion" }
+        );
+      }
+
+      const resto = contestar.aTemas(lectura.temas, { producto, cotizacion, vezDeLaObjecion, vecesPorTema }, { maximo: 2 });
       return componer([
         saludo || voz.apertura(lectura.temas),
         resto.texto,
@@ -1525,6 +1695,37 @@ const PASAR_A_PERSONA =
   "Déjame pasarte con una persona del equipo para no darte vueltas. Queda anotado y te responden por aquí.";
 
 /**
+ * El texto que se repetia era una ADMISION de que falta el dato.
+ *
+ * Se detecta sobre el texto anterior, igual que `contestar.prometeConfirmar`
+ * y por el mismo motivo: la promesa esta en el texto. Aqui el patron es mas
+ * corto a proposito -solo la parte que identifica la admision- porque lo
+ * unico que hay que decidir es si repetirlo seria un muro.
+ */
+const PROMESA_REPETIDA = /no te l[oa]s? quiero (decir|contestar) a medias|l[oa]s? confirmo con el equipo/i;
+
+/**
+ * Lo que se dice cuando la clienta reformula una pregunta que no tenemos.
+ *
+ * Reconoce que ya quedo anotada -que es verdad: el cerebro abre la tarea- y
+ * deja un paso concreto. Sin plazo, porque no hay nadie de guardia.
+ */
+/**
+ * Lo que se dice cuando el resumen volveria a salir igual.
+ *
+ * Corto y con una sola cosa que hacer. Sin repetir el cuadro -que ya esta
+ * en pantalla- y sin pedir que concrete nada: lo unico que falta es el "sí".
+ */
+const EMPUJON_AL_RESUMEN =
+  'Te dejé el resumen aquí arriba 👆 Si está todo bien, respóndeme "sí" y lo dejo listo. ' +
+  "Y si hay algo que corregir, dime qué y lo cambio.";
+
+const INSISTE_SIN_DATO =
+  "Esa me la quedé debiendo, y ya está anotada para que te la confirme una persona del equipo. " +
+  "Lo que sí te puedo decir es que pagas al recibir, así que puedes revisarlo con calma cuando llegue. " +
+  "¿Te lo aparto mientras?";
+
+/**
  * Evita el texto repetido.
  *
  * OJO CON UNA DISTINCION QUE LA PRIMERA VERSION NO HACIA:
@@ -1567,6 +1768,67 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
   const a = String(texto || "").trim();
   const b = String(ultimoDicho || "").trim();
   if (!a || !b || a !== b) return { texto: a, repetido: false, escalar: false };
+
+  // ----------------------------------------------------------------------
+  // ESTE BLOQUE VA ANTES QUE `mismaPregunta`, Y ES EL ORDEN QUE IMPORTA.
+  //
+  // El muro de "lo confirmo" se da sobre todo cuando la clienta REFORMULA
+  // la misma duda -"Con cables para cargar" y "Trae cargador" marcan los dos
+  // el tema ENERGIA-, asi que `mismaPregunta` es true y la guarda salia por
+  // ahi antes de llegar aqui. Justo el caso que hay que cazar.
+  // ----------------------------------------------------------------------
+
+  // ----------------------------------------------------------------------
+  // EL MURO DE "LO CONFIRMO" DOS VECES
+  //
+  // `preguntaReconocida` existe para no negarle la respuesta a quien
+  // pregunta claro, y eso sigue bien. Pero hay un caso donde repetir
+  // palabra por palabra es indefendible: cuando la respuesta repetida es
+  // una ADMISION de que no tenemos el dato.
+  //
+  // Medido en produccion el 08-oct y reproducido el 09:
+  //
+  //   clienta · "Con cables para cargar"
+  //   bot     · "Buena pregunta: en las fotos se ve el panel de control…
+  //              Si funciona con batería o enchufado no te lo quiero decir
+  //              a medias: lo confirmo con el equipo y te cuento…"
+  //   clienta · "Trae cargador"
+  //   bot     · (exactamente el mismo parrafo otra vez)
+  //
+  // La clienta reformulo porque la primera respuesta no le sirvio, y
+  // recibio el mismo muro. Repetir una respuesta BUENA es contestar;
+  // repetir un "no lo sé" es decirle que insistir no sirve de nada.
+  //
+  // No se escala y no se calla: se reconoce que ya quedo anotado y se le
+  // deja algo que hacer, que es lo unico que mantiene la venta viva.
+  if (PROMESA_REPETIDA.test(b)) {
+    return { texto: INSISTE_SIN_DATO, repetido: true, escalar: false };
+  }
+
+  // ----------------------------------------------------------------------
+  // SI LO QUE SE REPETIA ERA EL RESUMEN, NO SE PIDE "CONCRETAR"
+  //
+  // ⚠️ ES EL PEOR SITIO POSIBLE PARA ESTA FRASE: el cuadro de confirmacion
+  //    es el ultimo paso antes del pedido.
+  //
+  //   bot      · "Confirmemos tu pedido: … ¿Está todo bien? Respóndeme
+  //               «sí» y lo dejo listo ✅"
+  //   cliente  · "Mauricio Benítez"      (repite su nombre, por si acaso)
+  //   bot      · "Perdón, no quiero repetirme. Dime concretamente qué
+  //               necesitas y lo reviso con el equipo."
+  //
+  // El cliente manda algo que no aporta un dato nuevo -su nombre otra vez,
+  // un "ahi esta", un punto de referencia que ya teniamos- y el resumen
+  // saldria igual. La guarda lo lee como un bot atascado y suelta la frase
+  // de concretar a quien estaba a UN "sí" de comprar.
+  //
+  // Lo correcto no es repetir el cuadro entero ni pedir que concrete: es
+  // señalar que ya esta ahi arriba y pedir el si, que es el unico paso que
+  // falta.
+  if (/esta todo bien|está todo bien|confirmemos tu pedido/i.test(b)) {
+    return { texto: EMPUJON_AL_RESUMEN, repetido: true, escalar: false };
+  }
+
   if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
   if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
 
@@ -1585,6 +1847,9 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
  */
 function preparar({
   situacion,
+  vecesPorTema = {},
+  vezDeLaObjecion = 1,
+  motivoEscalado = null,
   cotizacion = null,
   cotizacionInformativa = null,
   faltan = [],
@@ -1605,6 +1870,9 @@ function preparar({
 }) {
   const determinista = textoDeterminista({
     situacion,
+    vecesPorTema,
+    vezDeLaObjecion,
+    motivoEscalado,
     cotizacion,
     cotizacionInformativa,
     faltan,

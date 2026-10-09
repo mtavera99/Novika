@@ -48,6 +48,9 @@ const preguntas = require("../dominio/preguntas");
 const extraer = require("../dominio/extraer");
 const senales = require("../catalogo/senales");
 const responder = require("./responder");
+// Solo para `prometeConfirmar`: el cerebro necesita saber si el texto que va
+// a enviar prometio que una persona confirma algo, para dejar la tarea.
+const contestar = require("./contestar");
 const { enSerie } = require("../almacen/mutex");
 const { PERMISOS } = require("../whatsapp/enviar");
 const atencionDeChat = require("../almacen/atencion");
@@ -191,7 +194,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
    * Heuristicas que no necesitan modelo. Son las mas fiables que hay:
    * el telefono del chat es un hecho, no una inferencia.
    */
-  function candidatosHeuristicos(evento) {
+  function candidatosHeuristicos(evento, { seLePidioElNombre = false } = {}) {
     const propuestas = {};
 
     // El telefono con el que escribe es el mejor candidato que existe: es un
@@ -202,7 +205,10 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     // Cantidad, ciudad y direccion salen del texto con reglas, no con
     // modelo. Ver dominio/extraer.js: ante la duda, no propone.
-    const { candidatos } = extraer.deTexto(evento.texto || "");
+    // `seLoPidieron` abre la captura del nombre A SECAS. Solo cuando el bot
+    // acaba de pedirlo: sin esa condicion, "Buenos Aires" o
+    // "Interapidisimo" se leerian como nombres de persona.
+    const { candidatos } = extraer.deTexto(evento.texto || "", { seLoPidieron: seLePidioElNombre });
     return { ...propuestas, ...candidatos };
   }
 
@@ -577,7 +583,16 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     if (analisis && analisis.candidatos) {
       conversacion.ficha = aplicarCandidatos(conversacion.ficha, analisis.candidatos, campos.ORIGENES.IA);
     }
-    conversacion.ficha = aplicarCandidatos(conversacion.ficha, candidatosHeuristicos(evento), campos.ORIGENES.CLIENTE);
+    // ¿Se le pidio el nombre y todavia no lo tenemos? Entonces un mensaje
+    // que solo trae un nombre ES la respuesta a esa pregunta. Lo sabe el
+    // cerebro, que es quien guarda la memoria de lo que ya se pidio.
+    const seLePidioElNombre =
+      conversacion.datosPedidos === true && !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre);
+    conversacion.ficha = aplicarCandidatos(
+      conversacion.ficha,
+      candidatosHeuristicos(evento, { seLePidioElNombre }),
+      campos.ORIGENES.CLIENTE
+    );
 
     // ------------------------------------------------------------------
     // "LAS QUIERO" DESPUES DE UN PRECIO DE DOS SIGNIFICA DOS
@@ -610,8 +625,46 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       );
     }
 
-    const validacion = validarYConfirmar(conversacion.ficha);
+    // ------------------------------------------------------------------
+    // SI LO UNICO QUE FALTA ES LA CANTIDAD, SE TOMA UNA
+    //
+    // El callejon, visto en una conversacion de prueba del 09-oct: la
+    // clienta ya habia dado nombre, ciudad y direccion, y el bot le pedia
+    // "si quieres uno o dos". Contesto "si" -que no es un numero- y recibio
+    // "¿Cuántos quieres? 🙌". Otro "si" habria dado lo mismo: un bucle con
+    // la venta entera ya armada.
+    //
+    // UNA, Y NO DOS, POR LA REGLA DE LA CASA: *ante ambigüedad de cantidad,
+    // se elige la menor*. Nunca se cobra de mas.
+    //
+    // Y es seguro porque NO crea el pedido: con la cantidad puesta, el turno
+    // llega a "resumen" y la clienta ve "1 unidad · $49.900" antes de
+    // confirmar. Si queria dos, lo dice ahi y se recotiza. Cambiar un
+    // callejon por un resumen corregible es un buen cambio.
+    //
+    // Se exige que TODO lo demas este confirmado: mientras falte la
+    // direccion, preguntar la cantidad es lo correcto.
+    let validacion = validarYConfirmar(conversacion.ficha);
     conversacion.ficha = validacion.ficha;
+
+    // ⚠️ VA DESPUES DE `validarYConfirmar`, Y ESO NO ES UN DETALLE.
+    //
+    // La primera version iba antes, y no se disparaba nunca: `faltantes()`
+    // mira lo CONFIRMADO, y antes de validar los datos de este turno todavia
+    // son candidatos. Habia que preguntarse "¿falta algo mas que la
+    // cantidad?" sobre la ficha ya validada.
+    const REQUERIDOS_SIN_CANTIDAD = [...REQUERIDOS_BASE, ...((producto && producto.datosRequeridos) || [])];
+    if (
+      !campos.valorConfirmado(conversacion.ficha.cantidad) &&
+      !texto.cantidadesEn(evento.texto || "").length &&
+      campos.faltantes(conversacion.ficha, REQUERIDOS_SIN_CANTIDAD).length === 0 &&
+      (turnoDeCompra.lectura.compra || conversacion.huboSenalDeCompra === true)
+    ) {
+      conversacion.ficha = aplicarCandidatos(conversacion.ficha, { cantidad: 1 }, campos.ORIGENES.CODIGO);
+      validacion = validarYConfirmar(conversacion.ficha);
+      conversacion.ficha = validacion.ficha;
+      traza.avisos.push("solo faltaba la cantidad y no la dijo: se toma 1, que es la menor, y lo vera en el resumen");
+    }
 
     // Que datos se confirmaron EN ESTE TURNO.
     //
@@ -636,7 +689,57 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     let situacion = "escalado";
     let estadoDestino = conversacion.estado;
 
-    if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
+    // ------------------------------------------------------------------
+    // LAS TRES RAZONES POR LAS QUE SI HAY QUE LLAMAR A UNA PERSONA
+    //
+    // Marco lo dijo con un ejemplo: "si la persona está pidiendo una
+    // garantía, eso lo tiene que solucionar el humano; pero estaba pasando
+    // que con cualquier pregunta de una vez lo dejaba para contacto humano".
+    //
+    // Estaba exactamente al reves. Medido el 09-oct, con el codigo de
+    // produccion:
+    //
+    //   "quiero hablar con una persona"
+    //     -> "¡Perfecto, gracias! Para preparar tu pedido me pasas la
+    //         ciudad y la dirección"
+    //   "me llegó dañado, quiero la garantía"
+    //     -> "¡Claro que sí! Tiene 1 mes de garantía, así que compras con
+    //         tranquilidad. ¡Perfecto! Para preparar tu pedido me pasas…"
+    //   "esto es un robo, son unos estafadores, los voy a denunciar"
+    //     -> "¡Perfecto, gracias! Para preparar tu pedido me pasas…"
+    //
+    // Las tres son las que NINGUN bot debe atender, y las tres seguian
+    // dentro del embudo de venta. Mientras tanto, una duda sobre el
+    // material si escalaba.
+    //
+    // Esta rama va ANTES de todo lo demas -incluida la cotizacion- porque
+    // ninguna de las tres se arregla vendiendo. Y es el unico escalado que
+    // se puede provocar desde el TEXTO del cliente, asi que las tres listas
+    // son estrechas y estan en `src/dominio/preguntas.js` con su motivo.
+    // ------------------------------------------------------------------
+    const intencion = preguntas.leer(evento.texto || "");
+    const motivoDeHumano = intencion.reclamaGarantia
+      ? "reclamo_de_garantia"
+      : intencion.estaMolesto
+        ? "cliente_molesto"
+        : intencion.pideHumano
+          ? "pidio_una_persona"
+          : null;
+
+    if (motivoDeHumano) {
+      situacion = "escalado";
+      estadoDestino = estados.ESTADOS.ESCALADO;
+      traza.motivoEscalado = motivoDeHumano;
+      traza.avisos.push(`escalado legitimo: ${motivoDeHumano}`);
+      contar("escalado_a_persona");
+      atencionDeChat.anotarPendiente(conversacion, {
+        motivo:
+          motivoDeHumano === "reclamo_de_garantia"
+            ? atencionDeChat.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO
+            : atencionDeChat.MOTIVOS_PENDIENTE.NO_SUPO,
+        pregunta: evento.texto || "",
+      });
+    } else if (decision.accion === confirmacion.ACCIONES.NINGUNA && estados.estaBlindado(conversacion.estado)) {
       // "si" / "ok" / "gracias" sobre un pedido ya confirmado. NO se cotiza,
       // NO se crea pedido. Esta es la regla que pidio Marco.
       //
@@ -684,10 +787,43 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       };
       estadoDestino = estados.ESTADOS.POSVENTA;
     } else if (decision.accion === confirmacion.ACCIONES.CANCELAR) {
-      const r = await cancelarPedido(pedidoActivo, evento);
-      situacion = r.cancelado ? "cancelado" : "escalado";
-      traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado } : null;
-      estadoDestino = estados.ESTADOS.CANCELADO;
+      // ----------------------------------------------------------------
+      // CANCELAR ALGO QUE NO EXISTE NO ES UN ESCALADO.
+      //
+      // Esto era `situacion = r.cancelado ? "cancelado" : "escalado"`, y el
+      // "escalado" pausaba el bot 12 h. Resultado: a quien decia "no
+      // gracias" SIN tener ningun pedido, el bot le contestaba "esto lo
+      // revisa una persona" y se callaba medio dia. No hay nada que
+      // revisar: la clienta dijo que no.
+      //
+      // Dos caminos distintos y por eso se separan:
+      //
+      //   con pedido  -> "cancelado". Hay plata y logistica de por medio.
+      //   sin pedido  -> "declina". Es una conversacion que no cuajo; se
+      //                  cierra con calidez, se deja la puerta abierta y el
+      //                  bot SIGUE VIVO, porque "no por ahora" se convierte
+      //                  en compra con una frecuencia altisima.
+      //
+      // Y el estado NO se mueve a CANCELADO cuando no habia pedido: si la
+      // clienta vuelve con "bueno, listo, lo quiero", tiene que poder
+      // comprar sin que nadie toque el panel.
+      // ----------------------------------------------------------------
+      if (!pedidoActivo) {
+        situacion = "declina";
+        traza.pedido = null;
+        estadoDestino = conversacion.estado;
+        traza.avisos.push("dijo que no sin tener pedido: se cierra con calidez, no se escala ni se pausa");
+        contar("declino_sin_pedido");
+      } else {
+        const r = await cancelarPedido(pedidoActivo, evento);
+        situacion = r.cancelado ? "cancelado" : "escalado";
+        traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado } : null;
+        estadoDestino = r.cancelado ? estados.ESTADOS.CANCELADO : estados.ESTADOS.ESCALADO;
+        if (!r.cancelado) {
+          traza.avisos.push("hay pedido y no se pudo cancelar: lo gestiona una persona");
+          contar("escalado_a_persona");
+        }
+      }
     } else if (decision.accion === confirmacion.ACCIONES.CONFIRMAR) {
       const r = await confirmarPedido({ conversacion, producto, evento, revisiones: validacion.revisiones });
       traza.pedido = r.pedido ? { id: r.pedido.id, estado: r.pedido.estado, creado: r.creado } : null;
@@ -781,8 +917,46 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // ------------------------------------------------------------------
     // REGLA 3: preparar siempre, enviar solo si procede
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // LA CUENTA DE LAS OBJECIONES DE PRECIO
+    //
+    // Vive en la conversacion PERSISTIDA, no en memoria: en Render cada
+    // despliegue reinicia el proceso, y una escalera que se reinicia a la
+    // mitad vuelve a empezar por el primer escalon con un cliente que ya
+    // objeto tres veces.
+    //
+    // Se cuenta aqui -y no en el redactor- porque el redactor se llama
+    // tambien desde el panel y desde las pruebas, y contar ahi inflaria la
+    // cuenta sin que el cliente hubiera dicho nada.
+    // ------------------------------------------------------------------
+    if (loQuePregunta.temas.includes(preguntas.TEMAS.OBJECION_PRECIO)) {
+      conversacion.objecionesDePrecio = Number(conversacion.objecionesDePrecio || 0) + 1;
+      traza.objecionesDePrecio = conversacion.objecionesDePrecio;
+    }
+
+    // ------------------------------------------------------------------
+    // Y LA CUENTA DE CADA TEMA, por el mismo motivo: no soltar el mismo
+    // parrafo dos veces ante la misma duda reformulada.
+    //
+    // Tambien persistida. Y se incrementa ANTES de redactar, asi que la
+    // primera vez llega como 1: una respuesta solo necesita saber si es la
+    // primera vez que la da.
+    // ------------------------------------------------------------------
+    conversacion.vecesPorTema = { ...(conversacion.vecesPorTema || {}) };
+    for (const t of loQuePregunta.temas) {
+      conversacion.vecesPorTema[t] = Number(conversacion.vecesPorTema[t] || 0) + 1;
+    }
+
     const preparada = responder.preparar({
       situacion,
+      vecesPorTema: conversacion.vecesPorTema || {},
+      vezDeLaObjecion: Math.max(1, Number(conversacion.objecionesDePrecio || 0)),
+      // POR QUE se escala, cuando se escala. Sin esto, las tres situaciones
+      // que de verdad necesitan una persona -un reclamo, un cliente
+      // molesto y quien pide hablar con alguien- recibian la misma frase
+      // generica, y a quien esta enfadado una frase de tramite lo enfada
+      // mas. Es `null` en el resto de los turnos.
+      motivoEscalado: traza.motivoEscalado || null,
       cotizacion: conversacion.cotizacion,
       cotizacionInformativa: cotizacionConsultada,
       faltan: traza.faltan || [],
@@ -891,6 +1065,28 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       preguntaReconocida: temasAhora.length > 0 || datosAportados.length > 0,
     });
 
+    // ------------------------------------------------------------------
+    // UN STICKER REPETIDO NO ES UN BOT ATASCADO
+    //
+    // Medido el 09-oct, y hay dos chats reales del 08 con exactamente esto
+    // (dos chats de stickers y dos chats de stickers): clientes que solo mandan stickers y
+    // emojis. El texto llega VACIO, el bot contesta lo mismo las dos veces
+    // -porque no hay nada nuevo que contestar- y la guarda anti-eco lo leia
+    // como un bucle propio: "Perdón, no quiero repetirme", y a la siguiente
+    // la pausa de 12 h.
+    //
+    // La guarda existe para cazar al bot repitiendose ante preguntas
+    // DISTINTAS. Si el cliente no ha dicho nada, no hay dos preguntas
+    // distintas: hay un cliente mirando. Repetir una invitacion amable es
+    // lo correcto; cortarle la conversacion y llamar a una persona porque
+    // mando dos caritas, no.
+    // ------------------------------------------------------------------
+    const clienteNoDijoNada = !String(evento.texto || "").replace(/[^\p{L}\p{N}]/gu, "").trim();
+    if (clienteNoDijoNada) {
+      noRepetir.repetido = false;
+      noRepetir.escalar = false;
+    }
+
     if (noRepetir.repetido) {
       preparada.texto = noRepetir.texto;
       contar("respuesta_repetida_evitada");
@@ -944,11 +1140,25 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       });
     }
 
-    if (situacion === "escalado" || preguntoAlgoNoCatalogado) {
+    // LO QUE SE PROMETE, QUEDA ANOTADO — AHORA MIRANDO LA PROMESA.
+    //
+    // La condicion era `situacion === "escalado" || preguntoAlgoNoCatalogado`,
+    // y el segundo termino es un proxy que dejo de valer al añadir los
+    // dieciseis temas del 09-oct: "¿a cuántos grados llega?" YA tiene tema,
+    // asi que no abria tarea, y sin embargo la respuesta dice "los confirmo
+    // con el equipo y te cuento". Una promesa que no deja tarea es una
+    // promesa que nadie va a cumplir, y el cliente se queda esperando.
+    //
+    // Se mira el TEXTO PREPARADO, que es donde esta la promesa. Y se
+    // conserva `preguntoAlgoNoCatalogado`: una pregunta que no se entendio
+    // tiene que verla una persona aunque el texto no prometa nada.
+    const prometioConfirmar = contestar.prometeConfirmar(preparada.texto);
+    if (situacion === "escalado" || preguntoAlgoNoCatalogado || prometioConfirmar) {
       atencionDeChat.anotarPendiente(conversacion, {
         motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
         pregunta: evento.texto || "",
       });
+      if (prometioConfirmar && !preguntoAlgoNoCatalogado) contar("promesa_anotada");
     }
 
     // ------------------------------------------------------------------

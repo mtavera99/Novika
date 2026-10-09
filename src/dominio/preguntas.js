@@ -76,6 +76,60 @@ const TEMAS = {
    * calor alivia el colico-, que no contesta nada de lo que pregunto.
    */
   ENERGIA: "energia",
+
+  // ======================================================================
+  // LOS DIECISEIS TEMAS DE ABAJO SON DEL 2026-10-09, Y SALEN DE MEDIR.
+  //
+  // Se corrio la bateria de `herramientas/sondear.js` -65 preguntas, casi
+  // todas copiadas literalmente del panel de produccion- y 22 de ellas
+  // recibian la misma frase:
+  //
+  //   "Esa no te la quiero contestar a medias. La dejo anotada para el
+  //    equipo: una persona la revisa y te responde por aquí."
+  //
+  // Esa frase es correcta cuando de verdad falta el dato. El problema era
+  // otro: se disparaba por NO TENER TEMA, no por no tener dato. Preguntas
+  // cuya respuesta estaba en la ficha -o que se contestan sin ningun dato
+  // nuevo- acababan en un callejon porque el detector no las reconocia.
+  //
+  // Un tema nuevo NO inventa informacion: solo permite contestar con lo que
+  // ya esta aprobado. Donde de verdad falta el dato, sigue saliendo la
+  // frase honesta — pero sabiendo DE QUE se habla, que es lo que permite
+  // seguir vendiendo en el mismo mensaje.
+  // ======================================================================
+
+  /** "¿se puede lavar?", "¿cómo lo limpio?". La ficha dice que mojarlo NO lo cubre la garantia. */
+  CUIDADO: "cuidado",
+  /** "¿me lo dejo puesto toda la noche?", "¿se puede quemar?". Seguridad de uso. */
+  SEGURIDAD: "seguridad",
+  /** Embarazo, DIU, lactancia, marcapasos. PROHIBIDO decir que si. */
+  CONTRAINDICACION: "contraindicacion",
+  /** "¿a cuántos grados llega?", "¿cuánto demora en calentar?" */
+  TEMPERATURA: "temperatura",
+  /** "¿es original?", "¿qué marca es?", "¿es chino?" */
+  MARCA: "marca",
+  /** "¿viene en caja?", "¿sirve para regalo?", "¿trae manual?" */
+  EMPAQUE: "empaque",
+  /** "¿dan factura?" */
+  FACTURA: "factura",
+  /** "¿venden al por mayor?", "soy revendedora". Es un lead grande. */
+  MAYORISTA: "mayorista",
+  /** "¿a qué hora atienden?", "¿trabajan domingos?" */
+  HORARIO: "horario",
+  /** "¿me pueden llamar?", "¿tienen página?", "¿Instagram?" */
+  CANAL: "canal",
+  /** "¿sirve para una niña de 13?", "¿es para hombre?" */
+  DESTINATARIO: "destinatario",
+  /** "¿qué diferencia tiene con una bolsa de agua caliente?" */
+  COMPARATIVA: "comparativa",
+  /** "¿llega a una vereda?", "¿tienen cobertura en todo el país?" */
+  COBERTURA: "cobertura",
+  /** "¿tienen otro modelo?", "¿qué más venden?" */
+  OTRO_MODELO: "otro_modelo",
+  /** "¿en qué ciudad están?", "¿dónde quedan?". Es confianza, pero con respuesta propia. */
+  UBICACION: "ubicacion",
+  /** "¿y si no me funciona?". No es garantia a secas: es miedo a perder la plata. */
+  SI_NO_FUNCIONA: "si_no_funciona",
 };
 
 /**
@@ -87,6 +141,188 @@ const TEMAS = {
  * una vez en los alias del catalogo.
  */
 const PATRONES = [
+  // ======================================================================
+  // BLOQUE DEL 2026-10-09 — VA PRIMERO POR UN MOTIVO MECANICO
+  //
+  // El orden de esta tabla es el orden de `temas`, y de `temas[0]` sale la
+  // apertura del mensaje. Estos patrones son MAS ESPECIFICOS que los
+  // generales de abajo, asi que tienen que ganar: "¿cuánto demora en
+  // calentar?" casa con `/\bdemora\w*/` de ENTREGA, y contestarle el plazo
+  // de la transportadora a quien pregunta por el calor es no contestar.
+  //
+  // Todos son estrechos a proposito. Un patron ancho aqui le robaria el
+  // tema a PRECIO, que es el que mas plata mueve.
+  // ======================================================================
+
+  // ---- Al por mayor: va ANTES de OBJECION_PRECIO ----
+  //
+  // "¿hay descuento por mayor?" casa con `/\b(descuento|rebaja)\b/`, asi
+  // que caia en la objecion de precio y recibia la escalera de siempre. Y
+  // es el lead mas grande que entra por aqui: quien revende compra todos
+  // los meses. Tiene que ir a una persona, pero reconocido como lo que es.
+  [TEMAS.MAYORISTA, /\b(al\s+)?por\s+mayor\b/],
+  [TEMAS.MAYORISTA, /\bal\s+mayor\b/],
+  [TEMAS.MAYORISTA, /\bmayorista/],
+  [TEMAS.MAYORISTA, /\brevende(r|dora|dor|rlo)?\b/],
+  [TEMAS.MAYORISTA, /\bdistribuidor/],
+  [TEMAS.MAYORISTA, /\bpara\s+vender\b/],
+  [TEMAS.MAYORISTA, /\bcantidad(es)?\s+grandes?\b/],
+
+  // ---- Contraindicaciones: va ANTES de USO ----
+  //
+  // ⚠️ ESTE TEMA EXISTE PARA PODER DECIR QUE NO.
+  //
+  // "apto durante el embarazo", "sirve para la endometriosis" y "sirve para
+  // quistes" estan en `claimsProhibidos` de la ficha, pero esa lista solo
+  // revisa lo que REDACTA EL MODELO: no habia nada que enrutara la pregunta
+  // a una respuesta honesta. Sin tema, caia en el camino generico.
+  //
+  // Es un producto que se compra por dolor. La respuesta correcta no es un
+  // "lo confirmo con el equipo": es decir que eso lo decide su medico.
+  [TEMAS.CONTRAINDICACION, /\bembaraz(o|ada|adas|ado)\b/],
+  [TEMAS.CONTRAINDICACION, /\bgestante/],
+  [TEMAS.CONTRAINDICACION, /\b(lactancia|amamant\w*)\b/],
+  [TEMAS.CONTRAINDICACION, /\bdiu\b/],
+  [TEMAS.CONTRAINDICACION, /\bmarcapaso/],
+  [TEMAS.CONTRAINDICACION, /\b(endometriosis|quiste|quistes|mioma|miomas)\b/],
+  [TEMAS.CONTRAINDICACION, /\b(cesarea|operada\s+(hace|de))\b/],
+
+  // ---- Temperatura: va ANTES de ENTREGA (por "demora") y de ENERGIA ----
+  [TEMAS.TEMPERATURA, /\bgrados\b/],
+  [TEMAS.TEMPERATURA, /\btemperatura\b/],
+  [TEMAS.TEMPERATURA, /\b(demora|tarda)\w*\s+(mucho\s+)?(en|para)\s+calentar\b/],
+  [TEMAS.TEMPERATURA, /\bcuanto\s+(se\s+)?(demora|tarda)\w*\s+(en\s+)?calent/],
+  [TEMAS.TEMPERATURA, /\bcalienta\s+(rapido|mucho|bien|harto)\b/],
+  [TEMAS.TEMPERATURA, /\bque\s+(tan|tanto)\s+(caliente|calienta)\b/],
+  [TEMAS.TEMPERATURA, /\bniveles?\s+de\s+(calor|temperatura)\b/],
+
+  // ---- Seguridad de uso: va ANTES de USO ----
+  //
+  // El caso que estaba escrito como defecto conocido y sin arreglar:
+  //   clienta · "oye y esto me lo puedo poner dormida toda la noche?"
+  //   bot     · "Esa no te la quiero contestar a medias…"
+  [TEMAS.SEGURIDAD, /\b(dormir|dormida|dormido|durmiendo|acostada)\b/],
+  [TEMAS.SEGURIDAD, /\btoda\s+la\s+noche\b/],
+  [TEMAS.SEGURIDAD, /\bhoras\s+seguidas\b/],
+  [TEMAS.SEGURIDAD, /\bcuanto\s+tiempo\s+(lo|la)?\s*(puedo|se\s+puede)?\s*(usar|dejar|tener|poner|usarlo|usarla)\b/],
+  [TEMAS.SEGURIDAD, /\bse\s+(puede\s+)?quem(a|ar|aria)\b/],
+  [TEMAS.SEGURIDAD, /\bes\s+seguro\s+(usar|usarlo|usarla|poner|ponerlo|ponerla|dejar|dejarlo)/],
+  [TEMAS.SEGURIDAD, /\bhace\s+da[nñ]o\b/],
+  [TEMAS.SEGURIDAD, /\bpeligros[oa]\b/],
+
+  // ---- Cuidado y lavado ----
+  //
+  // La ficha SI tiene la respuesta, y es un dato que conviene que la
+  // clienta sepa ANTES de usarlo: `garantiaNoCubre` incluye "mojarlo". Era
+  // la pregunta mas frecuente sin tema.
+  [TEMAS.CUIDADO, /\blav(a|ar|able|arlo|arla|arse|o)\b/],
+  [TEMAS.CUIDADO, /\bes\s+lavable\b/],
+  [TEMAS.CUIDADO, /\bcomo\s+(lo|la)\s+(limpio|lavo|cuido)\b/],
+  [TEMAS.CUIDADO, /\blimpi(a|ar|arlo|arla|eza)\b/],
+  [TEMAS.CUIDADO, /\bse\s+(puede\s+)?moj(a|ar|arlo|arla)\b/],
+  [TEMAS.CUIDADO, /\bsumergi/],
+  [TEMAS.CUIDADO, /\bmeter\s+(a\s+)?(la\s+)?lavadora\b/],
+
+  // ---- "¿Y si no me funciona?" : va ANTES de GARANTIA ----
+  //
+  // No es una pregunta por la garantia: es miedo a perder la plata. La
+  // respuesta que convierte es el contraentrega, y la garantia detras.
+  [TEMAS.SI_NO_FUNCIONA, /\bsi\s+no\s+(me\s+)?(funciona|sirve|resulta|gusta|queda)\b/],
+  [TEMAS.SI_NO_FUNCIONA, /\by\s+si\s+no\b/],
+  [TEMAS.SI_NO_FUNCIONA, /\bsi\s+no\s+me\s+(convence|hace\s+efecto)\b/],
+
+  // ---- Para quien es: va ANTES de USO y de MEDIDAS ----
+  //
+  // "¿sirve para una niña de 13?" casa con `sirve para` y recibia la frase
+  // de los colicos, que no contesta la pregunta. Y "¿es para hombre?"
+  // tampoco tenia tema.
+  [TEMAS.DESTINATARIO, /\b(ni[nñ]a|ni[nñ]o|nena|adolescente|muchacha|jovencita)\b/],
+  [TEMAS.DESTINATARIO, /\b(sirve|es|funciona|vale)\s+para\s+(un\s+)?(hombre|hombres|var[oó]n|se[nñ]or)\b/],
+  [TEMAS.DESTINATARIO, /\bpara\s+(mi\s+)?(hija|mama|mami|abuela|hermana|esposa|novia|suegra)\b/],
+  [TEMAS.DESTINATARIO, /\bde\s+\d{1,2}\s+a[nñ]os\b/],
+  [TEMAS.DESTINATARIO, /\bes\s+para\s+hombre\b/],
+
+  // ---- Comparativa con lo que ya usa ----
+  //
+  // Quien compara YA esta decidido a resolver el dolor; solo elige como. Es
+  // la pregunta mas facil de convertir y no tenia respuesta.
+  [TEMAS.COMPARATIVA, /\bque\s+diferencia\b/],
+  [TEMAS.COMPARATIVA, /\bdiferencia\s+(con|entre)\b/],
+  [TEMAS.COMPARATIVA, /\bbolsa\s+de\s+agua\b/],
+  [TEMAS.COMPARATIVA, /\b(es|son)\s+mejor\s+que\b/],
+  [TEMAS.COMPARATIVA, /\ben\s+vez\s+de\s+(una\s+|las\s+|la\s+)?(bolsa|pastilla|pastillas|buscapina|dolex)/],
+
+  // ---- Marca y originalidad ----
+  [TEMAS.MARCA, /\bmarca\b/],
+  [TEMAS.MARCA, /\b(es|son)\s+original(es)?\b/],
+  [TEMAS.MARCA, /\bes\s+(chin[oa]|generic[oa]|replica|imitacion)\b/],
+  [TEMAS.MARCA, /\bbuena\s+calidad\b/],
+  [TEMAS.MARCA, /\bes\s+de\s+calidad\b/],
+
+  // ---- Empaque, regalo, instrucciones ----
+  [TEMAS.EMPAQUE, /\bempaque\b/],
+  [TEMAS.EMPAQUE, /\bviene\s+en\s+caja\b/],
+  [TEMAS.EMPAQUE, /\bpara\s+regal(o|ar|arlo|arle)\b/],
+  [TEMAS.EMPAQUE, /\bes\s+(un\s+)?regalo\b/],
+  [TEMAS.EMPAQUE, /\b(manual|instruccion(es)?)\b/],
+  [TEMAS.EMPAQUE, /\bque\s+(trae|incluye|viene\s+con)\b/],
+
+  // ---- Factura ----
+  [TEMAS.FACTURA, /\bfactura\w*/],
+  [TEMAS.FACTURA, /\b(rut|dian)\b/],
+
+  // ---- Cobertura geografica ----
+  //
+  // Va antes de ENVIO porque "¿llega a mi vereda?" casa con `llega a`, y la
+  // respuesta correcta no es el plazo: es que SI llega y que el envio va
+  // incluido en cualquier destino. Eso esta confirmado en la ficha y es uno
+  // de los argumentos que mas vende fuera de las capitales.
+  [TEMAS.COBERTURA, /\b(vereda|corregimiento|zona\s+rural|resguardo)\b/],
+  [TEMAS.COBERTURA, /\bcobertura\b/],
+  [TEMAS.COBERTURA, /\b(a\s+)?todo\s+el\s+pais\b/],
+  [TEMAS.COBERTURA, /\btod[ao]\s+colombia\b/],
+  [TEMAS.COBERTURA, /\bllegan?\s+a\s+(mi\s+)?(vereda|pueblo|municipio|corregimiento|finca)\b/],
+  [TEMAS.COBERTURA, /\benvian?\s+a\s+(todo|cualquier)\b/],
+
+  // ---- Donde estan ----
+  //
+  // "En qué ciudad" y "Te encuentras" son de un chat real del 08-oct: el
+  // cliente pregunto donde estamos y recibio "esa no te la quiero
+  // contestar a medias". A quien desconfia, eso suena a que escondemos
+  // algo — y era la respuesta a la pregunta mas facil del mundo.
+  [TEMAS.UBICACION, /\ben\s+que\s+ciudad\b/],
+  [TEMAS.UBICACION, /\bde\s+que\s+ciudad\b/],
+  [TEMAS.UBICACION, /\bde\s+donde\s+(son|escriben|es|hablan)\b/],
+  [TEMAS.UBICACION, /\bdonde\s+(te|se)\s+(encuentras|encuentran|ubican)\b/],
+  [TEMAS.UBICACION, /\bte\s+encuentras\b/],
+  [TEMAS.UBICACION, /\bubicad[oa]s?\b/],
+  [TEMAS.UBICACION, /\bdonde\s+(estan|quedan|queda)\b/],
+  // "¿tienen tienda física?" casaba con CONFIANZA (`tienen (tienda|local)`)
+  // y recibia el fallback «cualquier duda te la resuelve una persona del
+  // equipo». Es una pregunta por la ubicacion, y la respuesta buena es que
+  // se vende en linea con envio incluido y pago al recibir.
+  [TEMAS.UBICACION, /\btienen?\s+(tienda|local|punto\s+de\s+venta|sede)\b/],
+  [TEMAS.UBICACION, /\btienda\s+fisica\b/],
+
+  // ---- Horario de atencion ----
+  [TEMAS.HORARIO, /\bhorario\b/],
+  [TEMAS.HORARIO, /\ba\s+que\s+hora(s)?\s+(atienden|abren|trabajan|contestan|responden)\b/],
+  [TEMAS.HORARIO, /\bestan\s+abiertos?\b/],
+  [TEMAS.HORARIO, /\b(trabajan|atienden)\s+(los\s+)?(domingos?|sabados?|festivos?|fines?\s+de\s+semana)\b/],
+
+  // ---- Otro canal de contacto ----
+  [TEMAS.CANAL, /\bme\s+(pueden|puede|podrian|podria)\s+llamar\b/],
+  [TEMAS.CANAL, /\btelefono\s+fijo\b/],
+  [TEMAS.CANAL, /\b(pagina|sitio)\s+web\b/],
+  [TEMAS.CANAL, /\b(instagram|facebook|tiktok)\b/],
+  [TEMAS.CANAL, /\bhacen\s+llamadas?\b/],
+
+  // ---- Otro modelo / que mas venden ----
+  [TEMAS.OTRO_MODELO, /\botro\s+(modelo|tipo|dise[nñ]o|producto)\b/],
+  [TEMAS.OTRO_MODELO, /\botros\s+(modelos|productos|articulos)\b/],
+  [TEMAS.OTRO_MODELO, /\bque\s+mas\s+(venden|tienen|manejan|hay)\b/],
+  [TEMAS.OTRO_MODELO, /\bcatalogo\b/],
+
   // ---- Objecion de precio ----
   //
   // VA ANTES QUE PRECIO a proposito: el orden de esta tabla es el orden de
@@ -235,6 +471,26 @@ const PATRONES = [
     /\b(llega|llegaria|entregan|despachan|reparten|hacen\s+(entregas|envios))\b[^?]{0,20}\b(lunes|martes|miercoles|jueves|viernes|sabado|sabados|domingo|domingos|festivo|festivos|fin\s+de\s+semana)\b/,
   ],
   [TEMAS.ENTREGA, /\ben\s+cuanto\s+(?:me\s+|lo\s+|la\s+)?(?:llega|llegaria|lleg\w+|recib\w+)\b/],
+  // ----------------------------------------------------------------------
+  // LA PRISA: "¿no habría manera de que llegue hoy?"
+  //
+  // Es un mensaje REAL del 08-oct (chat de Andrés, Popayán) y es el cliente
+  // mas caliente que entra por aqui: quien pregunta si llega hoy tiene el
+  // colico HOY. Recibio "esto lo reviso con una persona del equipo" y el bot
+  // se callo 12 horas; una persona lo rescato a mano hora y media despues.
+  //
+  // La respuesta honesta no es el silencio ni una promesa: es el rango de la
+  // ficha. Prometer el dia exacto sigue PROHIBIDO -esta en claimsProhibidos
+  // frase por frase- y el redactor no puede escribirlo; lo que si se puede
+  // es contestar "1 a 3 días hábiles según tu ciudad", que es lo que el
+  // cliente necesita para decidir.
+  [TEMAS.ENTREGA, /\b(llegue|llega|llegaria|llegar)\s+(hoy|ya|rapido|pronto|esta\s+tarde|esta\s+noche)\b/],
+  [TEMAS.ENTREGA, /\b(para|por)\s+hoy\b/],
+  [TEMAS.ENTREGA, /\bhoy\s+mismo\b/],
+  [TEMAS.ENTREGA, /\bmanera\s+de\s+que\s+llegue\b/],
+  [TEMAS.ENTREGA, /\bcuanto\s+antes\b/],
+  [TEMAS.ENTREGA, /\blo\s+necesito\s+(hoy|ya|urgente|para\s+hoy)\b/],
+  [TEMAS.ENTREGA, /\burgente\b/],
 
   // ---- Material ----
   [TEMAS.MATERIAL, /\bmaterial\b/],
@@ -291,7 +547,24 @@ const PATRONES = [
   // Separarlo permite contestar lo honesto -que ese dato lo confirma una
   // persona- sin tocar la respuesta de "para que sirve", que es correcta.
   [TEMAS.ENERGIA, /\bes\s+(recargable|electrico|electrica)\b/],
-  [TEMAS.ENERGIA, /\b(bateria|pila|cable|usb|enchuf|cargador|carga)\w*/],
+  // ⚠️ `carga` NO LLEVA `\w*`, Y ES UN DEFECTO MEDIDO EN PRODUCCION.
+  //
+  // Era `/\b(bateria|pila|cable|usb|enchuf|cargador|carga)\w*/`, y ese
+  // `carga\w*` casaba con "cargaron". El 08-oct, en el chat de Marco:
+  //
+  //   Marco  · "Quiero ver fotos"
+  //   NOVIKA · "Te las mandé aquí arriba; si no te cargaron, dime…"
+  //   Marco  · "No cargaron"
+  //   NOVIKA · "Buena pregunta: en las fotos se ve el panel de control…
+  //             Si funciona con batería o enchufado no te lo quiero decir
+  //             a medias…"
+  //
+  // El bot le hablo de la bateria a quien le estaba diciendo que las fotos
+  // no le llegaron — y ademas escalo. Las formas que de verdad preguntan
+  // por la energia se enumeran: "carga", "cargar", "recargable". El
+  // pasado ("cargaron", "cargo") es SIEMPRE de las fotos.
+  [TEMAS.ENERGIA, /\b(bateria|pila|cable|cables|usb|enchuf\w*|cargador|recargable|recarga)\b/],
+  [TEMAS.ENERGIA, /\bcargar?\b/],
   [TEMAS.ENERGIA, /\bcuantos\s+niveles\b/],
   [TEMAS.ENERGIA, /\bniveles?\s+(de|tiene|trae|maneja)\b/],
   [TEMAS.ENERGIA, /\bcuanto\s+(dura|le\s+dura)\b/],
@@ -311,6 +584,19 @@ const PATRONES = [
   [TEMAS.CONFIANZA, /\bme\s+(van|iran)\s+a\s+(estafar|robar)\b/],
   [TEMAS.CONFIANZA, /\bdonde\s+(estan|quedan|es)\b/],
   [TEMAS.CONFIANZA, /\btienen\s+(tienda|local|direccion)\b/],
+  // LA DESCONFIANZA SE DICE EN PRIMERA PERSONA, Y NO ESTABA CUBIERTA.
+  //
+  // Medido el 09-oct: "no confío en estas páginas" no tenia tema, asi que
+  // el bot le contestaba "¿Cuántos quieres? Y para preparar tu pedido me
+  // pasas la ciudad y la dirección". Pedirle los datos a quien acaba de
+  // decir que no confia es la forma mas rapida de confirmarle el miedo.
+  [TEMAS.CONFIANZA, /\bno\s+(confio|me\s+confio|me\s+fio)\b/],
+  [TEMAS.CONFIANZA, /\bdesconfi/],
+  [TEMAS.CONFIANZA, /\bme\s+da\s+(miedo|cosa|desconfianza)\b/],
+  [TEMAS.CONFIANZA, /\bme\s+han\s+(estafado|robado|tumbado)\b/],
+  [TEMAS.CONFIANZA, /\bya\s+me\s+(estafaron|tumbaron|robaron)\b/],
+  [TEMAS.CONFIANZA, /\bcomo\s+se\s+que\s+(es|son|no\s+es)\b/],
+  [TEMAS.CONFIANZA, /\bes\s+seguro\s+(comprar|pedir|pagar)\b/],
 
   // ---- Fotos ----
   [TEMAS.FOTOS, /\bfotos?\b/],
@@ -699,6 +985,133 @@ const SE_LO_PIENSA = [
   /\bdejame\s+pensarlo\b/,
   /\bcuando\s+(pueda|cobre|me\s+paguen|tenga)\b/,
   /\bmas\s+adelante\b/,
+  // ----------------------------------------------------------------------
+  // AMPLIADO EL 2026-10-09, TODO MEDIDO
+  //
+  // Tres formas muy comunes de decir "todavia no" recibian la peticion de
+  // nombre, ciudad y direccion:
+  //
+  //   "mejor después"                   -> "¿Cuántos quieres? Y para…"
+  //   "déjame preguntarle a mi esposo"  -> "¿Cuántos quieres? Y para…"
+  //   "apenas vaya a pedirlo te aviso"  -> "¡Perfecto! ¿Cuántos quieres?…"
+  //
+  // La tercera es literal de un chat del 08-oct: una clienta se despidio
+  // dando las gracias y diciendo que avisaria, y el bot le pidio los datos.
+  // Insistir ahi no adelanta la venta, la quema.
+  // ----------------------------------------------------------------------
+  /\bmejor\s+(despues|luego|mas\s+tarde|manana|otro\s+dia)\b/,
+  /\b(le\s+)?pregunt(o|arle|ar)\s+a\s+mi\s+(esposo|marido|mama|mami|pareja|novio|papa)\b/,
+  /\blo\s+(hablo|consulto)\s+con\s+mi\b/,
+  /\bapenas\s+(vaya|pueda|me\s+decida|tenga)\b/,
+  /\bdespues\s+(lo|la|le)\s+(pido|compro|busco)\b/,
+  /\bvoy\s+a\s+(mirar|ver|pensarlo|averiguar)\b/,
+  /\btodavia\s+no\s+(me\s+)?(decido|he\s+decidido)\b/,
+  /\bestoy\s+mirando\b/,
+];
+
+/**
+ * PIDE HABLAR CON UNA PERSONA. Esto SI es un escalado, y no existia.
+ *
+ * Medido el 09-oct: "quiero hablar con una persona" recibia "¡Perfecto,
+ * gracias! Para preparar tu pedido me pasas la ciudad y la dirección".
+ * Ignorar esa peticion es lo que hace que un cliente escriba tres veces y
+ * acabe yendose. `docs/VOZ-DE-BIKERPRO.md` lo tiene como comportamiento de
+ * referencia desde el principio; en NOVIKA no estaba implementado.
+ */
+const PIDE_HUMANO = [
+  /\b(hablar|habla|comunicar|comunicarme|contactar)\s+con\s+(una|un|alguna|algun)?\s*(persona|asesor|asesora|humano|agente|alguien|operador|vendedor|vendedora)\b/,
+  /\b(me\s+)?(pasa|pasas|pase|comunica|comuniqueme)\s+con\s+(una|un)?\s*(persona|asesor|asesora|humano|agente|alguien)\b/,
+  /\b(hay|habra)\s+(alguna\s+)?(persona|humano|asesor|alguien)\s+(real|de\s+verdad|ahi)\b/,
+  /\beres\s+(un\s+)?(bot|robot|maquina|inteligencia)\b/,
+  /\b(esto|eres)\s+es\s+un\s+bot\b/,
+  /\bno\s+quiero\s+(hablar\s+con\s+)?(un\s+)?(bot|robot|maquina)\b/,
+  /\batiende\s+(alguien|una\s+persona)\b/,
+  /\bquiero\s+(un|una)\s+(asesor|asesora|persona|humano)\b/,
+];
+
+/**
+ * EL CLIENTE ESTA MOLESTO. Tampoco existia.
+ *
+ * Medido el 09-oct: "esto es un robo, son unos estafadores, los voy a
+ * denunciar" recibia "¡Perfecto, gracias! Para preparar tu pedido me pasas
+ * la ciudad y la dirección". Seguir vendiendo a quien amenaza con denunciar
+ * es la peor respuesta posible, y es la que daba.
+ *
+ * ⚠️ OJO: `estafa` a secas NO va aqui. "¿será estafa?" es DESCONFIANZA de
+ * alguien que todavia no ha comprado -una objecion que se rebate y se
+ * vende-, no un cliente enfadado. Lo que marca el enfado es el insulto, la
+ * amenaza o la afirmacion en indicativo ("son unos estafadores").
+ */
+const ESTA_MOLESTO = [
+  /\bson\s+unos?\s+(estafadores|ladrones|sinverguenzas|mentirosos|tramposos)\b/,
+  // ⚠️ LA ACUSACION TIENE QUE SER CONTRA NOSOTROS. ESTO LO CAZO UNA
+  //    CONVERSACION DE PRUEBA, Y HABRIA SIDO UN DEFECTO PEOR QUE EL ORIGINAL.
+  //
+  // La primera version ponia `/\b(me|nos)\s+(estafaron|robaron|tumbaron)\b/`,
+  // y con eso "ya me estafaron una vez" se leia como cliente enfadado:
+  //
+  //   clienta · "no confío en estas páginas"
+  //   bot     · "Pagas cuando el pedido llega a tus manos…"     ✅
+  //   clienta · "ya me estafaron una vez"
+  //   bot     · "Prefiero que esto lo vea una persona del equipo"  ⛔
+  //             …y el bot se callo 12 h. Los seis mensajes siguientes
+  //             -incluido "bueno, dale" y la direccion completa- no se
+  //             enviaron.
+  //
+  // Y es LO CONTRARIO de un cliente molesto: es la objecion de confianza en
+  // su forma mas clara. Quien cuenta que ya la estafaron esta explicando por
+  // que duda, y el contraentrega es la respuesta perfecta. Tiene tema propio
+  // (CONFIANZA) con esa frase incluida.
+  //
+  // Un escalado en falso es ahora el fallo mas caro que puede tener este
+  // bot -se lleva la conversacion entera por delante-, asi que las tres
+  // señales que escalan son estrechas a proposito: hace falta un sujeto en
+  // segunda persona, una amenaza o un insulto.
+  /\b(ustedes|uds|usted|vos)\s+me\s+(estafaron|estafaste|robaron|robaste|tumbaron|enga[nñ]aron|enga[nñ]aste)\b/,
+  /\bme\s+(estafaron|robaron|tumbaron|enga[nñ]aron)\s+(ustedes|uds)\b/,
+  // `robo` NO va aqui: "está muy caro, es un robo" es una objecion de
+  // precio, no una acusacion. Los otros tres no tienen ese doble uso.
+  /\bes\s+un\s+(fraude|enga[nñ]o|descaro)\b/,
+  /\b(los|te|le)\s+voy\s+a\s+(denunciar|demandar|reportar)\b/,
+  /\b(denuncia|demanda)\s+(a|ante)\s+(la\s+)?(sic|superintendencia|fiscalia)\b/,
+  /\bpesimo\s+servicio\b/,
+  /\bque\s+falta\s+de\s+(respeto|seriedad)\b/,
+  /\bestoy\s+(muy\s+)?(molesta|molesto|furiosa|furioso|indignada|indignado|cansada\s+de|harta|harto)\b/,
+  /\b(malparid|hijueput|gonorrea|estupid|idiot|imbecil)\w*/,
+];
+
+/**
+ * RECLAMA LA GARANTIA DE ALGO QUE YA RECIBIO. Esto SI va a una persona.
+ *
+ * Medido el 09-oct, y es el peor de los tres: a "me llegó dañado, quiero la
+ * garantía" el bot contestaba *«¡Claro que sí! Tiene 1 mes de garantía por
+ * defecto de fábrica, así que compras con tranquilidad. ¡Perfecto! Para
+ * preparar tu pedido me pasas la ciudad y la dirección»*. Le vendia la
+ * garantia como argumento de venta a quien la estaba RECLAMANDO, y encima
+ * le pedia los datos otra vez.
+ *
+ * Un reclamo lo gestiona una persona siempre: hay que ver fotos, decidir si
+ * es defecto de fabrica y coordinar el cambio. El bot no puede hacer nada
+ * de eso.
+ */
+const RECLAMA_GARANTIA = [
+  /\b(me|nos)\s+lleg(o|aron)\s+(da[nñ]ad|mal|roto|rota|incompleto|defectuos|quemad)/,
+  /\blleg(o|aron)\s+(da[nñ]ad|roto|rota|defectuos|quemad|mal\s+empacad)/,
+  // ⚠️ EL LOOKBEHIND SEPARA UN RECLAMO DE UNA OBJECION, Y SON OPUESTOS.
+  //
+  //   "no me funciona"       -> ya lo tiene y esta roto. Va a una persona.
+  //   "¿y si no me funciona?" -> todavia no ha comprado y tiene miedo. Se
+  //                              contesta con contraentrega y se VENDE.
+  //
+  // Sin el lookbehind, el condicional se trataba como reclamo y a una
+  // clienta que dudaba antes de comprar se le abria un caso de garantia.
+  /(?<!\bsi\s)(?<!\bsi\s\s)\bno\s+(me\s+)?(funciona|enciende|prende|calienta)\b/,
+  /\bse\s+(da[nñ]o|quemo|rompio|descompuso|apago)\b/,
+  /\bquiero\s+(la\s+)?garantia\b/,
+  /\b(hacer|reclamar|aplicar)\s+(efectiva\s+)?(la\s+)?garantia\b/,
+  /\bquiero\s+(que\s+me\s+)?(devolver|devuelvan|cambien|un\s+cambio|el\s+cambio)\b/,
+  /\bvino\s+(da[nñ]ad|roto|mal)/,
+  /\bllego\s+pero\s+(no|esta)\b/,
 ];
 
 /** Saludos puros: no preguntan nada. */
@@ -763,6 +1176,71 @@ function leer(texto) {
     temas.splice(temas.indexOf(TEMAS.PRECIO), 1);
   }
 
+  // ----------------------------------------------------------------------
+  // CUANDO DOS TEMAS HABLAN DE LO MISMO, MANDA EL ESPECIFICO
+  //
+  // ⚠️ ESTOS COLAPSOS VIVEN AQUI Y SOLO AQUI, A PROPOSITO.
+  //
+  // Ya habia colapsos (MEDIDAS>TALLA, GARANTIA_TRAMITE>GARANTIA,
+  // OBJECION_PRECIO>{ENVIO,PAGO}) escritos DOS VECES: en `contestar.aTemas`
+  // y en `voz.temasQueSeContestan`. Esa duplicacion ya causo un defecto
+  // real -el mensaje abria por un tema y contestaba otro: «Sí, La correa es
+  // graduable»- y el propio repositorio lo tiene documentado como la
+  // leccion de las dos listas de "pregunta de precio" que se separaron.
+  //
+  // Los nuevos no se duplican: se aplican sobre `temas` antes de devolverlo,
+  // asi que quien lee `temas` -el redactor, la voz, el prompt- ve ya la
+  // lista colapsada. Una sola fuente.
+  // ----------------------------------------------------------------------
+  const quitar = (sobra) => {
+    const i = temas.indexOf(sobra);
+    if (i >= 0) temas.splice(i, 1);
+  };
+
+  // "¿cuánto demora en calentar?" casa con `/\bdemora\w*/` de ENTREGA. Si
+  // se dejan los dos, al calor se le contesta con el plazo de la
+  // transportadora.
+  if (temas.includes(TEMAS.TEMPERATURA)) quitar(TEMAS.ENTREGA);
+  // "¿en qué ciudad están?" es UBICACION, no una objecion de confianza.
+  if (temas.includes(TEMAS.UBICACION)) quitar(TEMAS.CONFIANZA);
+  // "¿hay descuento por mayor?" es un lead mayorista, no la escalera.
+  if (temas.includes(TEMAS.MAYORISTA)) {
+    quitar(TEMAS.OBJECION_PRECIO);
+    quitar(TEMAS.PRECIO);
+  }
+  // "¿sirve si estoy embarazada?" y "¿me lo dejo dormida?" casan con
+  // `sirve para` / USO, y la frase de los colicos no contesta ninguna.
+  if (temas.includes(TEMAS.CONTRAINDICACION)) quitar(TEMAS.USO);
+  if (temas.includes(TEMAS.SEGURIDAD)) quitar(TEMAS.USO);
+  if (temas.includes(TEMAS.DESTINATARIO)) quitar(TEMAS.USO);
+  // "¿y si no me funciona?" ya se contesta con contraentrega + garantia.
+  if (temas.includes(TEMAS.SI_NO_FUNCIONA)) quitar(TEMAS.GARANTIA);
+  // "¿llega a mi vereda?" casa con `llega a` de ENVIO; la respuesta es la
+  // cobertura, y ya dice que el envio va incluido.
+  if (temas.includes(TEMAS.COBERTURA)) quitar(TEMAS.ENVIO);
+  // "¿viene en caja?" casa con `/\bviene\s+en\s+\w+/` de COLOR, y el
+  // mensaje salia contestando el empaque Y el color rosado. Quien pregunta
+  // por la caja no pregunto por el color.
+  if (temas.includes(TEMAS.EMPAQUE)) quitar(TEMAS.COLOR);
+  // "¿tienen tienda física?" ya se contesta con la ubicacion.
+  if (temas.includes(TEMAS.UBICACION)) quitar(TEMAS.MARCA);
+
+  // ----------------------------------------------------------------------
+  // UN RECLAMO NO ES UNA PREGUNTA POR LA GARANTIA
+  //
+  // "me llegó dañado, quiero la garantía" marcaba el tema GARANTIA, y el
+  // tema GARANTIA responde con el argumento de VENTA: «tiene 1 mes de
+  // garantía, así que compras con tranquilidad». Se le vendia la garantia a
+  // quien la estaba reclamando. Se quita el tema: esto lo atiende una
+  // persona, y el texto lo pone la rama de escalado.
+  // ----------------------------------------------------------------------
+  const reclamaGarantia = RECLAMA_GARANTIA.some((re) => re.test(plano));
+  if (reclamaGarantia) {
+    quitar(TEMAS.GARANTIA);
+    quitar(TEMAS.GARANTIA_TRAMITE);
+    quitar(TEMAS.SI_NO_FUNCIONA);
+  }
+
   const saludo = SALUDOS.some((re) => re.test(plano));
   const interrogacion = /\?/.test(crudo);
   // PEDIR INFORMACION GANA A LAS SEÑALES DE COMPRA.
@@ -794,11 +1272,49 @@ function leer(texto) {
   // Las señales FUERTES siguen valiendo: "esta caro pero me lo llevo" es
   // una compra, y una objecion no puede bloquear un "me lo llevo".
   const objetaElPrecio = temas.includes(TEMAS.OBJECION_PRECIO);
-  const compra = pideInfo
+
+  // ----------------------------------------------------------------------
+  // "SE LO PIENSA" BLOQUEA LAS SEÑALES DEBILES, COMO YA HACIA LA OBJECION
+  //
+  // Mensaje literal de un chat del 08-oct:
+  //
+  //   "Vale mil gracias, apenas vaya a pedirlo de fijo te aviso, okey, esta
+  //    hermoso, muy amable, listo, gracias por la info, bendiciones🥰"
+  //
+  // Es una despedida de manual: se lo va a pensar y avisara. Y recibio
+  // *«¡Perfecto! ¿Cuántos quieres? Y para preparar tu pedido me pasas tu
+  // nombre completo, la ciudad y la dirección»*.
+  //
+  // La culpa era de las señales DEBILES: ese mensaje contiene "vale" y
+  // "listo" -dos de ellas- y como no lleva interrogacion ni objecion,
+  // contaba como compra. Pero "vale" y "listo" ahi son cortesia, igual que
+  // el "bueno" de resignacion que ya bloquea la objecion de precio.
+  //
+  // Las señales FUERTES siguen ganando: "lo pienso... bueno, me lo llevo"
+  // es una compra, y pensarselo no puede bloquear un "me lo llevo".
+  // ----------------------------------------------------------------------
+  const seLoEstaPensando = SE_LO_PIENSA.some((re) => re.test(plano));
+
+  const compraDeclarada = pideInfo
     ? COMPRA_INEQUIVOCA.some((re) => re.test(plano))
     : SENALES_DE_COMPRA.some((re) => re.test(plano)) ||
-      // Las debiles solo valen si el cliente NO esta preguntando ni objetando.
-      (!interrogacion && !objetaElPrecio && SENALES_DEBILES.some((re) => re.test(plano)));
+      // Las debiles solo valen si el cliente NO esta preguntando, NO esta
+      // objetando y NO se lo esta pensando.
+      (!interrogacion && !objetaElPrecio && !seLoEstaPensando && SENALES_DEBILES.some((re) => re.test(plano)));
+
+  // ----------------------------------------------------------------------
+  // UN RECLAMO NUNCA ES UNA COMPRA, AUNQUE CONTENGA "QUIERO"
+  //
+  // Medido el 09-oct: "me llegó dañado, quiero la garantía" salia con
+  // `compra: true`, porque `/\bquiero\s+(...|el|la)\b/` casa con "quiero
+  // la". Efecto compuesto y terrible: el bot le vendia la garantia como
+  // argumento comercial Y ademas le pedia nombre, ciudad y direccion a
+  // quien ya habia recibido el pedido.
+  //
+  // Un cliente molesto tampoco esta comprando: "son unos estafadores, los
+  // voy a denunciar" no se contesta pidiendo la direccion.
+  // ----------------------------------------------------------------------
+  const compra = compraDeclarada && !reclamaGarantia && !ESTA_MOLESTO.some((re) => re.test(plano));
 
   // Un signo de interrogacion es una señal fuerte, pero no la unica: mucha
   // gente pregunta sin escribirlo ("cuanto vale").
@@ -857,7 +1373,22 @@ function leer(texto) {
       !interrogacion &&
       plano.split(/\s+/).length <= 4,
     // "Ahi le aviso": se lo esta pensando. No se insiste.
-    seLoPiensa: SE_LO_PIENSA.some((re) => re.test(plano)) && !compra,
+    seLoPiensa: seLoEstaPensando && !compra,
+
+    // ------------------------------------------------------------------
+    // LAS TRES SEÑALES QUE SI TIENEN QUE LLEVAR A UNA PERSONA
+    //
+    // Hasta el 09-oct el bot escalaba por cosas que podia resolver -una
+    // duda sobre el material- y NO escalaba por las tres cosas que no
+    // puede resolver nadie mas que una persona. Estaba exactamente al
+    // reves de lo que pedia Marco.
+    // ------------------------------------------------------------------
+    /** Pide hablar con alguien de verdad. Se le pasa, sin discutir. */
+    pideHumano: PIDE_HUMANO.some((re) => re.test(plano)),
+    /** Esta enfadado o amenaza. No se le sigue vendiendo. */
+    estaMolesto: ESTA_MOLESTO.some((re) => re.test(plano)),
+    /** Reclama la garantia de algo que ya tiene. Hay que ver fotos y decidir. */
+    reclamaGarantia,
   };
 }
 
@@ -884,4 +1415,10 @@ module.exports = {
   SENALES_DE_COMPRA,
   SENALES_DEBILES,
   PATRONES,
+  // Expuestos para las pruebas de regresion del 09-oct: cada lista nacio de
+  // un mensaje real que el bot contesto mal.
+  PIDE_HUMANO,
+  ESTA_MOLESTO,
+  RECLAMA_GARANTIA,
+  SE_LO_PIENSA,
 };

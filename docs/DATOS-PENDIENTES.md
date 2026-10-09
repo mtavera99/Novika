@@ -14,6 +14,57 @@ Su duda número 1 era la **talla** (17,8%) y la número 2 el **color** (10,3%) �
 
 ---
 
+## ⚠️ Actualización del 2026-10-09 — ahora hay medición propia
+
+Se auditaron los 33 chats del panel y se corrieron 65 preguntas reales por el
+bot (`node herramientas/sondear.js`). Informe completo en
+[`AUDITORIA-2026-10-09.md`](AUDITORIA-2026-10-09.md).
+
+**El orden de esta lista cambia con el dato propio.** De las 5 preguntas que
+hoy siguen sin respuesta, **3 son del punto 4 (cómo se enciende)**:
+
+- «Trae cargador»
+- «Con cables para cargar»
+- «es recargable o de pilas?»
+
+Las tres son del mismo chat o de chats distintos del 08-oct, y una clienta la
+preguntó **dos veces seguidas** porque la primera respuesta no le sirvió. Es lo
+primero que se piensa de un aparato que calienta.
+
+**Así que el punto 4 pasó a ser el más urgente de este documento**, por delante
+del contorno. El contorno sigue siendo el que más vende; el cargador es el que
+más veces se pregunta y deja al cliente sin respuesta.
+
+**Lo que ya NO hace falta que contestes**, porque se resolvió leyendo la ficha
+en vez de preguntándote:
+
+| Pregunta | De dónde salió la respuesta |
+|---|---|
+| «¿se puede lavar?» | `garantiaNoCubre` ya decía «mojarlo» |
+| «¿llega a una vereda / a todo el país?» | la política de envío, que no acota destinos |
+| «¿en qué ciudad están?» / «¿tienen tienda?» | tienda en línea + envíos + pago al recibir |
+| «¿es original?» / «¿qué marca es?» | marca propia + garantía + contraentrega |
+| «¿viene en caja?» / «¿sirve de regalo?» | «se entrega con su empaque» |
+| «¿sirve para una niña / para un hombre?» | talla única graduable, sin prometer contorno |
+| «¿y si no me funciona?» | contraentrega primero, garantía después |
+| «¿qué diferencia con una bolsa de agua?» | correa graduable + panel de control |
+
+Y una que **se decidió sin preguntarte, a propósito**: a «¿sirve si estoy
+embarazada?» el bot responde que eso lo mire con su médico. No deriva al
+equipo, porque el equipo tampoco puede autorizarlo. Si quieres otra cosa,
+dímelo — pero mi recomendación es dejarlo así.
+
+**Dos cosas nuevas que sí necesito de ti**, y no estaban en la lista:
+
+- **¿Cuántas horas seguidas se puede dejar puesto?** Hoy el bot dice que lo
+  regula con el panel de control y que lo confirma con el equipo. Es la
+  pregunta de seguridad, y llega.
+- **¿A cuántos grados llega / cuánto demora en calentar?** Mismo caso.
+
+Las dos caben en el punto 4.
+
+---
+
 ## 🔴 Bloque 1 — Las que te van a preguntar en la primera venta
 
 ### 1. ¿Hasta qué contorno ajusta la correa? — ⚠️ A MEDIAS

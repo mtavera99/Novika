@@ -204,6 +204,15 @@ const PREGUNTA_PRECIO = [
   /\bque\s+(me\s+)?(vale|valen|cuesta|cuestan|sale|salen)\b/,
   /\bque\s+precio\b/,
   /\bprecios?\b/,
+  // "PRESIO", "PRESCIO", "PRECSIO". La errata mas frecuente de la palabra
+  // mas importante del negocio.
+  //
+  // Medido el 09-oct: "ola ke presio tiene" -una forma completamente normal
+  // de escribir desde el movil- recibia solo un saludo, sin el precio. El
+  // resto de la lista ya tolera erratas a proposito (`bale`, `kuanto`,
+  // `kuesta`); a `precio` se le habia olvidado, y es la que mas cuesta
+  // fallar: el cliente pregunto el precio y no lo recibio.
+  /\bpres?c?ios?\b/,
   /\bvalor\b/,
   // "QUE COSTO TIENE". Es preguntar el precio, y NO se reconocia: la lista
   // solo conocia el verbo ("cuesta", "cuestan"), no el sustantivo.
