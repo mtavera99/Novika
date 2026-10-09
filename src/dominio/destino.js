@@ -202,6 +202,115 @@ const NO_SON_CIUDAD = [
 ];
 
 /** Frases que NO son una direccion. */
+// ==========================================================================
+// LA OFICINA DE LA TRANSPORTADORA ES UNA DIRECCION VALIDA
+//
+// ⚠️ LO AUTORIZO MARCO EL 2026-10-09: «recuerda que nosotros tambien podemos
+//    llevar a la oficina inter rapidisimo o a la oficina de coordinadora».
+//
+// Hasta hoy "oficina de interrapidisimo" se RECHAZABA con "una direccion sin
+// ningun numero no sirve para despachar", que es exactamente al reves: un
+// envio a oficina es el caso en el que menos falta hace una nomenclatura.
+//
+// ES LA SALIDA DE LA REGLA DURA. Marco pidio el mismo dia que sin direccion
+// utilizable no se cree el pedido; sin esta alternativa, eso convierte a todo
+// cliente sin nomenclatura en una venta perdida.
+//
+// OJO: `NO_SON_DIRECCION` rechaza "mi oficina" / "la oficina" a secas -el
+// sitio de trabajo del cliente, que no identifica nada-, y eso se mantiene.
+// Lo que se acepta es la oficina DE UNA TRANSPORTADORA, con su nombre.
+// ==========================================================================
+const TRANSPORTADORAS_CONOCIDAS =
+  "interrapidisimo|inter\\s*rapidisimo|interapidisimo|coordinadora|servientrega|envia|tcc|deprisa|redex|saferbo";
+
+// "oficina de interrapidisimo", "en la oficina interrapidisimo", "envio a
+// oficina de servientrega", y tambien las formas sin la palabra "oficina":
+// "la recojo en interrapidisimo", "la reclamo en coordinadora". Esa ultima
+// es como lo dice la gente, y sin ella el bot le seguia pidiendo la
+// direccion a quien ya habia dicho donde la recoge.
+const OFICINA_DE_TRANSPORTADORA = new RegExp(
+  `\\b(oficina|sucursal|agencia|punto|bodega)\\b[^.]{0,20}\\b(${TRANSPORTADORAS_CONOCIDAS})\\b` +
+    `|\\b(${TRANSPORTADORAS_CONOCIDAS})\\b[^.]{0,20}\\b(oficina|sucursal|agencia|punto)\\b` +
+    `|\\b(recoj[oa]|recoger|recogerl[oa]|retir[oa]|retirar|reclam[oa]|reclamar|paso\\s+por)\\b[^.]{0,25}\\b(${TRANSPORTADORAS_CONOCIDAS})\\b` +
+    // Y al reves, que es como lo dijo un cliente de prueba: "la dejo en
+    // coordinadora y la recojo ahi". El verbo va DETRAS del nombre.
+    `|\\b(${TRANSPORTADORAS_CONOCIDAS})\\b[^.]{0,30}\\b(recoj[oa]|recoger|recogerl[oa]|retir[oa]|retirar|reclam[oa]|reclamar)\\b`
+);
+
+/** ¿Pide que se deje en una oficina, sin decir cual? "en la oficina", "la recojo". */
+const QUIERE_OFICINA_SIN_DECIR_CUAL =
+  /\b(en|a)\s+(la\s+)?(oficina|sucursal|agencia)\b|\b(recoj[oa]|recoger|retiro|retirar)\b.*\b(oficina|sucursal|agencia)\b/;
+
+// ==========================================================================
+// UN PUNTO DE REFERENCIA ES LO QUE HACE ENTREGABLE UNA ZONA SIN NOMENCLATURA
+//
+// En un pueblo o una vereda no hay carrera ni numero: la direccion ES el
+// barrio MAS algo que el mensajero pueda encontrar. Esa diferencia es la que
+// separa una venta de una llamada de rescate:
+//
+//   · "barrio centenario"                              -> nadie puede llegar
+//   · "barrio Centenario al frente de Cristal Drogueria" -> se entrega
+//
+// El segundo es, textualmente, el que Marco tuvo que conseguir POR TELEFONO
+// el 09-oct despues de que el bot aceptara el primero y cerrara el pedido.
+//
+// La lista son las mismas cosas que el propio bot pide cuando pide una
+// referencia -"una tienda, una esquina, el color de la casa"-, asi que no es
+// una lista arbitraria: es el espejo de lo que ya preguntamos.
+// ==========================================================================
+// Las palabras que el bot pide literalmente cuando pide una referencia: "una
+// tienda, una esquina, el color de la casa". Es la señal mas clara, pero NO
+// la unica — ver `tieneAlgoMasQueElBarrio`.
+const PALABRA_DE_REFERENCIA =
+  /\b(frente|enfrente|al\s+lado|contiguo|junto|cerca|diagonal|esquina|esquinera|detras|atras|arriba|abajo|encima|seguido|entrada|salida|subida|bajada)\b|\b(tienda|panaderia|drogueria|farmacia|iglesia|capilla|colegio|escuela|parque|cancha|polideportivo|hospital|alcaldia|plaza|mercado|granero|miscelanea|papeleria|billar|cafeteria|restaurante|hotel|estadero|porton|reja|casa|apartamento|apto|torre|bloque|interior|etapa|piso|local|puesto)\b/;
+
+/**
+ * ¿La direccion dice algo MAS que el nombre del barrio?
+ *
+ * ⚠️ ESTE CRITERIO SUSTITUYE A UNA LISTA DE VOCABULARIO, Y EL MOTIVO ES UN
+ *    ERROR MIO DE HACE DIEZ MINUTOS.
+ *
+ * La primera version decidia solo con la lista de arriba, y rechazaba
+ * "barrio pueblillo en la cantera la pintada" porque "cantera" no estaba en
+ * ella. Esa direccion es la del chat de Popayan del 08-oct: una venta que ya
+ * se perdio una vez por rechazarla. Una lista de sitios ("cantera", "trapiche",
+ * "beneficiadero", "la Y", "el alto"...) nunca se termina de escribir.
+ *
+ * Lo que de verdad separa una direccion entregable de una que no lo es no es
+ * el vocabulario: es si hay INFORMACION ADEMAS del barrio. Un mensajero no
+ * puede encontrar una casa con "barrio centenario" y si puede con "barrio
+ * pueblillo en la cantera la pintada", aunque ninguna de las dos traiga una
+ * palabra de la lista.
+ *
+ * Se cuentan las palabras con contenido -quitando el marcador de zona y las
+ * de relleno- y se piden TRES. Con dos o menos, lo que hay es un nombre de
+ * barrio y nada mas: "barrio centenario" (1), "barrio buenos aires" (2).
+ */
+// ⚠️ SIN LA `g`, Y A PROPOSITO: SOLO SE QUITA EL PRIMER MARCADOR.
+//
+// Con la `g` se quitaban todos, y eso borraba justo la referencia en las
+// direcciones rurales de dos niveles: "vereda La Esperanza finca El Mirador"
+// se quedaba en "esperanza mirador" -dos palabras- y se rechazaba. Pero ahi
+// "finca El Mirador" ES el punto de referencia: dice en cual de las fincas
+// de la vereda. El primer marcador es el que no aporta nada; los siguientes
+// si.
+const MARCADOR_DE_ZONA = /\b(barrio|brr|vereda|vda|corregimiento|sector|finca|conjunto|urbanizacion|resguardo|invasion|comuna|manzana|mz|lote|km|kilometro)\b/;
+const RELLENO = new Set("el la los las de del un una y o en con a al para por que es mi su este esta aqui".split(" "));
+
+function tieneAlgoMasQueElBarrio(plano) {
+  const conContenido = plano
+    .replace(MARCADOR_DE_ZONA, " ")
+    .split(/[^a-z0-9]+/)
+    .filter((p) => p && !RELLENO.has(p));
+  return conContenido.length >= 3;
+}
+
+/** ¿Se puede entregar en esta zona sin nomenclatura? */
+function TIENE_PUNTO_DE_REFERENCIA_test(plano) {
+  return PALABRA_DE_REFERENCIA.test(plano) || tieneAlgoMasQueElBarrio(plano);
+}
+const TIENE_PUNTO_DE_REFERENCIA = { test: TIENE_PUNTO_DE_REFERENCIA_test };
+
 const NO_SON_DIRECCION = [
   /^(mi|la|el)\s+(casa|apartamento|apto|oficina|trabajo)\s*$/,
   /^(aca|aqui|alla|ahi|donde\s+siempre|la\s+misma)\s*$/,
@@ -288,8 +397,15 @@ const TIPOS_DE_VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal
  * Nace de una venta perdida real; el motivo completo esta en
  * `validarDireccion`.
  */
+// ⚠️ EL ARTICULO OPCIONAL NO ESTABA, Y RECHAZABA DIRECCIONES BUENAS.
+//
+// "barrio el rosario frente al parque" NO pasaba: tras `barrio\s+` venia
+// "el", y el `[a-z]{3,}` exige tres letras de golpe. Medio pais vive en un
+// "barrio El Carmen" o una "vereda La Esperanza". El articulo se permite
+// pero NO cuenta como nombre: detras tiene que venir una palabra de verdad,
+// asi que "barrio el" a secas sigue fuera.
 const ZONA_CON_NOMBRE =
-  /\b(barrio|brr|vereda|vda|corregimiento|sector|finca|conjunto|urbanizacion|resguardo|invasion|comuna)\b\s+(?!(?:el|la|los|las|de|del|mi|un|una)\b\s*$)[a-z]{3,}/;
+  /\b(barrio|brr|vereda|vda|corregimiento|sector|finca|conjunto|urbanizacion|resguardo|invasion|comuna)\b\s+(?:(?:el|la|los|las|de|del)\s+)?[a-z]{3,}/;
 
 function validarDireccion(texto) {
   const crudo = String(texto ?? "").trim();
@@ -297,8 +413,26 @@ function validarDireccion(texto) {
 
   if (!plano) return { ok: false, motivo: "vacio" };
 
+  // ------------------------------------------------------------------
+  // LA OFICINA DE LA TRANSPORTADORA VA PRIMERO, ANTES DE TODO LO DEMAS.
+  //
+  // Va arriba a proposito: no tiene que pasar por el filtro de longitud ni
+  // por la exigencia de un numero, que es justo lo que la rechazaba. Un
+  // envio a oficina es una direccion COMPLETA -la oficina mas la ciudad, que
+  // se guarda aparte- y no necesita revision.
+  // ------------------------------------------------------------------
+  if (OFICINA_DE_TRANSPORTADORA.test(plano)) {
+    return { ok: true, valor: crudo, revisar: false, aOficina: true };
+  }
+
   if (NO_SON_DIRECCION.some((re) => re.test(plano))) {
     return { ok: false, motivo: `"${crudo.slice(0, 40)}" no es una direccion` };
+  }
+
+  // Quiere oficina pero no dice de cual transportadora. No es un rechazo: es
+  // una pregunta con dos opciones concretas, y la hace el redactor.
+  if (QUIERE_OFICINA_SIN_DECIR_CUAL.test(plano)) {
+    return { ok: false, faltaOficina: true, motivo: "quiere recogerlo en una oficina, pero no dijo de cual" };
   }
 
   if (plano.length < 8) {
@@ -337,6 +471,61 @@ function validarDireccion(texto) {
     const esZonaConNombre = ZONA_CON_NOMBRE.test(plano);
     if (!esZonaConNombre) {
       return { ok: false, motivo: "una direccion sin ningun numero no sirve para despachar" };
+    }
+    // ------------------------------------------------------------------
+    // ⚠️ AQUI CAMBIO LA REGLA EL 2026-10-09, Y LA PUSO MARCO.
+    //
+    // Antes TODA zona con nombre se aceptaba con `revisar: true`. Eso dejo
+    // pasar "barrio centenario" como direccion final de un pedido de
+    // Ipiales, el pedido se cerro, y Marco tuvo que LLAMAR al celular para
+    // conseguir la direccion de verdad. Su regla, textual: «sin eso no
+    // podemos dejar que el Bot lo tome como pedido porque si no no se va a
+    // generar [la guia]».
+    //
+    // La distincion es el PUNTO DE REFERENCIA, no el formato urbano:
+    //
+    //   · "barrio centenario"                 -> nadie puede llegar. Se pide.
+    //   · "barrio pueblillo en la cantera..." -> se entrega. Se acepta.
+    //
+    // SE RECHAZA, PERO NUNCA SE DEJA AL CLIENTE SIN SALIDA: quien solo da el
+    // barrio recibe dos opciones concretas -un punto de referencia, o la
+    // oficina de la transportadora-, no la misma pregunta otra vez. Repetir
+    // la pregunta es lo que costo la venta del 08-oct en San Andres de
+    // Sotavento, y por eso el rechazo viaja con `faltaReferencia`, para que
+    // el redactor sepa que tiene que ofrecer las dos salidas.
+    // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // ⚠️ AQUI CHOCABAN DOS INSTRUCCIONES DE MARCO, Y EL CANDADO VA EN EL
+    //    DESPACHO, NO EN LA ACEPTACION.
+    //
+    // Su caso 2 de los 20 originales: «"Barrio buenos aires" se acepta y no
+    // se vuelve a pedir». Son tres pruebas, y salen de una venta perdida
+    // medida: rechazarla dejo a la clienta de San Andres de Sotavento
+    // contestando "No entiendo" hasta que se fue.
+    //
+    // Y el 09-oct: «sin eso no podemos dejar que el Bot lo tome como
+    // pedido». La primera version de este parche devolvia ok:false, y
+    // tumbaba esas tres pruebas.
+    //
+    // Su frase completa decide: «hay una regla basica para DESPACHAR un
+    // pedido... si no, no se va a GENERAR [la guia]». El problema no es que
+    // el pedido exista: es que se DESPACHE sin direccion utilizable. Y el
+    // pedido existiendo es lo que le permitio rescatar la venta de Ipiales,
+    // porque tenia el celular en el panel.
+    //
+    // Asi que: se ACEPTA -no se pierde el cliente ni se le repite la
+    // pregunta- y se marca para revision, que es lo que IMPIDE DESPACHAR.
+    // `faltaReferencia` viaja para que el redactor ofrezca las dos salidas
+    // concretas, el punto de referencia o la oficina, en el mismo mensaje.
+    // ------------------------------------------------------------------
+    if (!TIENE_PUNTO_DE_REFERENCIA.test(plano)) {
+      return {
+        ok: true,
+        valor: crudo,
+        revisar: true,
+        faltaReferencia: true,
+        motivo: "solo el barrio: falta un punto de referencia o la oficina de la transportadora",
+      };
     }
     return {
       ok: true,
@@ -432,13 +621,51 @@ function validarNombre(texto) {
   if (NO_ES_UN_NOMBRE.test(palabras[0] || "")) {
     return { ok: false, motivo: `"${crudo.slice(0, 30)}" no es un nombre` };
   }
-  if (palabras.length < 2) {
-    // Un solo nombre sirve para contactar, pero la transportadora suele
-    // querer nombre y apellido. Se acepta marcado.
-    return { ok: true, valor: crudo, revisar: true, motivo: "solo un nombre: puede faltar el apellido" };
-  }
-
+  // ------------------------------------------------------------------
+  // UN NOMBRE DE PILA BASTA. LO DECIDIO MARCO EL 2026-10-09.
+  //
+  // Textual: «al igual que el nombre, no es necesario el nombre completo,
+  // pero sí un nombre por lo menos».
+  //
+  // Antes un nombre de una sola palabra se aceptaba con `revisar: true`, y
+  // eso pone el pedido EN_REVISION, que IMPIDE DESPACHAR. O sea que "Duber"
+  // -el nombre real del cliente de Ipiales- bloqueaba su propia guia por no
+  // traer apellido, y hacia falta entrar al panel a desbloquearlo.
+  //
+  // El candado que importa sigue puesto, y es el de arriba: lo que no puede
+  // guardarse es algo que NO ES UN NOMBRE ("Sii", "ok", "listo"). Eso se
+  // rechaza de plano. Un nombre corto pero real no es un problema de
+  // despacho: la transportadora prefiere nombre y apellido, pero entrega con
+  // el nombre y el celular.
+  // ------------------------------------------------------------------
   return { ok: true, valor: crudo, revisar: false };
+}
+
+/**
+ * Si el texto pide recogerlo en la oficina de una transportadora, devuelve
+ * "Oficina <Transportadora>" normalizado. Si no, null.
+ *
+ * Normalizar importa porque esto acaba impreso en una guia: el cliente
+ * escribe "en la de inter", "oficina interrapidisimo", "la recojo en
+ * Coordinadora", y las tres tienen que quedar iguales en la ficha.
+ */
+function oficinaEn(texto) {
+  const plano = aplanar(texto);
+  if (!OFICINA_DE_TRANSPORTADORA.test(plano)) return null;
+  const COMO_SE_LLAMAN = [
+    [/\binter\s*r?apidisimo\b/, "Interrapidísimo"],
+    [/\bcoordinadora\b/, "Coordinadora"],
+    [/\bservientrega\b/, "Servientrega"],
+    [/\benvia\b/, "Envía"],
+    [/\btcc\b/, "TCC"],
+    [/\bdeprisa\b/, "Deprisa"],
+    [/\bredex\b/, "Redex"],
+    [/\bsaferbo\b/, "Saferbo"],
+  ];
+  for (const [re, nombre] of COMO_SE_LLAMAN) {
+    if (re.test(plano)) return `Oficina ${nombre}`;
+  }
+  return null;
 }
 
 module.exports = {
@@ -447,6 +674,7 @@ module.exports = {
   DEPARTAMENTOS,
   LISTA_INCOMPLETA,
   NO_ES_UN_NOMBRE,
+  oficinaEn,
   resolverCiudad,
   validarDireccion,
   validarTelefono,

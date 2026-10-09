@@ -197,7 +197,16 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
    * Heuristicas que no necesitan modelo. Son las mas fiables que hay:
    * el telefono del chat es un hecho, no una inferencia.
    */
-  function candidatosHeuristicos(evento, { seLePidioElNombre = false, yaHayNombre = false, seLePidioLaCiudad = false, yaTieneCiudad = false } = {}) {
+  function candidatosHeuristicos(
+    evento,
+    {
+      seLePidioElNombre = false,
+      yaHayNombre = false,
+      seLePidioLaCiudad = false,
+      yaTieneCiudad = false,
+      seLePidioLaReferencia = false,
+    } = {}
+  ) {
     const propuestas = {};
     // Lo que trae WhatsApp de serie, separado de lo que escribio el cliente.
     const perfil = {};
@@ -268,6 +277,33 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // pedido de Popayán a La Pintada (Antioquia).
       yaHayCiudad: yaTieneCiudad,
     });
+
+    // ------------------------------------------------------------------
+    // EL PUNTO DE REFERENCIA, CUANDO SE ACABA DE PEDIR
+    //
+    // ⚠️ SIN ESTO LA PREGUNTA ERA UN ADORNO. El bot ya pedia "¿me das un
+    //    punto de referencia?" y la clienta contestaba "al frente de la
+    //    droguería Cristal"... y esa frase no se guardaba en ningun sitio:
+    //    el resumen seguia diciendo "Dirección: barrio centenario" y el
+    //    pedido seguia sin poder despacharse.
+    //
+    // Una referencia no tiene forma reconocible -puede ser cualquier cosa:
+    // una tienda, un color, "la casa de la esquina"-, asi que no se puede
+    // extraer por patron. Se toma el mensaje tal cual, y SOLO cuando el bot
+    // acaba de pedirla, igual que el nombre a secas.
+    //
+    // No se toma si el mensaje trae otro dato reconocible: quien contesta
+    // "mejor Calle 10 # 5-20" esta corrigiendo la direccion, no dando una
+    // referencia. Ni si es un "si" o un "gracias".
+    // ------------------------------------------------------------------
+    if (seLePidioLaReferencia) {
+      const crudo = String(evento.texto || "").trim();
+      const plano = texto.aplanar(crudo);
+      const otroDato = candidatos.direccion || candidatos.ciudad || candidatos.telefono || candidatos.nombre;
+      const esRelleno = /^(s+i+|sip|no+|ok|listo|gracias|ya|nada|ninguno|ninguna)\b/.test(plano);
+      if (!otroDato && !esRelleno && plano.length >= 4) candidatos.referencia = crudo;
+    }
+
     return { delCliente: { ...propuestas, ...candidatos }, delPerfil: perfil };
   }
 
@@ -399,6 +435,14 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       const r = destino.validarDireccion(v);
       if (r.ok && r.revisar) revisiones.push({ campo: "direccion", motivo: r.motivo });
       return r;
+    });
+
+    // El punto de referencia no tiene formato: es texto libre que el cliente
+    // da cuando se le pide ("al frente de la droguería Cristal"). Lo unico
+    // que se exige es que diga algo.
+    f.referencia = campos.confirmar(f.referencia, (v) => {
+      const t = String(v || "").trim();
+      return t.length >= 4 ? { ok: true, valor: t } : { ok: false, motivo: "referencia demasiado corta" };
     });
 
     f.cantidad = campos.confirmar(f.cantidad, (v) =>
@@ -754,6 +798,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         (conversacion.saludado === true || conversacion.datosPedidos === true) &&
         !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.ciudad) &&
         Boolean(campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)),
+      // El turno siguiente a "¿me das un punto de referencia?". Se cierra en
+      // cuanto hay referencia, para no quedarse tragando mensajes.
+      seLePidioLaReferencia:
+        conversacion.referenciaPedida === true &&
+        !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.referencia),
     });
 
     // El perfil PRIMERO, para que lo que escriba el cliente pueda pisarlo.
@@ -1175,6 +1224,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         traza.cotizacion = r.cotizacion;
         traza.cotizacionInformativa = r.cotizacionInformativa || null;
         traza.faltan = r.faltan;
+        traza.faltaReferencia = r.faltaReferencia === true;
         // Para que el resumen diga QUE se cambio y el cliente lo vea.
         traza.cambiosAplicados = datosAportados;
       } else {
@@ -1286,6 +1336,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       traza.cotizacion = r.cotizacion;
       traza.cotizacionInformativa = r.cotizacionInformativa || null;
       traza.faltan = r.faltan;
+      traza.faltaReferencia = r.faltaReferencia === true;
     }
 
     // ------------------------------------------------------------------
@@ -1433,6 +1484,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       cotizacion: conversacion.cotizacion,
       cotizacionInformativa: cotizacionConsultada,
       faltan: traza.faltan || [],
+      // Lo decide `avanzarVenta`: la direccion es solo el barrio. El resumen
+      // pide entonces un punto de referencia u ofrece la oficina.
+      faltaReferencia: traza.faltaReferencia === true,
       opciones: (resolucion.opciones || []).map((id) => {
         const p = catalogo.porId.get(id);
         return (p && (p.nombreCorto || p.nombre)) || id;
@@ -2385,10 +2439,97 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       return { situacion: "faltan_datos", estadoDestino: estados.ESTADOS.CAPTURANDO_DATOS, cotizacion: cot.cotizacion, faltan };
     }
 
+    // ----------------------------------------------------------------------
+    // SI LA DIRECCION ES SOLO EL BARRIO, SE PREGUNTA ANTES DEL RESUMEN.
+    //
+    // ⚠️ LO PIDIO MARCO: «se supone que el Bot siempre debe pedir la
+    //    direccion». En el pedido de Ipiales el bot recibio "barrio
+    //    centenario" y salto directo al resumen, cerro la venta, y la
+    //    direccion de verdad la consiguio Marco llamando por telefono.
+    //
+    // SE PREGUNTA UNA SOLA VEZ, y eso es deliberado. Repetir la pregunta es
+    // lo que costo la venta del 08-oct en San Andres de Sotavento: la
+    // clienta contesto "No entiendo" y se fue. Si no da la referencia, la
+    // conversacion sigue y el pedido se cierra MARCADO -no despachable-, que
+    // es la otra mitad de la regla de Marco.
+    //
+    // Y la pregunta lleva la salida dentro: un punto de referencia, o la
+    // oficina de la transportadora.
+    // ----------------------------------------------------------------------
+    const dirConfirmada = [
+      campos.valorConfirmado(conversacion.ficha.direccion),
+      campos.valorConfirmado(conversacion.ficha.referencia),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    // ⚠️ SE PIDE DENTRO DEL RESUMEN, NO EN UN MENSAJE APARTE.
+    //
+    // La primera version cortaba aqui y mandaba un turno nuevo preguntando
+    // la referencia. Tumbo dos pruebas, y las dos tenian razon: el caso 2 de
+    // los 20 de Marco exige que "Barrio buenos aires" llegue AL RESUMEN y
+    // que el "sí" siguiente confirme. Rechazar o volver a preguntar es lo
+    // que dejo a la clienta de San Andres de Sotavento contestando "No
+    // entiendo" hasta que se fue.
+    //
+    // Asi que el resumen sale igual y lleva la peticion dentro, como una
+    // FRASE y no como una segunda pregunta -el mensaje sigue teniendo una
+    // sola interrogacion, que es la regla de tono-. El cliente puede
+    // contestar la referencia o decir "sí" y seguir: si dice "sí", el pedido
+    // se cierra MARCADO y no se puede despachar, que es la regla dura de
+    // Marco.
+    let faltaReferencia = false;
+    if (dirConfirmada) {
+      const v = destino.validarDireccion(dirConfirmada);
+      faltaReferencia = Boolean(v.ok && v.faltaReferencia);
+      if (faltaReferencia && conversacion.referenciaPedida !== true) {
+        conversacion.referenciaPedida = true;
+        contar("pidio_punto_de_referencia");
+      }
+    }
+
     // Todo listo: se muestra el resumen y se marca que esta mostrado. Ese
     // marcador es lo que permite que un "si" posterior cuente.
     conversacion.resumenMostrado = true;
-    return { situacion: "resumen", estadoDestino: estados.ESTADOS.PENDIENTE_CONFIRMACION, cotizacion: cot.cotizacion, faltan: [] };
+    return {
+      situacion: "resumen",
+      estadoDestino: estados.ESTADOS.PENDIENTE_CONFIRMACION,
+      cotizacion: cot.cotizacion,
+      faltan: [],
+      faltaReferencia,
+    };
+  }
+
+  /**
+   * Las dudas que dejan los datos TAL COMO QUEDARON en la ficha.
+   *
+   * No mira banderas ni turnos: coge el valor guardado y lo vuelve a pasar
+   * por el mismo validador. Por eso no se le escapa una duda levantada tres
+   * mensajes antes, que es lo que dejo salir un pedido a "barrio centenario".
+   */
+  function revisionesDeLosDatos(datos) {
+    const d = datos || {};
+    const out = [];
+    if (d.nombre) {
+      const r = destino.validarNombre(d.nombre);
+      if (r.ok && r.revisar) out.push({ campo: "nombre", motivo: r.motivo });
+    }
+    if (d.direccion) {
+      // ⚠️ SE VALIDAN JUNTAS, DIRECCION Y REFERENCIA.
+      //
+      // Es lo mismo que hace `guias.datosDe` para imprimir la etiqueta: lo
+      // que el mensajero lee es la suma de las dos. Validar solo la
+      // direccion dejaba el pedido marcado para siempre aunque el cliente
+      // hubiera dado una referencia perfecta, porque "barrio centenario"
+      // sigue siendo "barrio centenario" por su cuenta.
+      const completa = [d.direccion, d.referencia].filter(Boolean).join(" ");
+      const r = destino.validarDireccion(completa);
+      if (r.ok && r.revisar) out.push({ campo: "direccion", motivo: r.motivo });
+    }
+    if (d.ciudad) {
+      const r = destino.resolverCiudad(d.ciudad);
+      if (r.ok && r.revisar) out.push({ campo: "ciudad", motivo: r.motivo });
+    }
+    return out;
   }
 
   async function confirmarPedido({ conversacion, producto, evento, revisiones }) {
@@ -2414,15 +2555,48 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       }
     }
 
+    // ----------------------------------------------------------------------
+    // LAS DUDAS SE RECALCULAN SOBRE LOS DATOS FINALES, NO SOBRE ESTE TURNO.
+    //
+    // ⚠️ ESTE ERA EL DEFECTO DE FONDO DE LA VENTA DE IPIALES (09-oct), Y ES
+    //    EL QUE OBLIGO A MARCO A LLAMAR POR TELEFONO.
+    //
+    // `revisiones` llega de `validarYConfirmar`, que SOLO mira los campos
+    // que se confirmaron EN ESTE TURNO. Y el turno del "sí" no confirma
+    // nada: los datos llegaron antes. Asi que la duda sobre la direccion
+    // -"barrio centenario", sin un punto por el que encontrarla- se
+    // levantaba en su turno, nadie la guardaba, y al crear el pedido la
+    // lista llegaba vacia.
+    //
+    // Medido con el pedido real: estado `confirmado`, direccion "barrio
+    // centenario", `revisiones: []`. Un pedido despachable con una direccion
+    // a la que no se puede llegar. La marca existia y se perdia por el
+    // camino.
+    //
+    // Ahora se vuelven a validar los datos QUE DE VERDAD QUEDARON en la
+    // ficha. Es la misma idea que `prometeConfirmar`: preguntarle al hecho,
+    // no a una bandera que alguien tiene que acordarse de propagar.
+    //
+    // Se unen con las del turno en vez de sustituirlas, y se deduplican por
+    // campo: si una validacion futura deja de levantar una duda que el turno
+    // si vio, no se pierde.
+    // ----------------------------------------------------------------------
+    const datosFinales = campos.soloConfirmado(conversacion.ficha);
+    const dudas = new Map();
+    for (const r of revisiones || []) if (r && r.campo) dudas.set(r.campo, r);
+    for (const r of revisionesDeLosDatos(datosFinales)) dudas.set(r.campo, r);
+    const revisionesFinales = [...dudas.values()];
+    if (revisionesFinales.length > (revisiones || []).length) contar("duda_recuperada_al_cerrar");
+
     const construido = pedidos.construir({
       cotizacion: conversacion.cotizacion,
-      datos: campos.soloConfirmado(conversacion.ficha),
+      datos: datosFinales,
       contactoId: conversacion.contactoId,
       conversacionId: conversacion.contactoId,
       ofertaId: conversacion.ofertaId,
       wamidConfirmacion: evento.wamid,
       origen: evento.referral ? { tipo: "anuncio", referral: evento.referral } : null,
-      revisiones: revisiones || [],
+      revisiones: revisionesFinales,
     });
 
     if (!construido.ok) {
