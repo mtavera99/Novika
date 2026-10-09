@@ -33,6 +33,25 @@
 
 const { vistas } = require("./texto");
 
+/**
+ * CANCELAR UN PEDIDO YA CONFIRMADO: lo que SI lo dice sin lugar a dudas.
+ *
+ * Mas estricta que `NEGACIONES` a proposito. Un "no" suelto, un "no
+ * entiendo" o un "no me ha llegado" NO pueden borrar una venta cerrada: hay
+ * logistica y plata comprometidas, y quien despacha ya cuenta con ese
+ * paquete. El motivo completo esta en `evaluar()`.
+ */
+const CANCELACION_INEQUIVOCA = [
+  /\bcancel(a|ar|alo|ame|emos|en)\b/,
+  /\banul(a|ar|alo|ame|emos|en)\b/,
+  /\bya\s+no\s+(lo|la|los|las)\s+(quiero|necesito|voy\s+a\s+recibir)\b/,
+  /\bno\s+(lo|la|los|las)\s+quiero\s+(ya|mas)\b/,
+  /\bno\s+me\s+(lo|la)\s+man(de|den|des)\b/,
+  /\bdevuelv(an|anlo|elo)\b/,
+  /\bno\s+lo\s+voy\s+a\s+recibir\b/,
+  /\bmejor\s+(ya\s+)?no\s+(lo|la)\s+(quiero|mande|manden)\b/,
+];
+
 /** Clases de respuesta del cliente. */
 const CLASES = {
   SI: "si",
@@ -84,7 +103,11 @@ const NEGACIONES = [
   /\bno\s+me\s+(lo|la|los|las)\s+(llevo|voy)/,
   /\bya\s+no\b/,
   /\bmejor\s+no\b/,
-  /\bcancel(a|ar|alo|ame|emos)\b/,
+  /\bcancel(a|ar|alo|ame|emos|en)\b/,
+  // "anulen el pedido" es una cancelacion y no estaba: se quedaba en
+  // AMBIGUO, asi que sobre un pedido confirmado no hacia nada. El cliente
+  // pedia anular y nadie se enteraba.
+  /\banul(a|ar|alo|ame|emos|en)\b/,
   /\bdejalo\b/,
   /\bnegativo\b/,
   /\bdesisto\b/,
@@ -92,7 +115,10 @@ const NEGACIONES = [
 
 // --- 2. Preguntas de estado (posventa). Antes del "si" suelto. ---
 const PREGUNTAS_ESTADO = [
-  /\b(ya\s+)?(lo\s+|la\s+|me\s+lo\s+|me\s+la\s+)?(mandaron|enviaron|despacharon|salio|sale|llega|llego|viene)\b/,
+  // `llegado` y `llegara` faltaban, y "no me ha llegado" es LA pregunta de
+  // posventa. Sin ellas caia en AMBIGUO.
+  /\b(ya\s+)?(lo\s+|la\s+|me\s+lo\s+|me\s+la\s+)?(mandaron|enviaron|despacharon|salio|sale|llega|llego|llegado|llegara|viene)\b/,
+  /\bno\s+me\s+ha\s+lleg(ado|ada)\b/,
   /\bcuando\s+(me\s+)?(llega|lo\s+recibo|la\s+recibo|lo\s+mandan|sale)/,
   /\bdonde\s+(va|esta|viene)\b/,
   /\b(numero\s+de\s+)?(guia|rastreo|seguimiento)\b/,
@@ -225,7 +251,36 @@ function evaluar({ texto, estado, resumenMostrado = false }) {
   // ----------------------------------------------------------------------
   if (estado === ESTADOS.CONFIRMADO || estado === ESTADOS.POSVENTA) {
     if (c.clase === CLASES.NO) {
-      return { ...base, accion: ACCIONES.CANCELAR, motivo: "negacion sobre un pedido ya confirmado" };
+      // ----------------------------------------------------------------
+      // UN PEDIDO CONFIRMADO NO SE CANCELA CON UN "NO" CUALQUIERA
+      //
+      // ⚠️ ESTO PERDIO UN PEDIDO DE VERDAD. Marco lo reporto asi: "el
+      //    pedido confirmado aparece anulado".
+      //
+      // El mecanismo: con el `/^no\b/` que habia en NEGACIONES, CUALQUIER
+      // mensaje que empezara por "no" se leia como negacion. Y sobre un
+      // pedido ya confirmado eso no se queda en un escalado: llega aqui,
+      // devuelve CANCELAR, y el pedido SE CANCELA de verdad. Un "No
+      // entiendo" o un "no me ha llegado" -que es posventa pura- borraba
+      // una venta cerrada.
+      //
+      // La raiz ya esta arreglada, pero esta rama merece su propio candado:
+      // es la unica del sistema donde el TEXTO del cliente destruye un
+      // compromiso con quien despacha. Aqui no vale "ante la duda, no se
+      // tira la venta": vale "ante la duda, NO SE TOCA EL PEDIDO".
+      //
+      // Asi que se exige intencion inequivoca de cancelar. Lo ambiguo lo
+      // mira una persona, que es lo que pidio Marco: "anular solo con una
+      // accion explicita".
+      // ----------------------------------------------------------------
+      if (coincide(vistas(texto).plano, CANCELACION_INEQUIVOCA)) {
+        return { ...base, accion: ACCIONES.CANCELAR, motivo: "pide cancelar un pedido confirmado, sin ambigüedad" };
+      }
+      return {
+        ...base,
+        accion: ACCIONES.ESCALAR,
+        motivo: "dijo que no sobre un pedido confirmado, pero sin pedir cancelarlo: lo revisa una persona",
+      };
     }
     if (c.clase === CLASES.CORRECCION) {
       return { ...base, accion: ACCIONES.CORREGIR, motivo: "pide modificar un pedido ya confirmado" };
@@ -305,4 +360,5 @@ module.exports = {
   NEGACIONES,
   PREGUNTAS_ESTADO,
   AFIRMACIONES_FUERTES,
+  CANCELACION_INEQUIVOCA,
 };

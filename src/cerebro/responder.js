@@ -549,6 +549,25 @@ function respuestaSinTexto(tipoDeMedia, faltan = []) {
 }
 
 /**
+ * Retoma el pedido donde iba, con una frase completa.
+ *
+ * La usa el cerebro como ULTIMA RED cuando el texto saldria identico al
+ * mensaje anterior. Marco lo prohibio sin excepciones -"enviar el mismo
+ * mensaje dos veces seguidas"- y su caso 12 es un "Hola" seguido de un
+ * "Hola?" recibiendo el mismo saludo calcado.
+ *
+ * Lo que hace falta ahi no es otra forma de saludar: es retomar el paso del
+ * pedido, que es lo que la conversacion necesita para avanzar.
+ */
+function retomarElPaso(faltan = [], nombreCliente = null) {
+  // El nombre llega YA CONFIRMADO desde el cerebro, que es el unico que
+  // sabe si lo esta. El redactor no toca la ficha: llamar a alguien por un
+  // nombre que nadie valido es peor que no nombrarlo.
+  const pila = voz.nombreDePila(nombreCliente);
+  return voz.unir([pila ? `¡Claro, ${pila}!` : "¡Claro!", siguientePasoCorto(faltan)]);
+}
+
+/**
  * El siguiente paso, en UNA pregunta corta.
  *
  * Para los mensajes donde no hay nada que contestar -un sticker, un emoji-
@@ -1379,6 +1398,28 @@ function textoDeterminista({
         const enManosDeUnaPersona =
           vezDeLaObjecion >= 3 && lectura.temas.includes(preguntas.TEMAS.OBJECION_PRECIO);
         if (!enManosDeUnaPersona) partes.push("¿Te lo aparto? 🙌");
+      } else if (lectura.temas.length && !partes.some((x) => /\?/.test(String(x || "")))) {
+        // ------------------------------------------------------------
+        // LA REGLA DE ORO DE MARCO: NINGUN MENSAJE SE QUEDA SUELTO
+        //
+        // "Cada mensaje tuyo termina con UNA pregunta o UNA acción clara que
+        // acerque al pedido."
+        //
+        // El hueco estaba en `memoria.pasoPropuesto`: una vez propuesto el
+        // siguiente paso, el bot dejaba de cerrar. Y como el PRIMER mensaje
+        // ya propone un paso, en la practica todas las respuestas a dudas
+        // posteriores salian sin cierre. Su caso 17:
+        //
+        //   cliente · "En q colores tiene"
+        //   bot     · "Sí, viene únicamente en color rosado 💗"
+        //
+        // Correcto, amable… y ahi se muere la conversacion. No hay nada que
+        // contestar.
+        //
+        // Solo aplica cuando se CONTESTO UN TEMA y el mensaje no trae ya una
+        // pregunta: no se le añade un cierre a quien se esta despidiendo, ni
+        // dos preguntas al mismo mensaje.
+        partes.push("¿Te lo aparto? 🙌");
       }
 
       // El emoji sale del tema que se respondio: uno, al final, y solo si
@@ -1778,7 +1819,27 @@ function textoDeterminista({
       }
       if (motivoEscalado === "pidio_una_persona") {
         return componer(
-          ["¡Claro que sí!", "Ya le paso tu mensaje a una persona del equipo y te responde por aquí."],
+          [
+            "¡Claro que sí!",
+            "Ya le aviso a una persona del equipo para que te ayude con esto.",
+            // Y SE SIGUE ATENDIENDO. Marco: "no pausar el flujo de venta".
+            // El bot avisa, pero no se retira de la conversacion.
+            "Mientras tanto, si quieres te voy dejando el pedido listo.",
+          ],
+          { emoji: "atencion" }
+        );
+      }
+      if (motivoEscalado === "pedido_mayorista") {
+        // Es el lead mas grande que entra por aqui: quien revende compra
+        // todos los meses. Se le habla como a un socio, no como a un
+        // problema — y NO se le suelta una cifra, porque la tabla cubre una
+        // y dos unidades y el precio de mayorista no existe en el catalogo.
+        return componer(
+          [
+            "¡Qué bueno que preguntes!",
+            "Para esa cantidad te paso con una persona del equipo, que es quien maneja los precios al por mayor.",
+            "Ya le aviso y te responde por aquí.",
+          ],
           { emoji: "atencion" }
         );
       }
@@ -1951,6 +2012,9 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
     return { texto: INSISTE_SIN_DATO, repetido: true, escalar: false };
   }
 
+  if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
+  if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
+
   // ----------------------------------------------------------------------
   // SI LO QUE SE REPETIA ERA EL RESUMEN, NO SE PIDE "CONCRETAR"
   //
@@ -1975,8 +2039,6 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
     return { texto: EMPUJON_AL_RESUMEN, repetido: true, escalar: false };
   }
 
-  if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
-  if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
 
   // Ya se habia pedido concretar y seguimos en el mismo sitio: no hay una
   // tercera forma de decir lo mismo. Pasa a una persona.
@@ -2217,6 +2279,7 @@ module.exports = {
   analizarTurno,
   arranque,
   sinRepetir,
+  retomarElPaso,
   PEDIR_CONCRETAR,
   PASAR_A_PERSONA,
   revisarClaims,

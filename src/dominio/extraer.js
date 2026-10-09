@@ -37,7 +37,13 @@ const { CIUDADES_SEMILLA } = require("./destino");
 // caia en "no se reconoce ningun tipo de via" y el bot repetia la peticion
 // palabra por palabra. Es el mismo bucle que ya documenta el bloque del
 // nombre, unas lineas mas abajo.
-const VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal|dg|diag|transversal|tv|trans|manzana|mz|circular|circunvalar|autopista|via|vereda|vda|barrio|brr|corregimiento|sector|km|kilometro|lote|finca|conjunto|urbanizacion)\b/;
+// ⚠️ AMPLIADA EL 2026-10-09 CON LOS FORMATOS QUE PIDIO MARCO (A2).
+//
+// Faltaban los que la gente escribe de verdad: "Casa 4", "Apto 302",
+// "Torre B", "Etapa 2", "Bloque 3", "Via a La Calera". Una direccion que el
+// bot no reconoce es una venta que se queda pidiendo el mismo dato.
+const VIA =
+  /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|avda|diagonal|dg|diag|transversal|tv|tver|trans|manzana|mz|mza|circular|circunvalar|autopista|via|vereda|vda|barrio|brr|bar|corregimiento|cgto|sector|km|kilometro|lote|finca|parcela|conjunto|urbanizacion|urb|casa|apto|apartamento|apartaestudio|torre|bloque|etapa|interior|int|unidad\s+residencial|resguardo|invasion|comuna|localidad)\b/;
 
 /**
  * Las vias que identifican una ZONA, no una nomenclatura.
@@ -47,7 +53,8 @@ const VIA = /\b(calle|cll|cl|carrera|cra|kra|kr|avenida|av|ave|diagonal|dg|diag|
  * estaba dando su direccion. Para "calle" o "carrera" el numero sigue
  * siendo obligatorio: sin el, el mensajero no puede entregar.
  */
-const VIA_DE_ZONA = /^(vereda|vda|barrio|brr|corregimiento|sector|finca|conjunto|urbanizacion|manzana|mz)$/;
+const VIA_DE_ZONA =
+  /^(vereda|vda|barrio|brr|bar|corregimiento|cgto|sector|finca|parcela|conjunto|urbanizacion|urb|manzana|mz|mza|etapa|bloque|torre|resguardo|invasion|comuna|localidad)$/;
 
 /**
  * Palabras que NO son el nombre de la zona.

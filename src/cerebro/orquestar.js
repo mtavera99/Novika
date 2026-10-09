@@ -654,11 +654,44 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // son candidatos. Habia que preguntarse "¿falta algo mas que la
     // cantidad?" sobre la ficha ya validada.
     const REQUERIDOS_SIN_CANTIDAD = [...REQUERIDOS_BASE, ...((producto && producto.datosRequeridos) || [])];
+    // ⚠️ YA NO SE EXIGE SEÑAL DE COMPRA (2026-10-09). Lo pidio Marco:
+    //    "Cantidad por defecto: 1".
+    //
+    // La condicion pedia `compra || huboSenalDeCompra`, y eso dejaba fuera el
+    // caso mas comun de todos — el del caso 1 de su lista:
+    //
+    //   cliente · "Alejandro león Garzón"
+    //   cliente · "Popayán Cauca"
+    //   cliente · "Barrio pueblillo en la cantera la pintada"
+    //   bot     · "¡Perfecto, gracias! Para preparar tu pedido me pasas si
+    //              quieres uno o dos 🙌"
+    //
+    // Nunca dijo "lo quiero" con esas palabras. Pero acababa de dar su
+    // nombre completo, su ciudad y su direccion: no hay señal de compra mas
+    // fuerte que esa, y el bot le pedia un dato mas en vez de mostrarle el
+    // resumen.
+    //
+    // Sigue siendo seguro porque NO crea el pedido: con la cantidad puesta
+    // el turno llega a "resumen" y el cliente ve "1 unidad · $49.900" antes
+    // de confirmar. Y si queria dos, lo dice ahi. Se elige UNA porque es la
+    // menor: nunca se cobra de mas.
+    // ⚠️ SE PREGUNTA POR `extraer.cantidadEn`, NO POR `texto.cantidadesEn`.
+    //
+    // `cantidadesEn` devuelve TODOS los numeros del mensaje, y una direccion
+    // esta llena de numeros. Con el guardia escrito asi:
+    //
+    //   cliente · "lo quiero, soy Santiago, Bogotá, Calle 62bis 67-12"
+    //
+    // los "62", "67" y "12" contaban como "ya dijo una cantidad", la regla
+    // no se disparaba, y el bot le pedia la cantidad a quien acababa de dar
+    // TODOS sus datos de entrega. Un turno perdido en el peor momento.
+    //
+    // `extraer.cantidadEn` ya resuelve esto bien y esta probado: si el
+    // mensaje parece una direccion, sus numeros no son cantidades.
     if (
       !campos.valorConfirmado(conversacion.ficha.cantidad) &&
-      !texto.cantidadesEn(evento.texto || "").length &&
-      campos.faltantes(conversacion.ficha, REQUERIDOS_SIN_CANTIDAD).length === 0 &&
-      (turnoDeCompra.lectura.compra || conversacion.huboSenalDeCompra === true)
+      extraer.cantidadEn(evento.texto || "").valor === null &&
+      campos.faltantes(conversacion.ficha, REQUERIDOS_SIN_CANTIDAD).length === 0
     ) {
       conversacion.ficha = aplicarCandidatos(conversacion.ficha, { cantidad: 1 }, campos.ORIGENES.CODIGO);
       validacion = validarYConfirmar(conversacion.ficha);
@@ -724,7 +757,15 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         ? "cliente_molesto"
         : intencion.pideHumano
           ? "pidio_una_persona"
-          : null;
+          : // UN PEDIDO MAYORISTA ES UN LEAD, NO UN PROBLEMA, y por eso
+            // escala: nadie puede cotizarle seis unidades desde una tabla que
+            // cubre una y dos, y quien revende compra todos los meses.
+            //
+            // Va al final de la cadena a proposito: si la misma clienta esta
+            // enfadada o reclamando algo, eso manda sobre la venta.
+            intencion.temas.includes(preguntas.TEMAS.MAYORISTA)
+            ? "pedido_mayorista"
+            : null;
 
     if (motivoDeHumano) {
       situacion = "escalado";
@@ -1088,6 +1129,68 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     if (clienteNoDijoNada) {
       noRepetir.repetido = false;
       noRepetir.escalar = false;
+    }
+
+    // ======================================================================
+    // PROHIBIDO MANDAR DOS VECES SEGUIDAS EL MISMO TEXTO. SIN EXCEPCIONES.
+    //
+    // Lo puso Marco en la lista de NUNCA: "Enviar el mismo mensaje dos veces
+    // seguidas". Y su caso 12 es exactamente eso:
+    //
+    //   cliente · "Hola"
+    //   bot     · "¡Hola, Santiago! ¿En qué te puedo ayudar? 😊"
+    //   cliente · "Hola?"
+    //   bot     · "¡Hola, Santiago! ¿En qué te puedo ayudar? 😊"
+    //
+    // La guarda anti-eco tenia una excepcion deliberada para esto -"saludar
+    // dos veces merece que te saluden dos veces"- y era razonable en su
+    // momento. Pero el "Hola?" con interrogacion no es un saludo: es alguien
+    // comprobando si hay alguien del otro lado. Recibir el mismo mensaje
+    // calcado le confirma que esta hablando con una maquina.
+    //
+    // Esta guarda va AL FINAL, despues de `sinRepetir`, y es la ultima red:
+    // si por cualquier camino el texto sale identico al anterior, se cambia
+    // por el siguiente paso del pedido — que es lo que de verdad hace falta.
+    // ======================================================================
+    // ⚠️ SE VARIA EL MENSAJE, NO SE QUITA LA RESPUESTA. Y esta distincion es
+    //    la que hace que esta guarda sea segura.
+    //
+    // La primera version sustituia el texto repetido por "¿Te lo aparto?", y
+    // rompio tres pruebas que protegen algo importante: si el cliente
+    // pregunta DOS VECES LO MISMO, repetir la respuesta correcta no es un
+    // eco, es contestarle. Este repositorio ya lo aprendio caro con el
+    // "cuánto vale" preguntado tres veces.
+    //
+    // Asi que hay dos casos distintos:
+    //
+    //   · el texto repetido LLEVA INFORMACION (un precio, un dato) -> se
+    //     mantiene entero y se le pone un reconocimiento delante. El mensaje
+    //     deja de ser identico y la clienta recibe su respuesta.
+    //   · el texto repetido era el SALUDO generico -> ahi no hay nada que
+    //     conservar: se retoma el paso del pedido, que es lo que falta.
+    const ultimoTexto = ((ultimoDelNegocio && ultimoDelNegocio.texto) || "").trim();
+    // Y NO se toca si el cliente APORTO UN DATO en este turno: ahi repetir
+    // el cuadro de confirmacion es lo correcto, porque el cuadro cambio -o
+    // porque la clienta acaba de confirmar con sus palabras algo que el
+    // codigo habia asumido-. Es el caso de "uno" despues de que el bot
+    // preguntara "¿uno o dos?".
+    const aportoAlgo = datosAportados.length > 0;
+    if (!aportoAlgo && preparada.texto && ultimoTexto && preparada.texto.trim() === ultimoTexto && !noRepetir.repetido) {
+      const esSaludoGenerico = /en qu[eé] te puedo ayudar/i.test(ultimoTexto);
+      const nombre = campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre);
+
+      if (esSaludoGenerico) {
+        const retomado = responder.retomarElPaso(traza.faltan || [], nombre);
+        if (retomado && retomado.trim() !== ultimoTexto) {
+          traza.avisos.push("el saludo salia identico al anterior: se retoma el paso del pedido");
+          contar("respuesta_repetida_evitada");
+          preparada.texto = retomado;
+        }
+      } else {
+        traza.avisos.push("el texto salia identico al anterior: se reconoce y se repite el dato");
+        contar("respuesta_repetida_evitada");
+        preparada.texto = `Te confirmo 👇 ${preparada.texto}`;
+      }
     }
 
     if (noRepetir.repetido) {

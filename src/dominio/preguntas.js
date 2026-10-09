@@ -186,6 +186,23 @@ const PATRONES = [
   [TEMAS.MAYORISTA, /\bdistribuidor/],
   [TEMAS.MAYORISTA, /\bpara\s+vender\b/],
   [TEMAS.MAYORISTA, /\bcantidad(es)?\s+grandes?\b/],
+  // ----------------------------------------------------------------------
+  // MAS DE CINCO UNIDADES ES UN PEDIDO MAYORISTA, LO DIGA O NO
+  //
+  // Lo fijo Marco: "quiere mas de 5 unidades o precio al por mayor" es
+  // motivo de escalado. Y tiene sentido comercial antes que tecnico: la
+  // tabla de precios cubre 1 y 2, asi que para seis no hay tarifa — pero
+  // sobre todo, quien pide seis no es la misma clienta, es alguien que
+  // revende. Tratarlo como una venta normal es perder el lead mas grande
+  // que entra por este WhatsApp.
+  //
+  // ⚠️ EL RANGO EMPIEZA EN 6, no en 3. De 3 a 5 sigue el camino de
+  //    `cantidadSinTarifa`: se dice con honestidad que ese precio lo
+  //    confirma una persona y queda la tarea, sin tratarlo de mayorista.
+  // ----------------------------------------------------------------------
+  [TEMAS.MAYORISTA, /\b(quiero|quisiera|necesito|llevo|dame|deme|serian|me\s+das|vendeme)\s+([6-9]|\d{2,})\b/],
+  [TEMAS.MAYORISTA, /\b([6-9]|\d{2,})\s+(unidades|cinturones|cinturon)\b/],
+  [TEMAS.MAYORISTA, /\bpara\s+(mi\s+)?(tienda|negocio|local|almacen|puesto)\b/],
 
   // ---- Contraindicaciones: va ANTES de USO ----
   //
