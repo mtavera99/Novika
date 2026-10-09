@@ -703,11 +703,60 @@ function deTema(
     // 04: es lo unico verificable que se puede dar ahora mismo.
     // ----------------------------------------------------------------------
     case TEMAS.ENERGIA: {
-      const partes = [loConfirmo("Si funciona con batería o enchufado", "lo")];
-      if (producto && (producto.imagenes || []).length) {
-        partes.unshift("en las fotos se ve el panel de control y la correa.");
-      }
-      return partes.join(" ");
+      // ⚠️ ESTA RESPUESTA DEJO DE SER UN "NO LO SE" EL 2026-10-09.
+      //
+      // Era la pregunta que mas veces quedaba sin contestar: de las cinco que
+      // seguian fallando, TRES eran de energia ("Trae cargador", "Con cables
+      // para cargar", "es recargable o de pilas?"). Y una clienta la
+      // pregunto DOS VECES SEGUIDAS porque la primera respuesta -que era
+      // admitir el hueco- no le servia de nada.
+      //
+      // Marco autorizo la ficha del fabricante, asi que ahora hay dato. Lo
+      // que mas vende de aqui no es el mAh: es "mientras lo usas no va
+      // conectado a nada", porque la duda de fondo de quien pregunta por el
+      // cable es si va a quedar amarrada a un enchufe.
+      const e = producto && producto.energia;
+      if (e && e.texto) return e.texto;
+      return loConfirmo("Si funciona con batería o enchufado", "lo");
+    }
+
+    // ----------------------------------------------------------------------
+    // MASAJE. Es lo que convierte "una almohadilla mas" en un aparato.
+    // ----------------------------------------------------------------------
+    case TEMAS.MASAJE: {
+      const m = producto && producto.masaje;
+      if (m && m.texto) return m.texto;
+      return loConfirmo("Si tiene masaje", "lo");
+    }
+
+    // ----------------------------------------------------------------------
+    // ESPALDA / LUMBAR. Amplia el producto sin inventar nada.
+    //
+    // "¿sirve para la espalda?" casaba con `sirve para` y recibia la frase de
+    // los colicos, que no contesta la pregunta. Y la respuesta es si.
+    // ----------------------------------------------------------------------
+    case TEMAS.ESPALDA: {
+      const z = producto && producto.zonasDeUso;
+      if (z && z.texto) return `¡sí! ${z.texto}`;
+      return loConfirmo("Si sirve para la espalda", "lo");
+    }
+
+    // ----------------------------------------------------------------------
+    // RUIDO. La duda de quien lo quiere usar en la oficina.
+    // ----------------------------------------------------------------------
+    case TEMAS.RUIDO: {
+      const m = producto && producto.masaje;
+      if (m && m.ruido) return m.ruido.charAt(0).toLowerCase() + m.ruido.slice(1);
+      return loConfirmo("Si hace ruido", "lo");
+    }
+
+    // ----------------------------------------------------------------------
+    // DISCRECION. Lo puede llevar puesto trabajando, y eso vende.
+    // ----------------------------------------------------------------------
+    case TEMAS.DISCRECION: {
+      const z = producto && producto.zonasDeUso;
+      if (z && z.discrecion) return z.discrecion.charAt(0).toLowerCase() + z.discrecion.slice(1);
+      return loConfirmo("Si se nota debajo de la ropa", "lo");
     }
 
     case TEMAS.FOTOS:
@@ -751,13 +800,21 @@ function deTema(
     // que cuando reclame.
     // ----------------------------------------------------------------------
     case TEMAS.CUIDADO: {
+      // El dato propio de la ficha (2026-10-09) manda sobre la deduccion que
+      // se hacia desde `garantiaNoCubre`. La deduccion era correcta -si
+      // mojarlo no lo cubre la garantia, no se moja- pero decia menos: no
+      // explicaba COMO se limpia, que es lo que preguntan.
+      const c = producto && producto.cuidado;
+      if (c && c.texto) return c.texto;
+
       const noCubre = (producto && producto.garantiaNoCubre) || [];
-      const mojarNoVa = noCubre.some((x) => /moj/i.test(String(x)));
-      if (!mojarNoVa) return loConfirmo("Cómo se limpia", "lo");
-      return (
-        "no se moja ni se mete al agua: lleva panel de control, y la garantía no cubre daños por mojarlo. " +
-        "Por fuera lo pasas con un paño apenas húmedo y listo."
-      );
+      if (noCubre.some((x) => /moj/i.test(String(x)))) {
+        return (
+          "no se moja ni se mete al agua: lleva panel de control, y la garantía no cubre daños por mojarlo. " +
+          "Por fuera lo pasas con un paño apenas húmedo y listo."
+        );
+      }
+      return loConfirmo("Cómo se limpia", "lo");
     }
 
     // ----------------------------------------------------------------------
@@ -772,14 +829,25 @@ function deTema(
     // pasar algo?"- sin inventar una especificacion.
     // ----------------------------------------------------------------------
     case TEMAS.SEGURIDAD: {
-      const tienePanel = caracteristica(producto, /panel\s+de\s+control/i);
-      const base = tienePanel
-        ? "lleva panel de control, así que lo regulas y lo apagas cuando quieras."
-        : "lo regulas tú desde el aparato.";
-      return (
-        `${base} Cuántas horas seguidas se puede dejar puesto no te lo quiero decir a medias: ` +
-        `lo confirmo con el equipo y te cuento. Yo te recomendaría usarlo por ratos, que es como mejor se siente.`
-      );
+      // ⚠️ "¿me lo puedo poner dormida toda la noche?" ERA EL EJEMPLO QUE
+      //    ESTE REPOSITORIO LLEVABA ANOTADO COMO "la peor respuesta del bot",
+      //    y hasta el 09-oct seguia contestandose admitiendo el hueco.
+      //
+      // Ahora hay dato y es un NO claro, autorizado por Marco en la seccion
+      // de SEGURIDAD de su guia. Y un "no" concreto vende MAS que un "lo
+      // confirmo": la clienta ve que sabemos de lo que hablamos.
+      const d = producto && producto.dormir;
+      const avisos = (producto && producto.seguridad && producto.seguridad.avisos) || [];
+      const partes = [];
+      if (d && d.texto) partes.push(d.texto);
+      if (avisos.length) partes.push(avisos[0]);
+      if (!partes.length) {
+        const tienePanel = caracteristica(producto, /panel\s+de\s+control/i);
+        return tienePanel
+          ? "lleva panel de control, así que lo regulas y lo apagas cuando quieras."
+          : loConfirmo("Cuánto tiempo se puede usar", "lo");
+      }
+      return partes.join(" ");
     }
 
     // ----------------------------------------------------------------------
@@ -817,26 +885,22 @@ function deTema(
     // ese calor, que es el motivo por el que lo esta comprando.
     // ----------------------------------------------------------------------
     case TEMAS.TEMPERATURA: {
-      const tienePanel = caracteristica(producto, /panel\s+de\s+control/i);
-      const partes = [];
-      partes.push(
-        tienePanel
-          ? "el calor lo regulas tú desde el panel de control."
-          : "el calor se regula desde el aparato."
-      );
-      // UNA SOLA FRASE PARA LOS DOS HUECOS, a proposito. Por aqui entran dos
-      // preguntas distintas -"¿a cuántos grados llega?" y "¿cuánto demora en
-      // calentar?"- y ninguno de los dos datos esta confirmado. Con una
-      // frase por grados, a quien preguntaba por el tiempo se le contestaba
-      // la temperatura, que es no contestar.
-      partes.push(
-        "Los grados exactos y lo que demora en calentar no te los quiero decir a medias: " +
-          "los confirmo con el equipo y te cuento."
-      );
-      if (producto && (producto.imagenes || []).length) {
-        partes.push("En las fotos se ve la pantalla con los botones.");
+      // ⚠️ DEJO DE SER UN "NO LO SE" EL 2026-10-09: Marco autorizo los tres
+      //    niveles (50, 55 y 60 °C) y los 10 segundos de calentamiento.
+      //
+      // LA RECOMENDACION DEL NIVEL BAJO VA SIEMPRE PEGADA AL DATO, y no es
+      // relleno: son 60 °C sobre el abdomen. Decir la cifra sin decir por
+      // donde empezar es dar media informacion de la peligrosa.
+      //
+      // Por aqui entra tambien "¿quema?", que es la misma pregunta hecha con
+      // miedo. La respuesta correcta es la misma: los niveles y el consejo.
+      const t = producto && producto.temperatura;
+      if (t && t.texto) {
+        const partes = [t.texto];
+        if (t.recomendacion) partes.push(t.recomendacion);
+        return partes.join(" ");
       }
-      return partes.join(" ");
+      return loConfirmo("A cuántos grados llega", "lo");
     }
 
     // ----------------------------------------------------------------------
@@ -869,11 +933,20 @@ function deTema(
     // para su hija, su mama o su pareja. Reconocerlo vende.
     // ----------------------------------------------------------------------
     case TEMAS.EMPAQUE: {
+      // El contenido del paquete se confirmo el 2026-10-09, asi que esto deja
+      // de ser un "lo confirmo con el equipo".
+      //
+      // ⚠️ EL CARGADOR DE PARED NO ESTA EN LA LISTA, Y ES A PROPOSITO: Marco
+      //    lo dejo como [CONFIRMAR] con instruccion de decir que NO lo
+      //    incluye. Esta en claimsProhibidos. Prometerlo es un paquete que
+      //    llega incompleto.
+      const trae = (producto && producto.contenidoDelPaquete) || [];
+      if (trae.length) {
+        const lista = trae.length > 1 ? `${trae.slice(0, -1).join(", ")} y ${trae[trae.length - 1]}` : trae[0];
+        return `viene en su caja con ${lista}. Por eso queda divino para regalo 🎁`;
+      }
       const conEmpaque = caracteristica(producto, /empaque/i);
       if (!conEmpaque) return loConfirmo("Qué trae el paquete", "lo");
-      // El empaque se AFIRMA (esta en caracteristicasAutorizadas); lo que
-      // trae dentro se CONFIRMA (sigue en sinDatoConfirmado). Son dos cosas
-      // y mezclarlas seria afirmar un contenido que nadie aprobo.
       return (
         "se entrega con su empaque. Qué trae exactamente dentro no te lo quiero decir a medias: " +
         "lo confirmo con el equipo y te cuento. Y como va en su empaque, sirve de regalo."
@@ -1148,7 +1221,11 @@ function aTemas(temas, contexto, { maximo = 2 } = {}) {
 //    prometen casan con el patron.
 // ==========================================================================
 const PROMETE_CONFIRMAR =
-  /no te l[oa]s? quiero (decir|contestar) a medias|l[oa]s? confirmo con el equipo|te l[oa] confirmo con el equipo|te paso con una persona|pasarle tu caso a una persona|lo gestiona (directamente )?una persona/i;
+  // "te confirmo el contorno máximo" TAMBIEN es una promesa, y no casaba.
+  // Es la respuesta de MEDIDAS -la duda que mas vende en este producto- y
+  // prometia una confirmacion que no dejaba ninguna tarea: la clienta se
+  // quedaba esperando un dato que nadie sabia que tenia que buscar.
+  /no te l[oa]s? quiero (decir|contestar) a medias|l[oa]s? confirmo con el equipo|te l[oa] confirmo con el equipo|te confirmo (el|la|los|las)\s|te paso con una persona|pasarle tu caso a una persona|lo gestiona (directamente )?una persona/i;
 
 /** ¿El texto que se va a enviar promete que una persona confirma algo? */
 function prometeConfirmar(texto) {

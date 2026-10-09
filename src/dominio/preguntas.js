@@ -130,6 +130,25 @@ const TEMAS = {
   UBICACION: "ubicacion",
   /** "¿y si no me funciona?". No es garantia a secas: es miedo a perder la plata. */
   SI_NO_FUNCIONA: "si_no_funciona",
+
+  // ======================================================================
+  // LOS CUATRO DE ABAJO SON DEL 2026-10-09 Y LOS ABRE LA FICHA TECNICA.
+  //
+  // Hasta ahora no tenian tema porque no habia nada que contestar: el
+  // catalogo no sabia que el cinturon tiene masaje, ni que se puede usar en
+  // la espalda. Con la ficha que autorizo Marco, cada uno tiene una
+  // respuesta concreta — y son de las que mas venden, porque son las que
+  // convierten "una almohadilla mas" en un aparato.
+  // ======================================================================
+
+  /** "¿tiene masaje?", "¿vibra?". 4 modos, y se puede usar con o sin calor. */
+  MASAJE: "masaje",
+  /** "¿sirve para la espalda?", "¿para el dolor lumbar?" */
+  ESPALDA: "espalda",
+  /** "¿hace ruido?". La duda de quien lo quiere usar en la oficina. */
+  RUIDO: "ruido",
+  /** "¿se puede usar debajo de la ropa?", "¿en el trabajo?" */
+  DISCRECION: "discrecion",
 };
 
 /**
@@ -187,8 +206,43 @@ const PATRONES = [
   [TEMAS.CONTRAINDICACION, /\b(endometriosis|quiste|quistes|mioma|miomas)\b/],
   [TEMAS.CONTRAINDICACION, /\b(cesarea|operada\s+(hace|de))\b/],
 
+  // ---- Masaje: va ANTES de USO ----
+  [TEMAS.MASAJE, /\bmasaj\w*/],
+  [TEMAS.MASAJE, /\bvibra\w*/],
+  [TEMAS.MASAJE, /\bmodos?\b/],
+
+  // ---- Espalda / lumbar: va ANTES de USO y de MEDIDAS ----
+  //
+  // "¿sirve para la espalda?" casaba con `sirve (para|contra)` de USO y
+  // recibia la frase de los colicos, que no contesta la pregunta. Y la
+  // respuesta SI existe y amplia el mercado: tambien se pone en la lumbar.
+  [TEMAS.ESPALDA, /\b(espalda|lumbar|cintura\s+(de\s+)?atras|rinones|rinon)\b/],
+  [TEMAS.ESPALDA, /\bdolor\s+de\s+espalda\b/],
+
+  // ---- Ruido: la duda de quien lo quiere usar en la oficina ----
+  [TEMAS.RUIDO, /\b(hace|suena|mete)\s+ruido\b/],
+  [TEMAS.RUIDO, /\bes\s+(ruidoso|silencioso)\b/],
+  [TEMAS.RUIDO, /\bse\s+(escucha|oye)\b/],
+
+  // ---- Discrecion: debajo de la ropa, en el trabajo ----
+  [TEMAS.DISCRECION, /\b(debajo|abajo)\s+de\s+la\s+ropa\b/],
+  [TEMAS.DISCRECION, /\bse\s+(nota|ve)\s+(mucho|por\s+encima|debajo)\b/],
+  [TEMAS.DISCRECION, /\b(en|para)\s+el\s+(trabajo|colegio|universidad)\b/],
+  [TEMAS.DISCRECION, /\bmientras\s+(trabajo|estudio|camino)\b/],
+  [TEMAS.DISCRECION, /\bes\s+discreto\b/],
+  [TEMAS.DISCRECION, /\bsalir\s+a\s+la\s+calle\s+con\b/],
+
   // ---- Temperatura: va ANTES de ENTREGA (por "demora") y de ENERGIA ----
   [TEMAS.TEMPERATURA, /\bgrados\b/],
+  // "¿quema?" es una pregunta por el CALOR, y su respuesta son los tres
+  // niveles mas la recomendacion de empezar por el bajo. Estaba en
+  // SEGURIDAD, que ahora se queda con lo de dormir y la piel.
+  [TEMAS.TEMPERATURA, /\bse\s+(puede\s+)?quem(a|ar|aria)\b/],
+  [TEMAS.TEMPERATURA, /\bquema\b/],
+  [TEMAS.TEMPERATURA, /\bcalienta\s+(mucho|harto|demasiado)\b/],
+  // "cuanto calienta" es la forma mas directa de preguntarlo, y caia en USO.
+  [TEMAS.TEMPERATURA, /\bcuant[oa]\s+calienta\b/],
+  [TEMAS.TEMPERATURA, /\bque\s+tan\s+caliente\b/],
   [TEMAS.TEMPERATURA, /\btemperatura\b/],
   [TEMAS.TEMPERATURA, /\b(demora|tarda)\w*\s+(mucho\s+)?(en|para)\s+calentar\b/],
   [TEMAS.TEMPERATURA, /\bcuanto\s+(se\s+)?(demora|tarda)\w*\s+(en\s+)?calent/],
@@ -205,8 +259,8 @@ const PATRONES = [
   [TEMAS.SEGURIDAD, /\btoda\s+la\s+noche\b/],
   [TEMAS.SEGURIDAD, /\bhoras\s+seguidas\b/],
   [TEMAS.SEGURIDAD, /\bcuanto\s+tiempo\s+(lo|la)?\s*(puedo|se\s+puede)?\s*(usar|dejar|tener|poner|usarlo|usarla)\b/],
-  [TEMAS.SEGURIDAD, /\bse\s+(puede\s+)?quem(a|ar|aria)\b/],
   [TEMAS.SEGURIDAD, /\bes\s+seguro\s+(usar|usarlo|usarla|poner|ponerlo|ponerla|dejar|dejarlo)/],
+  [TEMAS.SEGURIDAD, /\bpiel\s+(lastimada|irritada|herida)\b/],
   [TEMAS.SEGURIDAD, /\bhace\s+da[nñ]o\b/],
   [TEMAS.SEGURIDAD, /\bpeligros[oa]\b/],
 
@@ -1213,6 +1267,20 @@ function leer(texto) {
   if (temas.includes(TEMAS.CONTRAINDICACION)) quitar(TEMAS.USO);
   if (temas.includes(TEMAS.SEGURIDAD)) quitar(TEMAS.USO);
   if (temas.includes(TEMAS.DESTINATARIO)) quitar(TEMAS.USO);
+  // "¿sirve para la espalda?" casa con `sirve para` de USO, y la frase de
+  // los colicos no contesta eso.
+  if (temas.includes(TEMAS.ESPALDA)) quitar(TEMAS.USO);
+  // "¿tiene masaje?" tampoco es "para que sirve".
+  if (temas.includes(TEMAS.MASAJE)) quitar(TEMAS.USO);
+  // El ruido lo produce el masaje: la respuesta de RUIDO ya lo explica.
+  if (temas.includes(TEMAS.RUIDO)) quitar(TEMAS.MASAJE);
+  // "¿se nota debajo de la ropa?" no es una pregunta de medidas.
+  if (temas.includes(TEMAS.DISCRECION)) {
+    quitar(TEMAS.MEDIDAS);
+    quitar(TEMAS.USO);
+  }
+  // "¿quema?" se contesta con los niveles de calor, no con lo de dormir.
+  if (temas.includes(TEMAS.TEMPERATURA)) quitar(TEMAS.SEGURIDAD);
   // "¿y si no me funciona?" ya se contesta con contraentrega + garantia.
   if (temas.includes(TEMAS.SI_NO_FUNCIONA)) quitar(TEMAS.GARANTIA);
   // "¿llega a mi vereda?" casa con `llega a` de ENVIO; la respuesta es la

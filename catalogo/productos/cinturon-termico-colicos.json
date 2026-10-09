@@ -83,13 +83,10 @@
     "si hay descuento por cantidad",
     "hasta que contorno ajusta la correa",
     "las medidas exactas del cinturon",
-    "que trae exactamente el paquete",
     "si se puede pagar por transferencia o Nequi",
-    "los niveles de temperatura o de intensidad",
-    "si funciona con bateria o enchufado, y cuanto dura",
     "el dia exacto en que llega"
   ],
-  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como temas sobre los que el texto no puede AFIRMAR. Son las preguntas que mas se repiten en este producto y que no tienen respuesta aprobada.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.\n\nTRES SALIERON EL 2026-10-08, Y POR EL MISMO MOTIVO: el dato ya existe en un campo estructurado, asi que declararlo dudoso era una contradiccion de la ficha contra si misma.\n\n  · 'como se tramita la garantia'       -> esta en garantiaComoSeTramita\n  · 'que cubre exactamente la garantia' -> esta en garantiaCubre + garantiaNoCubre\n  · 'el precio por dos o mas unidades'  -> precios tiene la clave '2'\n\nEl de precios NO se borro: se ESTRECHO a 'tres o mas', que es lo que de verdad falta. Marco confirmo 1 y 2; el motor 'tabla' no interpola, asi que quien pida 3 se escala. Borrarlo del todo habria dejado el hueco real sin declarar, que es el error opuesto y mas caro: el bot podria intentar contestar el precio de tres.\n\nLA LECCION DE DISEÑO, porque se repetira: cuando un dato pasa de desconocido a confirmado hay que tocar DOS sitios -el campo y esta lista- y olvidar el segundo no rompe ninguna prueba. Queda un bot que tiene el dato y dice que no lo tiene.",
+  "_nota_sinDatoConfirmado": "ESTA LISTA HACE ALGO, no es documentacion. Entra al prompt como 'si el cliente pregunta por esto, di que lo confirmas', y ADEMAS revisarClaims la trata como temas sobre los que el texto no puede AFIRMAR. Son las preguntas que mas se repiten en este producto y que no tienen respuesta aprobada.\n\nEl color y la talla SALIERON de aqui el 2026-10-07 porque Marco los confirmo, y pasaron a caracteristicasAutorizadas. Dejarlos habria tenido dos efectos malos a la vez: el bot no podria decir que es rosado -que es verdad y es un dato que piden- y estaria declarando como dudoso algo ya decidido.\n\nTRES SALIERON EL 2026-10-08, Y POR EL MISMO MOTIVO: el dato ya existe en un campo estructurado, asi que declararlo dudoso era una contradiccion de la ficha contra si misma.\n\n  · 'como se tramita la garantia'       -> esta en garantiaComoSeTramita\n  · 'que cubre exactamente la garantia' -> esta en garantiaCubre + garantiaNoCubre\n  · 'el precio por dos o mas unidades'  -> precios tiene la clave '2'\n\nEl de precios NO se borro: se ESTRECHO a 'tres o mas', que es lo que de verdad falta. Marco confirmo 1 y 2; el motor 'tabla' no interpola, asi que quien pida 3 se escala. Borrarlo del todo habria dejado el hueco real sin declarar, que es el error opuesto y mas caro: el bot podria intentar contestar el precio de tres.\n\nLA LECCION DE DISEÑO, porque se repetira: cuando un dato pasa de desconocido a confirmado hay que tocar DOS sitios -el campo y esta lista- y olvidar el segundo no rompe ninguna prueba. Queda un bot que tiene el dato y dice que no lo tiene.\n\nTRES SALIERON EL 2026-10-09, porque Marco autorizo la ficha tecnica del fabricante: los niveles de temperatura, la bateria y lo que trae el paquete. Eran las tres preguntas que mas veces quedaban sin respuesta -medido: 3 de las 5 que fallaban el 09-oct eran de energia-.\n\nLOS QUE QUEDAN SON LOS QUE MARCO MARCO [CONFIRMAR] EN SU PROPIO DOCUMENTO, y no se tocan: el precio de 3 o mas, el descuento por cantidad, hasta que contorno ajusta la correa, el pago por Nequi y el dia exacto de llegada. Añadir uno de esos sin su visto bueno seria inventarse una politica.",
   "claimsPermitidos": [],
   "claimsProhibidos": [
     "cura los colicos",
@@ -135,9 +132,21 @@
     "te confirmo en un momento",
     "te respondo enseguida",
     "te escribe en un momento",
-    "te contestamos enseguida"
+    "te contestamos enseguida",
+    "te devolvemos tu dinero",
+    "pruebalo 7 dias",
+    "prueba 7 dias",
+    "si no sientes alivio te devolvemos",
+    "garantia de 7 dias",
+    "incluye cargador de pared",
+    "trae cargador de pared",
+    "viene con cargador de pared",
+    "se puede usar durmiendo",
+    "puedes dormir con el",
+    "no se calienta de mas",
+    "nunca quema"
   ],
-  "_nota_claims": "Esta lista solo prohibe, nunca afirma, asi que ampliarla no necesita aprobacion; reducirla si. Es un producto de bienestar que se compra por dolor menstrual: el riesgo no es exagerar el precio, es hacer una promesa medica.\n\nLAS DOCE ULTIMAS LINEAS SON DEL 2026-10-07, y las pidio Marco al confirmar la ficha: 'no tenemos medidas del ajuste, no prometas que sirve para cualquier contorno'. El riesgo es concreto y nace de un dato verdadero: 'talla unica con correa ajustable' invita a seguir la frase con 'asi que le sirve a cualquiera', que es exactamente lo que no se sabe. Son frases literales porque revisarClaims las busca en el texto; una instruccion del tipo 'no prometas ajuste universal' no es un candado. Y el dato que falta esta declarado en sinDatoConfirmado como 'hasta que contorno ajusta la correa', para que la pregunta directa se derive a una persona en vez de contestarse por aproximacion.\n\nLAS ONCE ULTIMAS LINEAS SON DEL MISMO CAMBIO QUE HABILITO EL TIEMPO DE ENTREGA (2026-10-07). No son una precaucion generica: son el riesgo que ABRE ese dato. Mientras el bot no podia hablar de plazos, no habia como prometer una fecha; ahora que dice '1 a 3 dias habiles' el paso siguiente -'te llega manana'- es el que da el modelo solo, y ese si es incumplible porque depende de la transportadora y de la hora de corte. BIKERPRO tiene el mismo candado y por el mismo motivo.",
+  "_nota_claims": "Esta lista solo prohibe, nunca afirma, asi que ampliarla no necesita aprobacion; reducirla si. Es un producto de bienestar que se compra por dolor menstrual: el riesgo no es exagerar el precio, es hacer una promesa medica.\n\nLAS DOCE ULTIMAS LINEAS SON DEL 2026-10-07, y las pidio Marco al confirmar la ficha: 'no tenemos medidas del ajuste, no prometas que sirve para cualquier contorno'. El riesgo es concreto y nace de un dato verdadero: 'talla unica con correa ajustable' invita a seguir la frase con 'asi que le sirve a cualquiera', que es exactamente lo que no se sabe. Son frases literales porque revisarClaims las busca en el texto; una instruccion del tipo 'no prometas ajuste universal' no es un candado. Y el dato que falta esta declarado en sinDatoConfirmado como 'hasta que contorno ajusta la correa', para que la pregunta directa se derive a una persona en vez de contestarse por aproximacion.\n\nLAS ONCE ULTIMAS LINEAS SON DEL MISMO CAMBIO QUE HABILITO EL TIEMPO DE ENTREGA (2026-10-07). No son una precaucion generica: son el riesgo que ABRE ese dato. Mientras el bot no podia hablar de plazos, no habia como prometer una fecha; ahora que dice '1 a 3 dias habiles' el paso siguiente -'te llega manana'- es el que da el modelo solo, y ese si es incumplible porque depende de la transportadora y de la hora de corte. BIKERPRO tiene el mismo candado y por el mismo motivo.\n\nLAS DOCE ULTIMAS SON DEL 2026-10-09 Y LAS ABRE LA FICHA TECNICA NUEVA. Cada dato que se autoriza abre la promesa que viene detras, y hay que cerrarla en el mismo cambio:\n\n  · la devolucion de dinero a 7 dias SALE DEL ANUNCIO de Facebook, y Marco la dejo explicitamente como     [CONFIRMAR]. Es la mas caras de todas: promete plata de vuelta. Mientras no la apruebe, el bot NO     puede decirla aunque el anuncio si la diga.\n  · el cargador de pared: Marco dio instruccion de decir que NO lo incluye. Prometerlo es un paquete     que llega incompleto.\n  · dormir con el puesto: la ficha dice que NO, asi que afirmar lo contrario contradice la propia ficha     de seguridad de un aparato que llega a 60 °C.\n  · 'nunca quema': no se puede afirmar de nada que calienta. Lo que se dice es que se empiece por el     nivel mas bajo.",
   "motorDePrecio": "tabla",
   "precios": {
     "1": 49900,
@@ -153,7 +162,11 @@
   "promociones": [],
   "variantes": [],
   "presentaciones": [],
-  "contenidoDelPaquete": [],
+  "contenidoDelPaquete": [
+    "el cinturón",
+    "la correa ajustable",
+    "el cable de carga USB"
+  ],
   "logistica": {
     "pesoGr": null,
     "dimensionesCm": {
@@ -171,8 +184,12 @@
     "tiempoDeEntrega": {
       "texto": "1 a 3 días hábiles",
       "matiz": "según la ciudad",
-      "fuente": "mismas transportadoras que BIKERPRO - Marco, 2026-10-07",
-      "esRango": true
+      "fuente": "Marco, 2026-10-07 (mismas transportadoras que BIKERPRO) y precisado el 2026-10-09: Bogota 1 a 2 dias habiles, resto del pais 1 a 3. Zonas rurales pueden tardar un poco mas y eso NO se promete: se dice que si enviamos y que el tiempo exacto se confirma cuando sale la guia.",
+      "esRango": true,
+      "porCiudad": {
+        "bogota": "1 a 2 días hábiles"
+      },
+      "matizRural": "En zonas rurales puede tardar un poquito más; el tiempo exacto te lo confirmo cuando salga la guía."
     }
   },
   "_nota_envio": "COBERTURA NO DECLARADA. Marco dijo 'envio incluido' sin acotar a que ciudades. Para el cliente no hay riesgo: paga 49.900 y nada mas, en cualquier destino. El riesgo es de MARGEN, y es suyo: un envio a una zona apartada puede costar mas que el margen del producto. No se asume ninguna restriccion por mi cuenta porque restringir ciudades tambien seria inventar una politica. Si quiere limitar cobertura, se cambia 'tipo' a 'por_destino' con la tabla de departamentos y el cotizador empieza a exigir el departamento antes de cotizar.",
@@ -198,13 +215,73 @@
     "_porQue": "graduable=true lo confirmo Marco el 2026-10-08 y se ve en la foto 04-correa. contornoMaximoCm sigue en null a proposito: Marco dijo que 'no importa si la cintura es muy pequena o muy ancha porque es ajustable y le va a poder quedar sin problema', y eso es una CONCLUSION, no una medida. Mientras el numero sea null, el bot dice que es graduable -que es verdad y ya desatasca la pregunta- y ofrece confirmar el maximo. En cuanto haya un numero, la respuesta pasa a 'ajusta hasta X cm', que vende mas porque es concreto y ademas se puede sostener. El riesgo de poner la promesa sin el numero no es teorico: la garantia cubre defecto de fabrica y NO cubre 'no me quedo', asi que a quien le prometimos que le quedaria y no le queda, se le dice que no hay garantia. Esa queja seria justa."
   },
   "paraQueSirve": {
-    "texto": "Sí, es justo para eso: el calor en la zona baja del abdomen ayuda a relajar y alivia el cólico.",
-    "fuente": "Marco lo autorizo expresamente el 2026-10-08: \"si una persona le pregunta como esto sirve para los colicos, si claro eso sirve para los colicos porque el calor\".",
+    "texto": "Sí, es justo para eso: da calor y masaje en la parte baja del abdomen, que ayuda a relajar la zona y alivia la molestia del cólico.",
+    "fuente": "Marco lo autorizo el 2026-10-08 ('si claro eso sirve para los colicos porque el calor') y lo amplio el 2026-10-09 con el masaje. SIGUE DICIENDO 'ALIVIA LA MOLESTIA', NUNCA 'CURA' NI 'ELIMINA EL DOLOR': esa distincion la repitio Marco en su propio documento y es la que separa describir el producto de hacer una promesa medica.",
     "_porQue": "ES EL USO PREVISTO DEL PRODUCTO, no una promesa medica, y la distincion es la que permite decirlo. 'Sirve para los colicos' describe para que esta hecho; 'cura los colicos' promete un resultado clinico y sigue en claimsProhibidos. El producto se llama cinturon termico para colicos: negarse a decir para que sirve era la peor respuesta que daba el bot, y ademas la mas absurda.\n\nNO SE AMPLIA SIN AUTORIZACION. Nada de endometriosis, quistes, embarazo ni medicacion: esos siguen prohibidos uno por uno."
   },
   "material": {
-    "texto": "Es en plástico, y la parte que va sobre el abdomen lleva almohadillas.",
-    "fuente": "Marco lo autorizo el 2026-10-08: \"el material es plastico y obviamente la parte del abdomen son como almohadillas\".",
+    "texto": "es en plástico ABS por fuera, y la parte que va sobre el abdomen lleva una tela suave tipo terciopelo.",
+    "fuente": "Marco lo autorizo el 2026-10-08 (plastico y almohadillas) y lo preciso el 2026-10-09 con la ficha del fabricante: ABS + tela tipo terciopelo.",
     "_porQue": "Lo que dijo Marco, y NADA MAS. Me ofrecio buscar fichas tecnicas en MercadoLibre para tener contexto; eso sirve para que yo entienda el producto, NO como fuente de lo que el bot afirma. Una ficha de otro vendedor no es una autorizacion de esta marca: si el bot dice 'poliester con gel' porque lo leyo en un anuncio ajeno y llega otra cosa, la devolucion es nuestra. Para ampliar esto hace falta que Marco lo confirme pieza por pieza."
-  }
+  },
+  "_nota_ficha_tecnica": "FICHA TECNICA AÑADIDA EL 2026-10-09, Y LA AUTORIZO MARCO POR ESCRITO en el plan de correccion del bot (Parte B: 'DATOS DEL PRODUCTO (usa solo esto, no inventes)').\n\nDE DONDE SALE, porque importa: Marco la tomo de la ficha del FABRICANTE del modelo Smart Warm Palace Belt (OBS-W01), y en su propio documento dejo escrito 'Verificar con la unidad fisica'. O sea: esta autorizada para que el bot la diga, y a la vez esta pendiente de comprobarse contra el producto que de verdad se despacha.\n\nPOR QUE SE IMPLEMENTA IGUAL: hasta ahora el bot NO PODIA contestar la pregunta mas frecuente del producto -como se enciende-. Medido: de las 5 preguntas que seguian sin respuesta el 09-oct, 3 eran de energia, y una clienta la pregunto dos veces seguidas. Un dato autorizado por el dueño es la unica fuente valida, y la hay.\n\n⚠️ RIESGO QUE ASUME MARCO, DICHO CLARO: si la unidad fisica no coincide -por ejemplo otros niveles de temperatura, u otra duracion de bateria- el bot estara afirmando algo que no llega, y la devolucion es nuestra. La verificacion fisica sigue PENDIENTE y esta anotada en docs/DATOS-PENDIENTES.md.\n\nLO QUE MARCO MARCO COMO [CONFIRMAR] NO ENTRA AQUI, y es deliberado: la medida maxima de la correa, si incluye cargador de pared, la garantia de 7 dias con devolucion de dinero y el pago por Nequi. Esos siguen en sinDatoConfirmado.",
+  "energia": {
+    "recargable": true,
+    "bateriaMah": 1800,
+    "comoSeCarga": "por cable USB, con el cargador de tu celular, un computador o una power bank",
+    "horasDeCarga": 2,
+    "horasDeUso": 2,
+    "inalambricoEnUso": true,
+    "texto": "es recargable: trae su cable USB y lo cargas con el cargador de tu celular en unas 2 horas. Dura unas 2 horas de uso por carga, y mientras lo usas no va conectado a nada.",
+    "_porQue": "Autorizado por Marco el 2026-10-09. 'Mientras lo usas no va conectado a nada' es la parte que mas vende: la duda de fondo de quien pregunta por el cable es si va a quedar amarrada a un enchufe."
+  },
+  "temperatura": {
+    "niveles": [
+      50,
+      55,
+      60
+    ],
+    "unidad": "°C",
+    "segundosEnCalentar": 10,
+    "texto": "tiene 3 niveles de calor: 50, 55 y 60 °C, y calienta en unos 10 segundos.",
+    "recomendacion": "Te recomiendo empezar en el nivel más bajo y subir según cómo te sientas.",
+    "_porQue": "Autorizado por Marco el 2026-10-09. La recomendacion del nivel bajo va SIEMPRE con el dato: es un aparato que llega a 60 °C sobre la piel."
+  },
+  "masaje": {
+    "modos": 4,
+    "texto": "trae 4 modos de masaje por vibración, y puedes usar solo calor, solo masaje o los dos al tiempo.",
+    "ruido": "El masaje vibra suavecito. Si usas solo el calor, no hace ruido."
+  },
+  "pantalla": {
+    "texto": "tiene pantalla digital: te muestra la temperatura, el modo de masaje y la batería."
+  },
+  "medidas": {
+    "almohadillaCm": "19 × 8",
+    "pesoGr": 170,
+    "texto": "la almohadilla mide unos 19 × 8 cm y pesa unos 170 g, así que es bien liviano.",
+    "_ojo": "ESTO NO ES EL CONTORNO DE LA CORREA. `ajuste.contornoMaximoCm` sigue en null y prometer que le queda a cualquiera sigue PROHIBIDO en claimsProhibidos. Son dos medidas distintas y confundirlas seria justo el error que Marco pidio no cometer."
+  },
+  "zonasDeUso": {
+    "texto": "lo puedes poner en la parte baja del abdomen o en la espalda, en la zona lumbar.",
+    "discrecion": "Se usa sobre la ropa o debajo de una blusa delgada, así que es discreto: lo puedes llevar puesto trabajando o estudiando."
+  },
+  "dormir": {
+    "sePuede": false,
+    "texto": "para dormir mejor te lo quitas, no te lo dejes puesto toda la noche.",
+    "_porQue": "Autorizado por Marco el 2026-10-09 en la seccion de SEGURIDAD: 'No usarlo mientras duerme'. Antes esta pregunta -que era de las mas frecuentes- se contestaba admitiendo que no se sabia."
+  },
+  "seguridad": {
+    "avisos": [
+      "Empieza en el nivel de calor más bajo y sube según cómo te sientas.",
+      "No lo uses mientras duermes.",
+      "No lo pongas sobre piel lastimada, irritada o con heridas.",
+      "Úsalo sobre la ropa o sobre una tela delgada."
+    ],
+    "_porQue": "Autorizado por Marco el 2026-10-09. Un aparato que llega a 60 °C sobre el abdomen necesita que estos avisos salgan cuando preguntan, no solo en una caja que quizas nadie lee."
+  },
+  "cuidado": {
+    "seMoja": false,
+    "texto": "no se moja ni se sumerge. Se limpia con un paño seco o apenas húmedo, y apagado."
+  },
+  "_nota_contenido": "Autorizado por Marco el 2026-10-09. OJO CON EL CARGADOR DE PARED: Marco lo dejo como [CONFIRMAR] y dio la instruccion por defecto de decir que NO lo incluye, que se carga con cualquier cargador de celular. Por eso el cable SI esta en la lista y el cargador NO, y 'cargador de pared incluido' entra en claimsProhibidos.\n\nLA CAJA NO VA EN LA LISTA: la frase que compone la respuesta ya empieza por 'viene en su caja', y tenerla tambien dentro producia 'viene en su caja con el cinturon, la correa, el cable y su caja'."
 }

@@ -207,70 +207,49 @@ describe("3 · «Algo contra entrega» se contesta desde la ficha", () => {
 // 4 · EL CARGADOR NO ES "PARA QUÉ SIRVE"
 // --------------------------------------------------------------------------
 
-describe("4 · preguntar por el cargador recibe la respuesta honesta", () => {
-  test("cables, cargador y batería son su propio tema", () => {
-    for (const frase of ["Con cables para cargar", "Trae cargador", "es recargable?", "funciona con bateria"]) {
-      const r = preguntas.leer(frase);
-      assert.ok(r.temas.includes(TEMAS.ENERGIA), `no lo reconoció: ${frase}`);
-      assert.equal(r.temas.includes(TEMAS.USO), false, `lo trató como «para qué sirve»: ${frase}`);
+describe("4 · preguntar por el cargador recibe el DATO, ya no una disculpa", () => {
+  // ⚠️ ESTE BLOQUE CAMBIO DE SENTIDO EL 2026-10-09, Y ES UNA BUENA NOTICIA.
+  //
+  // Nacio de una venta perdida: a "Trae cargador" el bot contestaba la frase
+  // de los colicos, y despues de arreglar el enrutamiento contestaba que lo
+  // confirmaba con el equipo. Era lo honesto, porque el dato no existia.
+  //
+  // Pero era la pregunta que MAS veces quedaba sin respuesta: de las cinco
+  // que seguian fallando el 09-oct, TRES eran de energia, y una clienta la
+  // pregunto dos veces seguidas porque la primera no le servia de nada.
+  //
+  // Marco autorizo la ficha del fabricante, asi que ahora hay dato. Lo que
+  // esta prueba vigila pasa a ser lo contrario: que el dato SALGA, y que no
+  // se le añada nada que la ficha no diga.
+  test("se reconoce como pregunta de energia, no de para qué sirve", () => {
+    for (const m of ["Trae cargador", "Con cables para cargar", "es recargable?", "cuánto dura la batería"]) {
+      const l = preguntas.leer(m);
+      assert.ok(l.temas.includes(TEMAS.ENERGIA), `"${m}" no se leyó como ENERGIA: ${JSON.stringify(l.temas)}`);
+      assert.equal(l.temas.includes(TEMAS.USO), false, `"${m}" se contestó con la frase de los cólicos`);
     }
   });
 
-  test("y la respuesta admite que ese dato no está confirmado", () => {
-    // La ficha declara "si funciona con bateria o enchufado" como dato NO
-    // confirmado. Contestar la frase de los cólicos no es contestar.
-    for (const frase of ["Con cables para cargar", "Trae cargador"]) {
-      const t = responde(frase);
-      assert.match(t, /batería o enchufado/i, `no admitió el hueco: ${t}`);
-      assert.equal(
-        /es justo para eso|alivia el cólico/i.test(t),
-        false,
-        `contestó para qué sirve a quien preguntó por el cargador: ${t}`
-      );
-    }
+  test("y la respuesta da el dato que autorizó Marco", () => {
+    const t = contestar.deTema(TEMAS.ENERGIA, { producto: elCinturon() });
+    assert.match(t, /recargable/i, t);
+    assert.match(t, /USB/i, t);
+    // Lo que de verdad resuelve la duda de fondo: no queda amarrada a un
+    // enchufe mientras lo usa.
+    assert.match(t, /no va conectado/i, `falta lo que más vende de este dato: ${t}`);
+    // Y ya NO se disculpa: era el callejón que mataba la conversación.
+    assert.equal(/no te lo quiero decir a medias/i.test(t), false, t);
   });
 
-  test("«para qué sirve» sigue contestándose con el dato autorizado", () => {
-    const t = responde("¿para qué sirve?");
-    assert.match(t, /alivia el cólico/i, `se rompió la respuesta de para qué sirve: ${t}`);
-  });
-
-  test("y no promete lo que no sabe", () => {
+  test("sin inventar NADA que la ficha no diga", () => {
+    // El riesgo del dato nuevo: que arrastre el cargador de pared, que Marco
+    // dejó explícitamente como [CONFIRMAR] con instrucción de decir que NO.
     const producto = elCinturon();
-    for (const frase of ["Con cables para cargar", "Trae cargador", "Que costó tiene", "Ayuda con pedido"]) {
-      const t = responde(frase);
-      const claims = responder.revisarClaims(t, producto);
-      assert.equal(claims.ok, true, `${JSON.stringify(claims.encontrados)} -> ${t}`);
-    }
+    const t = contestar.deTema(TEMAS.ENERGIA, { producto });
+    assert.equal(/cargador de pared|incluye el cargador/i.test(t), false, `prometió el cargador de pared: ${t}`);
+    const v = responder.revisarClaims(t, producto);
+    assert.equal(v.ok, true, `la respuesta afirma algo prohibido: ${JSON.stringify(v)}`);
   });
 });
-
-// --------------------------------------------------------------------------
-// 5 · NO SE PROMETE CUÁNDO SE CONTESTA · el bucle del chat de Marco
-//
-// Esto le llegó a Marco desde su propio número, DESPUÉS de que se hubieran
-// prohibido las frases de tiempo:
-//
-//   Marco  · "Buenas"
-//   NOVIKA · "Déjame confirmarlo bien con el equipo y te escribo en un
-//             momentico."
-//   Marco  · "Confirmar que?"
-//   NOVIKA · "Perdón, no quiero repetirme. Dime concretamente qué necesitas"
-//   Marco  · "Empecemos de nuevo"
-//   NOVIKA · "Déjame confirmarlo bien con el equipo…"
-//
-// «momentico» no estaba en `claimsProhibidos`, y «te escribo» tampoco casaba
-// con «te escribe». La lista tapaba las cuatro frases vistas, no el ERROR:
-// compara TEXTO EXACTO, y en castellano colombiano hay infinitas formas de
-// decir lo mismo — momentico, ratico, minuticos, ahorita, ya mismo—.
-//
-// El propio documento de traspaso lo avisaba: «estas dos últimas se
-// escaparon una vez por buscar la palabra exacta». Se arregló el síntoma.
-//
-// Importa porque NO HAY NADIE DE GUARDIA: a una clienta que escribe un
-// domingo a las 11 de la noche, «en un momentico» es mentira.
-// --------------------------------------------------------------------------
-
 describe("5 · las promesas de tiempo se cazan por patrón, no por frase exacta", () => {
   const PROMESAS = [
     "Déjame confirmarlo bien con el equipo y te escribo en un momentico.",

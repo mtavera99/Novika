@@ -714,12 +714,16 @@ describe("8 · una promesa sin tarea es un cliente esperando", () => {
     // confirma. Una promesa que nadie recibe.
     const c = await conversacion();
     await c.dice(ANUNCIO);
-    const r = await c.dice("a cuántos grados llega?");
+    // ⚠️ EL EJEMPLO CAMBIO EL MISMO 09-oct: "¿a cuántos grados llega?" dejó de
+    //    ser un hueco en cuanto Marco autorizó la ficha técnica. El que sigue
+    //    siéndolo —y es el que MÁS vende— es el contorno de la correa, que él
+    //    dejó explícitamente como [CONFIRMAR].
+    const r = await c.dice("hasta qué contorno ajusta la correa?");
 
     assert.ok(contestar.prometeConfirmar(r.enviado), `la respuesta ya no promete confirmar: ${r.enviado}`);
     const p = atencion.pendienteDe(r.conversacion);
-    assert.equal(p.hay, true, "prometió que el equipo lo confirma y no dejó tarea");
-    assert.match(p.pregunta, /grados/i, "la tarea no guarda la pregunta");
+    assert.equal(p.hay, true, "prometió confirmar un dato y no dejó tarea");
+    assert.match(p.pregunta, /contorno/i, "la tarea no guarda la pregunta");
   });
 
   test("y si contesta del todo, NO hay tarea", async () => {
@@ -759,7 +763,9 @@ describe("8 · una promesa sin tarea es un cliente esperando", () => {
     // Del chat de Marco: "Con cables para cargar" y "Trae cargador"
     // recibieron el MISMO párrafo de "lo confirmo con el equipo". La clienta
     // reformuló porque la primera no le sirvió, y recibió el mismo muro.
-    const muro = contestar.deTema(TEMAS.ENERGIA, { producto: elCinturon() });
+    // ⚠️ ENERGIA ya no es un muro: tiene dato desde el 09-oct. El que sigue
+    //    siéndolo es la factura, que no tiene política aprobada.
+    const muro = contestar.deTema(TEMAS.FACTURA, { producto: elCinturon() });
     const r = responder.sinRepetir(muro, muro, { mismaPregunta: true, preguntaReconocida: true });
     assert.equal(r.repetido, true, "dejó pasar el mismo muro dos veces");
     assert.notEqual(r.texto, muro);

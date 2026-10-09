@@ -97,6 +97,11 @@ const APERTURAS = {
   // "¿sirve para mi hija de 13?" es la mama preguntando. Se reconoce.
   [TEMAS.DESTINATARIO]: "Claro que sí,",
   [TEMAS.COMPARATIVA]: "Te cuento la diferencia:",
+  // ---- Temas del 2026-10-09, los que abre la ficha tecnica ----
+  [TEMAS.MASAJE]: "¡Sí!",
+  [TEMAS.ESPALDA]: "¡Claro que sí!",
+  [TEMAS.RUIDO]: "Tranquila,",
+  [TEMAS.DISCRECION]: "Sí,",
   // Quien pregunta si llega a su vereda da por hecho que no. Que la
   // respuesta sea "sí" merece abrirse con ganas.
   [TEMAS.COBERTURA]: "¡Sí!",
@@ -195,6 +200,11 @@ const EMOJIS = {
   [TEMAS.COMPARATIVA]: "💡",
   [TEMAS.MAYORISTA]: "🙌",
   [TEMAS.EMPAQUE]: "🎁",
+  [TEMAS.MASAJE]: "💆‍♀️",
+  [TEMAS.ESPALDA]: "🙌",
+  [TEMAS.DISCRECION]: "😊",
+  [TEMAS.ENERGIA]: "🔋",
+  [TEMAS.TEMPERATURA]: "🔥",
   // Sin emoji a proposito: CONTRAINDICACION habla de embarazo y condiciones
   // medicas. Un emoji ahi suena a que no se toma en serio.
   // Sin emoji a proposito: SEGURIDAD y CUIDADO son advertencias.
