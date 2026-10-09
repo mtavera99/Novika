@@ -1012,6 +1012,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       // ----------------------------------------------------------------
       if (!pedidoActivo) {
         situacion = "declina";
+        // Para que los RECORDATORIOS no insistan a quien dijo que no.
+        // Insistirle no es vender: es la via rapida a que reporte el numero
+        // como spam, y un reporte cuesta la calidad del numero — que vale
+        // mucho mas que esta venta.
+        conversacion.declino = true;
         traza.pedido = null;
         estadoDestino = conversacion.estado;
         traza.avisos.push("dijo que no sin tener pedido: se cierra con calidez, no se escala ni se pausa");
@@ -1821,6 +1826,24 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
 
     conversacion.ventana = [...(conversacion.ventana || []), { texto: evento.texto || "", wamid: evento.wamid }].slice(-8);
     conversacion.ultimoWamid = evento.wamid;
+
+    // ------------------------------------------------------------------
+    // CUANDO ESCRIBIO EL CLIENTE POR ULTIMA VEZ, EN SU PROPIO CAMPO.
+    //
+    // Existe por los RECORDATORIOS y por la VENTANA DE 24 H, que necesitan
+    // esta marca para no escribirle fuera de plazo. Y no se saca del
+    // historial a proposito: `atencion` lo recorta a los ultimos 60
+    // mensajes, asi que en un chat largo donde los ultimos sesenta son del
+    // bot y del operador, el mensaje del cliente SE CAE de la lista.
+    //
+    // Buscarlo alli devolveria "no se sabe" justo en los chats mas
+    // trabajados, que son los que mas cerca estan de cerrar. Un campo
+    // propio no se recorta nunca.
+    //
+    // Se escribe SIEMPRE, enviada o no la respuesta: el cliente escribio,
+    // y eso es un hecho suyo que no depende de lo que hiciera el bot.
+    // ------------------------------------------------------------------
+    conversacion.ultimoDelClienteEn = new Date().toISOString();
 
     // Historial para el panel. `ventana` no sirve: son solo los ultimos
     // textos del cliente, sin direccion ni hora, y existe para resolver el

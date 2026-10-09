@@ -40,6 +40,24 @@ function entero(nombre, porDefecto) {
   return Number.isFinite(n) ? n : porDefecto;
 }
 
+/**
+ * Lista de minutos separados por coma: "30,180".
+ *
+ * Se filtra lo que no sea un numero positivo y se ordena: unos umbrales
+ * desordenados -"180,30"- harian que el segundo toque saliera antes que el
+ * primero, y el defecto solo se veria con un cliente real esperando.
+ */
+function minutos(nombre, porDefecto) {
+  const v = texto(nombre);
+  if (v === "") return porDefecto;
+  const lista = v
+    .split(",")
+    .map((x) => Number.parseInt(x.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  return lista.length ? lista : porDefecto;
+}
+
 const config = {
   marca: "novika",
 
@@ -139,6 +157,26 @@ const config = {
   // enviarla. Encendido por defecto, porque es como se audita el bot con
   // trafico real antes de dejarlo hablar.
   modoSombra: bandera("MODO_SOMBRA", true),
+
+  // ----------------------------------------------------------------------
+  // RECORDATORIOS: el bot le escribe al cliente que se quedo callado.
+  //
+  // ⚠️ APAGADO POR DEFECTO, Y NO ES PRUDENCIA DE ADORNO. Esto manda
+  //    mensajes que NADIE pidio a numeros de clientes reales, con una
+  //    campaña de Facebook encendida. Que se encienda solo porque alguien
+  //    despliega es inaceptable. Lo enciende Marco en Render, igual que
+  //    RESPUESTA_AUTOMATICA.
+  //
+  // Los minutos los eligio Marco: uno a los 30 y otro a las 3 horas. Los
+  // dos caben dentro de la ventana de 24 h de WhatsApp, asi que no
+  // necesitan plantilla aprobada. Ver src/dominio/recordatorios.js.
+  // ----------------------------------------------------------------------
+  recordatorios: bandera("RECORDATORIOS", false),
+  recordatorioMinutos: minutos("RECORDATORIO_MINUTOS", [30, 180]),
+  // Hora de BOGOTA, no del servidor (Render va en UTC). Un recordatorio a
+  // las 3 de la mañana no vende: hace que te bloqueen.
+  recordatoriosDesdeHora: entero("RECORDATORIOS_DESDE_HORA", 8),
+  recordatoriosHastaHora: entero("RECORDATORIOS_HASTA_HORA", 21),
 
   // IA. Sin clave no hay IA, y el sistema sigue funcionando por el camino
   // determinista: el mensaje se registra y se escala.

@@ -112,6 +112,8 @@ function crearApp() {
 
       // Fase 2
       modo_sombra: config.modoSombra,
+      recordatorios: config.recordatorios,
+      recordatorio_minutos: config.recordatorioMinutos,
       // Un congelado olvidado es un bot que acumula mensajes sin atender.
       // Por eso se publica sin token: tiene que verse.
       escrituras_congeladas: congelacion.estado(config.dirDatos).congelado,

@@ -16,6 +16,9 @@ const log = require("./log");
 const diario = require("./almacen/diario");
 const { crearApp } = require("./app");
 const { recuperarPendientes } = require("./webhook/recuperar");
+const metricas = require("./metricas");
+const { arrancarBarrido } = require("./cerebro/recordar");
+const { obtenerPiezas } = require("./cerebro/index");
 
 function arrancar() {
   const { errores, avisos } = revisar();
@@ -67,6 +70,27 @@ function arrancar() {
       log.error("recuperacion_no_arranco", { detalle: e.message });
       diario.anotar("recuperacion_no_arranco", { error: e.message });
     });
+
+    // ------------------------------------------------------------------
+    // BARRIDO DE RECORDATORIOS
+    //
+    // Va aqui -despues de `listen`, igual que la recuperacion- y NO se
+    // espera: si el barrido no arranca, el bot tiene que seguir atendiendo.
+    //
+    // Apagado por defecto (`RECORDATORIOS`), asi que en un despliegue
+    // normal esto solo escribe una linea en el log y se va. Lo enciende
+    // Marco en Render cuando quiera, porque manda mensajes que nadie pidio
+    // a clientes reales.
+    //
+    // `arrancarBarrido` usa `setInterval` con `unref()`: no retrasa el
+    // apagado cuando Render manda SIGTERM en cada despliegue.
+    // ------------------------------------------------------------------
+    try {
+      arrancarBarrido({ config, obtenerPiezas, log, metricas, diario });
+    } catch (e) {
+      log.error("recordatorios_no_arrancaron", { detalle: e.message });
+      diario.anotar("recordatorios_no_arrancaron", { error: e.message });
+    }
   });
 
   // Apagado ordenado. En Render cada despliegue manda SIGTERM; dejar de

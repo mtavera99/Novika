@@ -101,7 +101,36 @@ async function obtenerCerebro() {
 
 /** Solo para pruebas. */
 function _reiniciar() {
+  piezas = null;
   promesa = null;
 }
 
-module.exports = { obtenerCerebro, _reiniciar };
+// ==========================================================================
+// LAS PIEZAS SUELTAS, PARA EL BARRIDO DE RECORDATORIOS
+//
+// El barrido necesita `repos`, `catalogo` y `emisor`, pero NO el cerebro: no
+// procesa un mensaje entrante, escribe uno saliente.
+//
+// Se construyen aqui y no en `server.js` para que haya UNA sola instancia de
+// cada cosa en el proceso. Dos emisores no romperian nada, pero dos repos de
+// archivos sobre el mismo disco si: cada uno con su cache en memoria,
+// pisandose las escrituras.
+// ==========================================================================
+let piezas = null;
+async function obtenerPiezas() {
+  if (piezas) return piezas;
+  // Construir el cerebro deja repos/catalogo/emisor ya creados y validados;
+  // reutilizarlo evita duplicar el cableado y sus comprobaciones.
+  await obtenerCerebro();
+  const repos = await crearRepos({ dirDatos: config.dirDatos, databaseUrl: config.databaseUrl });
+  piezas = {
+    repos,
+    catalogo: cargarCatalogo(),
+    // `repos` y `atencion` van al emisor para que compruebe la pausa JUSTO
+    // antes de enviar, igual que en el camino de la conversacion.
+    emisor: crearEmisor({ config, log, metricas, repos, atencion: require("../almacen/atencion") }),
+  };
+  return piezas;
+}
+
+module.exports = { obtenerCerebro, obtenerPiezas, _reiniciar };
