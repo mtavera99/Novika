@@ -51,6 +51,10 @@ const NOMBRES = [
   "cliente_aplazo",
   "compra_para_mas_adelante",
   "panel_cantidad_cambiada",
+  // Una persona corrigio los datos de entrega de un pedido desde el panel.
+  // Interesa contarlo: si sube, es que el bot esta capturando mal los datos
+  // y alguien lo esta tapando a mano pedido por pedido.
+  "panel_destinatario_corregido",
 
   // --- producto ---
   "producto_identificado",

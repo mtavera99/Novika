@@ -564,6 +564,86 @@ function crearRutasDelPanel({ obtenerCerebro }) {
     }
   });
 
+  // ========================================================================
+  // CORREGIR LOS DATOS DE ENTREGA DE UN PEDIDO
+  //
+  // ⚠️ ESTA RUTA NACIO DE UNA GUIA QUE NO SE PUDO MANDAR (09-oct).
+  //
+  // El pedido NOV-MV1GEEAT-E4E8F4D3 quedo con «Cliente: Sii» -el "sí" con
+  // el que la clienta de Ipiales confirmo- y en estado "en revision", que
+  // impide despachar. En el panel solo decia «hay que completar los datos
+  // antes», sin NINGUNA forma de completarlos: no habia ruta para tocar el
+  // destinatario de un pedido. La unica salida era cancelar y rehacerlo.
+  //
+  // Se corrige el dato, no se salta el candado: lo que desbloquea el
+  // despacho es que el nombre sea de verdad, no que el panel deje pasar un
+  // nombre malo. Imprimir una guia a nombre de "Sii" es un paquete que se
+  // devuelve.
+  //
+  // SOLO CAMPOS DE ENTREGA, y es deliberado: nombre, telefono, ciudad,
+  // direccion y referencia. La cantidad y el producto cambian el precio y
+  // tienen su propia ruta, que recotiza. Aqui no se toca ni un peso.
+  // ========================================================================
+  const CAMPOS_DE_ENTREGA = ["nombre", "telefono", "ciudad", "direccion", "referencia"];
+
+  router.post("/pedido/destinatario", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    if (!codigo) return res.status(400).json({ ok: false, error: "falta el codigo del pedido" });
+
+    const cambios = {};
+    for (const campo of CAMPOS_DE_ENTREGA) {
+      const v = req.body && req.body[campo];
+      if (v === undefined || v === null) continue;
+      const limpio = String(v).trim();
+      if (limpio) cambios[campo] = limpio;
+    }
+    if (!Object.keys(cambios).length) {
+      return res.status(400).json({ ok: false, error: "no mandaste ningun dato que corregir" });
+    }
+
+    // El nombre se valida con el MISMO candado del bot. Si no, el panel
+    // seria una puerta trasera para meter justo lo que el bot rechaza.
+    if (cambios.nombre) {
+      const v = dominioDestino.validarNombre(cambios.nombre);
+      if (!v.ok) return res.status(400).json({ ok: false, error: `ese nombre no sirve para la guia: ${v.motivo}` });
+    }
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "no existe ese pedido" });
+
+      const r = dominioPedido.modificar({
+        pedido,
+        cambios,
+        porQue: "los corrigio una persona desde el panel",
+      });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+
+      await repos.pedidos.reemplazar(r.pedido);
+      const listo = dominioPedido.listoParaDespachar(r.pedido);
+      diario.anotar("panel_destinatario_corregido", {
+        codigo,
+        campos: Object.keys(cambios),
+        quedaListo: listo.ok === true,
+        motivo: listo.ok ? null : listo.motivo,
+      });
+      metricas.incrementar("panel_destinatario_corregido");
+
+      return res.json({
+        ok: true,
+        listo: listo.ok === true,
+        aviso: listo.ok
+          ? `Corregido. El pedido ${codigo} ya se puede despachar.`
+          : `Corregido, pero todavia no se puede despachar: ${listo.motivo}.`,
+      });
+    } catch (e) {
+      log.error("panel_destinatario_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   router.post("/entrega", async (req, res) => {
     if (!auth.exigirSesion(req, res, config)) return;
 

@@ -268,6 +268,31 @@ function modificar({ pedido, cambios, cotizacionNueva = null, porQue = "", wamid
   nuevo.estado = ESTADOS_PEDIDO.MODIFICADO;
 
   const antes = {};
+  // ----------------------------------------------------------------------
+  // CORREGIR UN DATO CIERRA SU REVISION
+  //
+  // ⚠️ SIN ESTO, UN PEDIDO EN REVISION NO TENIA SALIDA, Y BLOQUEO UNA GUIA
+  //    DE VERDAD EL 09-oct.
+  //
+  // `construir` pone el pedido en EN_REVISION cuando un dato queda dudoso
+  // -por ejemplo un nombre de una sola palabra-, y `listoParaDespachar`
+  // niega el despacho mientras siga en ese estado. Correcto: nadie quiere
+  // imprimir una guia a nombre de "Sii".
+  //
+  // Lo que faltaba era la puerta de salida. Las revisiones se escribian al
+  // crear el pedido y NADIE las borraba nunca, asi que el unico final
+  // posible era cancelar el pedido y rehacerlo a mano. Una clienta de
+  // Ipiales con $49.900 se quedo sin paquete por eso.
+  //
+  // Ahora, cuando se corrige el campo que estaba en duda, su revision se
+  // va con el. Las de los OTROS campos se quedan: arreglar el nombre no
+  // dice nada sobre la direccion.
+  // ----------------------------------------------------------------------
+  const camposCorregidos = new Set(Object.keys(cambios));
+  const revisionesQueQuedan = (nuevo.revisiones || []).filter((r) => !camposCorregidos.has(r && r.campo));
+  const revisionesCerradas = (nuevo.revisiones || []).length - revisionesQueQuedan.length;
+  nuevo.revisiones = revisionesQueQuedan;
+
   for (const [campo, valor] of Object.entries(cambios)) {
     if (campo === "cantidad") {
       antes.cantidad = nuevo.cantidad;
@@ -314,6 +339,10 @@ function modificar({ pedido, cambios, cotizacionNueva = null, porQue = "", wamid
     despues: { ...cambios },
     total: nuevo.cotizacion.total,
     recotizado: Boolean(cotizacionNueva),
+    // Queda escrito en el historial, que es lo que se ve en Auditoria: si
+    // un pedido pasa de "en revision" a despachable, tiene que poder
+    // leerse POR QUE y quien lo hizo.
+    revisionesCerradas: revisionesCerradas || 0,
     porQue: porQue || null,
     wamid,
   });
@@ -696,8 +725,21 @@ function novedadesAbiertas(pedido) {
 function listoParaDespachar(pedido) {
   if (!pedido) return { ok: false, motivo: "no hay pedido" };
   if (pedido.estado === ESTADOS_PEDIDO.CANCELADO) return { ok: false, motivo: "cancelado" };
-  if (pedido.estado === ESTADOS_PEDIDO.EN_REVISION) {
-    return { ok: false, motivo: `en revision: ${pedido.revisiones.map((r) => r.motivo || r).join("; ")}` };
+  // ⚠️ SE MIRAN LAS REVISIONES, NO SOLO EL ESTADO.
+  //
+  // Antes solo se comprobaba `estado === EN_REVISION`, y eso dejaba un hueco
+  // que se abrio al permitir corregir datos: `modificar` pone el pedido en
+  // MODIFICADO, asi que un pedido con una duda SIN resolver se volvia
+  // despachable por haber tocado cualquier otro campo. Con el cambio de
+  // cantidad ya pasaba: cambiar de 1 a 2 unidades "limpiaba" una duda sobre
+  // el nombre que nadie habia mirado.
+  //
+  // Mirar la lista es equivalente a mirar el estado en el momento de crear
+  // el pedido -`construir` pone EN_REVISION si y solo si hay revisiones-, asi
+  // que esto no bloquea nada que antes pasara: solo tapa el hueco.
+  const pendientes = (pedido.revisiones || []).filter(Boolean);
+  if (pedido.estado === ESTADOS_PEDIDO.EN_REVISION || pendientes.length) {
+    return { ok: false, motivo: `en revision: ${pendientes.map((r) => r.motivo || r).join("; ")}` };
   }
   for (const campo of REQUERIDOS_PARA_DESPACHAR) {
     if (!pedido.destinatario || !pedido.destinatario[campo]) {

@@ -36,6 +36,10 @@
 const fecha = require("./fecha");
 const { CLASES } = require("./datos");
 const fichaDe = require("./ficha");
+// Para la tabla de "por despachar": `datosDe` ya junta la direccion con su
+// punto de referencia, que es como tiene que ir en la guia. Es un modulo sin
+// dependencias, asi que no hay ciclo.
+const guiasDeDespacho = require("../despacho/guias");
 const { esUnBsuid } = require("../whatsapp/enviar");
 const atencion = require("../almacen/atencion");
 
@@ -190,6 +194,18 @@ h2.seccion { font-size:16px; margin:20px 0 10px; }
 .entrega label { font-size:13px; color:var(--suave); display:flex; flex-direction:column; gap:5px; }
 .entrega .botones { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
 table.compacta td { padding:9px 12px; }
+
+/* ---- LAS CELDAS LARGAS DE LA TABLA DE GUIAS ----
+   La direccion y el nombre del producto son texto libre y pueden ser largos
+   ("Barrio pueblillo en la cantera la pintada"). Con nueve columnas, sin
+   esto una direccion larga estira la tabla y descoloca el resto.
+   El valor "anywhere" parte dentro de la palabra si hace falta: aqui vale
+   mas que se vea entera en dos lineas que que quepa en una.
+   OJO: este bloque vive dentro de un template literal, asi que aqui NO se
+   pueden escribir acentos graves ni interpolaciones. Uno solo cierra la
+   cadena y el fichero entero deja de compilar -lo que tumba el panel
+   completo, no solo esta tabla-. Me paso escribiendo este comentario. */
+td.paraGuia { word-break:break-word; overflow-wrap:anywhere; min-width:140px; }
 
 /* ---- CAUSAS DE SILENCIO ---- */
 .causa { background:var(--caja); border:1px solid var(--borde); border-left-width:4px;
@@ -608,15 +624,6 @@ function chat({ ficha, aviso = null, envioManualActivo = false }) {
   // cotizador los deja de verdad: `pagoEtiqueta` es la frase que vio la
   // clienta y `pagoMetodo` la clave. Se prefiere la etiqueta porque es la
   // que ella aprobo, palabra por palabra.
-  const comoPaga = (p) => {
-    const c = (p.cotizacion && p.cotizacion.condiciones) || {};
-    return c.pagoEtiqueta || c.pagoMetodo || "—";
-  };
-  const queLleva = (p) =>
-    (p.producto && (p.producto.nombre || p.producto.id)) ||
-    (p.cotizacion && p.cotizacion.productoNombre) ||
-    "—";
-
   const tablaPedidos = pedidos.length
     ? `<h2 style="font-size:16px;margin:18px 0 10px">Pedidos de este cliente</h2>
 <table>
@@ -989,13 +996,79 @@ function bloqueParcial({ titulo, texto, comoSeDesbloquea = "" }) {
 }
 
 /** GUIAS Y DESPACHOS */
+/**
+ * Que producto lleva el pedido.
+ *
+ * ⚠️ ESTABA DECLARADA DENTRO DE LA VISTA DE LA FICHA, y se subio aqui para
+ *    que la tabla de guias la use tambien. Copiarla habria sido la cuarta
+ *    lista duplicada de este repositorio; dos copias de esto se separan el
+ *    dia que el catalogo cambie de forma.
+ *
+ * El orden de los respaldos importa: el nombre del producto, su id si no hay
+ * nombre, y por ultimo el nombre que quedo congelado en la cotizacion -que
+ * sigue siendo valido aunque el producto se haya borrado del catalogo-.
+ */
+const queLleva = (p) =>
+  (p.producto && (p.producto.nombre || p.producto.id)) ||
+  (p.cotizacion && p.cotizacion.productoNombre) ||
+  "—";
+
+/**
+ * Como paga, con las palabras que vio la clienta.
+ *
+ * `pagoEtiqueta` es la frase que ella aprobo y `pagoMetodo` la clave; se
+ * prefiere la etiqueta. Subida a nivel de modulo junto con `queLleva`.
+ */
+const comoPaga = (p) => {
+  const c = (p.cotizacion && p.cotizacion.condiciones) || {};
+  return c.pagoEtiqueta || c.pagoMetodo || "—";
+};
+
 function guias({ datos: d, transportadoras = [], aviso = null, envioManualActivo = false }) {
+  // ------------------------------------------------------------------------
+  // ESTA TABLA ES DESDE DONDE MARCO ESCRIBE LAS GUIAS A MANO.
+  //
+  // ⚠️ LO PIDIO EL, Y LA COLUMNA QUE FALTABA ERA LA MAS IMPORTANTE: "no dejó
+  //    la columna de celular y es importante porque a veces yo entro para
+  //    hacer las guías, para extraer la información de ahí".
+  //
+  // Tenia Codigo, Cliente, Ciudad y Total. Para rellenar el formulario de la
+  // transportadora hacen falta SEIS cosas, y faltaban tres: el celular, la
+  // direccion y el producto que se despacha. Sin ellas hay que abrir el chat
+  // de cada pedido uno por uno, que es exactamente el trabajo que esta
+  // pantalla existe para quitar.
+  //
+  // EL ORDEN ES EL DEL FORMULARIO DE LA TRANSPORTADORA -destinatario,
+  // celular, ciudad, direccion, contenido, valor a recaudar-, no el que
+  // estaba. Asi se copia de izquierda a derecha sin saltar de un lado a otro.
+  //
+  // ⚠️ EL CELULAR SALE DE `destinatario.telefono`, NUNCA DE `contactoId`.
+  //    Son dos cosas distintas y confundirlas imprimiria un numero que no
+  //    existe: `contactoId` es la clave del chat y puede ser un BSUID
+  //    (`CO.1098944…`) cuando el cliente escribe con nombre de usuario — el
+  //    07-oct eran TRES de los quince chats del dia. `guias.destinoDe()`
+  //    tampoco sirve aqui: esa funcion decide a que numero se le MANDA el
+  //    mensaje, y su propio comentario avisa de que el telefono de la
+  //    etiqueta puede ser de otra persona.
+  //
+  // Y no hace falta ninguna consulta nueva: el pedido ya congelo estos datos
+  // al confirmarse, y `listoParaDespachar` EXIGE nombre, telefono, ciudad y
+  // direccion, asi que toda fila marcada "listo" los tiene llenos. Las que
+  // no, ya lo dicen en la columna Estado.
+  // ------------------------------------------------------------------------
   const filaPorDespachar = (p) => {
     const listo = p._listo;
+    const g = guiasDeDespacho.datosDe(p);
+    const oSinDato = (v) => (String(v || "").trim() ? esc(v) : `<span style="color:var(--suave)">—</span>`);
     return `<tr>
   <td data-label="Codigo">${esc(p.id)}</td>
-  <td data-label="Cliente">${esc((p.destinatario && p.destinatario.nombre) || "")}</td>
-  <td data-label="Ciudad">${esc((p.destinatario && p.destinatario.ciudad) || "")}</td>
+  <td data-label="Cliente">${oSinDato(g.nombre)}</td>
+  <td data-label="Celular">${oSinDato(g.telefono)}</td>
+  <td data-label="Ciudad">${oSinDato(g.ciudad)}</td>
+  <td data-label="Direccion" class="paraGuia">${oSinDato(g.direccion)}</td>
+  <td data-label="Producto" class="paraGuia">${oSinDato(queLleva(p))}${
+      p.cantidad > 1 ? ` <b>× ${esc(p.cantidad)}</b>` : ""
+    }</td>
   <td data-label="Total">${esc(pesos((p.cotizacion && p.cotizacion.total) || 0))}</td>
   <td data-label="Estado">${
     listo && listo.ok
@@ -1010,7 +1083,29 @@ function guias({ datos: d, transportadoras = [], aviso = null, envioManualActivo
              ${transportadoras.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
            </select>
            <button class="primario" onclick="despachar('${esc(p.id)}')">Despachar</button>`
-        : `<span style="font-size:13px;color:var(--suave)">hay que completar los datos antes</span>`
+        : // ⚠️ ANTES AQUI SOLO DECIA "hay que completar los datos antes", Y NO
+          //    HABIA NINGUNA FORMA DE COMPLETARLOS.
+          //
+          // Es el defecto que bloqueo una guia el 09-oct: el pedido de
+          // Ipiales quedo con el nombre "Sii" y en revision, y desde el panel
+          // no se podia tocar el destinatario de un pedido. La unica salida
+          // era cancelarlo y rehacerlo a mano.
+          //
+          // Ahora la fila trae el arreglo al lado del problema: se escribe el
+          // dato que falta y el pedido queda despachable. Los campos salen
+          // rellenos con lo que haya, para corregir y no reescribir.
+          // El motivo NO se repite aqui: la pastilla de la columna Estado, que
+          // va justo al lado -y justo encima en el movil-, ya lo dice.
+          `<div style="display:flex;flex-direction:column;gap:6px;min-width:260px">
+             <span style="font-size:13px;color:var(--suave)">Corrige lo que esté mal y queda listo:</span>
+             <input id="n-${esc(p.id)}" placeholder="nombre y apellido" autocomplete="off"
+                    value="${esc((p.destinatario && p.destinatario.nombre) || "")}">
+             <input id="c-${esc(p.id)}" placeholder="celular" autocomplete="off"
+                    value="${esc((p.destinatario && p.destinatario.telefono) || "")}">
+             <input id="d-${esc(p.id)}" placeholder="dirección" autocomplete="off"
+                    value="${esc((p.destinatario && p.destinatario.direccion) || "")}">
+             <button class="primario" onclick="corregir('${esc(p.id)}')">Guardar y poder despachar</button>
+           </div>`
     }
   </td>
 </tr>`;
@@ -1056,8 +1151,13 @@ function guias({ datos: d, transportadoras = [], aviso = null, envioManualActivo
 </div>` +
     `<h2 style="font-size:16px;margin:20px 0 10px">Por despachar</h2>` +
     (d.porDespachar.length
-      ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Ciudad</th><th>Total</th><th>Estado</th><th>Guía</th></tr></thead>
-<tbody>${d.porDespachar.map(filaPorDespachar).join("")}</tbody></table>`
+      ? `<table class="compacta"><thead><tr><th>Codigo</th><th>Cliente</th><th>Celular</th><th>Ciudad</th><th>Direccion</th><th>Producto</th><th>Total</th><th>Estado</th><th>Guía</th></tr></thead>
+<tbody>${d.porDespachar.map(filaPorDespachar).join("")}</tbody></table>
+<p style="font-size:13px;color:var(--suave);margin-top:8px">
+  Estos son los datos que pide la transportadora, en el orden del formulario.
+  Si prefieres pegarlos de una, <a href="/panel/pedidos.csv">descarga el CSV</a>:
+  trae lo mismo y además el departamento.
+</p>`
       : `<div class="vacio">Nada pendiente de despachar.</div>`) +
     `<h2 style="font-size:16px;margin:24px 0 10px">En la calle</h2>` +
     (d.despachados.length
@@ -1117,6 +1217,28 @@ async function despachar(codigo) {
 async function entregar(codigo) {
   var r = await pedir("/panel/guias/entregar", { codigo: codigo });
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
+  else avisar(r.error, "mal");
+}
+// Corregir los datos de entrega de un pedido que no se puede despachar.
+// Solo manda los campos con algo escrito: un vacio no borra lo que ya hay.
+async function corregir(codigo) {
+  var leer = function (prefijo) {
+    var el = document.getElementById(prefijo + "-" + codigo);
+    return el && el.value ? el.value.trim() : "";
+  };
+  var cuerpo = { codigo: codigo };
+  var nombre = leer("n");
+  var celular = leer("c");
+  var direccion = leer("d");
+  if (nombre) cuerpo.nombre = nombre;
+  if (celular) cuerpo.telefono = celular;
+  if (direccion) cuerpo.direccion = direccion;
+  if (!nombre && !celular && !direccion) {
+    avisar("Escribe al menos un dato para corregir.", "mal");
+    return;
+  }
+  var r = await pedir("/panel/pedido/destinatario", cuerpo);
+  if (r.ok) { avisar(r.aviso, r.listo ? "ok" : "mal"); setTimeout(function(){ location.reload(); }, 900); }
   else avisar(r.error, "mal");
 }
 
