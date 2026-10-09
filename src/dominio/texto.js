@@ -248,9 +248,9 @@ const PREGUNTA_PRECIO = [
   // hipoteticos sin ambiguedad posible. Un "si llevo dos" pelado se queda
   // fuera A PROPOSITO: vale mas perder la pregunta que cotizarle a quien
   // estaba diciendo que si.
-  /\by\s+si\s+(?:me\s+)?(?:llevo|pido|compro)\s+(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par)\b/,
-  /\bsi\s+(?:me\s+)?(?:llevara|llevaria|pidiera|comprara)\s+(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par)\b/,
-  /\bllevando\s+(?:\d{1,2}|dos|tres|cuatro|cinco|seis)\b/,
+  /\by\s+si\s+(?:me\s+)?(?:llevo|pido|compro)\s+(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par)\b/,
+  /\bsi\s+(?:me\s+)?(?:llevara|llevaria|pidiera|comprara)\s+(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par)\b/,
+  /\bllevando\s+(?:\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
 ];
 
 function preguntaPrecio(texto) {

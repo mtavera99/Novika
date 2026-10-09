@@ -175,8 +175,38 @@ describe("2 · no se promete que sirva para cualquier contorno", () => {
     assert.equal(r.ok, true, `se bloqueo un dato aprobado: ${JSON.stringify(r.encontrados)}`);
   });
 
-  test("la pregunta por el contorno exacto esta declarada sin confirmar", () => {
-    assert.ok(elCinturon().sinDatoConfirmado.some((s) => /contorno/.test(s)));
+  test("el contorno YA esta confirmado, y por eso no se declara dudoso", () => {
+    // ESTA PRUEBA AFIRMABA LO CONTRARIO HASTA EL 2026-10-09, y tenia razon
+    // mientras la medida no existia. Marco la confirmo en el parche 4: la
+    // correa abarca de 130 a 150 cm, hasta talla 4XL.
+    //
+    // Se le da la vuelta en vez de borrarla, porque el riesgo no desaparece:
+    // cambia de sitio. Antes era "el bot promete una medida que no tiene";
+    // ahora es "el bot tiene la medida y sigue diciendo que la consulta".
+    const p = elCinturon();
+    assert.equal(p.ajuste.contornoMaximoCm, 150);
+    assert.equal(p.ajuste.contornoMinCm, 130);
+    assert.equal(p.ajuste.hastaTalla, "4XL");
+    assert.equal(
+      p.sinDatoConfirmado.some((s) => /contorno/.test(s)),
+      false,
+      "la medida esta en la ficha y a la vez declarada sin confirmar"
+    );
+  });
+
+  test("y aun asi NO se puede prometer que le queda a cualquiera", () => {
+    // El matiz que Marco pidio sostener: 150 cm es una medida concreta y hay
+    // cuerpos por encima. Tener el dato no autoriza la frase facil.
+    const p = elCinturon();
+    for (const frase of ["le sirve a cualquiera", "es talla unica universal", "se ajusta a cualquier cintura"]) {
+      assert.equal(responder.revisarClaims(frase, p).ok, false, `se permitio con la medida puesta: "${frase}"`);
+    }
+    // Y lo que SI se puede decir, se puede decir.
+    assert.equal(
+      responder.revisarClaims("La correa es graduable: elástica, se estira hasta unos 130 a 150 cm, así que le sirve a casi cualquier persona, hasta talla 4XL.", p).ok,
+      true,
+      "se bloqueo la frase aprobada por Marco"
+    );
   });
 });
 
@@ -445,17 +475,17 @@ describe("5 · la conversacion completa", () => {
     assert.equal((await repos.pedidos.porContacto("573001234567")).length, 1);
   });
 
-  test("pedir 3 unidades no inventa precio ni crea pedido", async () => {
-    // ERA DE 2 UNIDADES. Marco confirmo el combo el 2026-10-08, asi que dos
-    // ya se venden a 85.000. El caso sin precio aprobado es ahora tres.
+  test("pedir 8 unidades no inventa precio ni crea pedido", async () => {
+    // ERA DE 2 UNIDADES, y luego de 3. Marco amplio la tabla hasta 5 el
+    // 2026-10-09, asi que el caso sin precio aprobado es ahora ocho.
     const { hablar, repos } = await montar();
-    await hablar("quiero 3 cinturones térmicos");
+    await hablar("quiero 8 cinturones térmicos");
     const r = await hablar("Ana Pérez, Medellín, Calle 45 # 23-10");
 
     assert.notEqual(r.traza.respuesta.situacion, "resumen");
     assert.equal((await repos.pedidos.porContacto("573001234567")).length, 0);
     for (const t of textos(r.salidas)) {
-      assert.equal(/\$|\d{4,}/.test(t), false, `insinuó un importe por 3 unidades: ${t}`);
+      assert.equal(/\$|\d{4,}/.test(t), false, `insinuó un importe por 8 unidades: ${t}`);
     }
   });
 
@@ -464,12 +494,17 @@ describe("5 · la conversacion completa", () => {
     // escala. A partir de ahi el bot contestaba "Tu pedido ya está
     // confirmado" a cualquier cosa que escribiera, sin que existiera pedido.
     const { hablar, repos } = await montar();
-    // SE CAMBIO DE 2 A 3 UNIDADES. Esta prueba usaba 2 para forzar el
-    // escalado por "cantidad sin precio aprobado"; desde que el combo de dos
-    // existe, 2 se cotiza y ya no escala. Tres sigue sin precio, asi que el
-    // escenario -escalado SIN pedido- se reproduce igual.
-    await hablar("quiero 3 cinturones térmicos");
-    await hablar("quiero 3"); // fuerza el escalado por cantidad sin precio
+    // SE CAMBIO DE 2 A 3 UNIDADES, Y EL 2026-10-09 DE 3 A 8. Esta prueba
+    // necesita una cantidad SIN precio aprobado para forzar el escalado;
+    // cada vez que Marco aprueba un escalon hay que subirla.
+    //
+    // ⚠️ Y ESTA NO FALLO AL AMPLIAR LA TABLA, QUE ES LO PELIGROSO: con 3 ya
+    //    cotizando, el escalado no ocurria, no habia "escalado sin pedido"
+    //    que comprobar y las aserciones se cumplian solas. Una prueba verde
+    //    que ya no prueba nada es peor que una roja. Se encontro revisando
+    //    a mano todos los usos del 3, no porque avisara.
+    await hablar("quiero 8 cinturones térmicos");
+    await hablar("quiero 8"); // fuerza el escalado por cantidad sin precio
 
     const despues = await hablar("mejor 1 entonces");
     assert.notEqual(despues.traza.respuesta.situacion, "ya_confirmado");

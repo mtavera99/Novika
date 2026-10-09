@@ -80,6 +80,61 @@ const TEMAS = {
   MENOR_DE_EDAD: "menor_de_edad",
   /** "Será otro día", "después", "más adelante" — objecion de aplazamiento. */
   OTRO_DIA: "otro_dia",
+  /** "sirve para relajar los músculos?", "para la tensión". */
+  RELAJA: "relaja",
+  /** "lo puedo usar dormida?", "puedo dormir con él?". */
+  DORMIR: "dormir",
+  /** "se apaga solo?", "tiene apagado automático?". */
+  APAGADO_AUTO: "apagado_auto",
+  /**
+   * "¿me llega hoy?", "¿llega mañana?", "¿el mismo día?".
+   *
+   * ⚠️ TIENE TEMA PROPIO PORQUE LA RESPUESTA DE ENTREGA SE LEIA COMO UN SI.
+   *    A "¿me llega hoy?" contestaba «Claro, te llega en 1 a 3 días
+   *    hábiles»: el "Claro," de la apertura va pegado a una pregunta de
+   *    si/no, y lo que la clienta lee es que si. Y "te llega hoy" es uno de
+   *    los claims PROHIBIDOS, asi que dejarlo ambiguo es lo peor de los dos
+   *    mundos — promete sin decirlo.
+   *
+   *    Tambien recoge "¿mañana?" y "¿el mismo dia?", que no tenian NINGUN
+   *    tema y por tanto caian en la generica.
+   */
+  LLEGA_HOY: "llega_hoy",
+  /**
+   * "¿quema?", "¿se puede quemar la piel?".
+   *
+   * ⚠️ ES LA MISMA PREGUNTA QUE TEMPERATURA, PERO HECHA CON MIEDO, y por
+   *    eso tiene tema propio desde el parche 4. Estaba en TEMPERATURA y la
+   *    respuesta eran los tres niveles de calor: informacion correcta que
+   *    NO contesta lo que se preguntaba. Quien escribe "¿eso quema?" quiere
+   *    un si o un no.
+   *
+   *    Marco autorizo la formula: «Si lo usas bien, no». Es CONDICIONAL a
+   *    proposito — "nunca quema" y "no se calienta de mas" estan en
+   *    claimsProhibidos, porque de algo que llega a 60 °C no se puede
+   *    afirmar en absoluto.
+   */
+  QUEMA: "quema",
+  /**
+   * "lo puedo usar mientras se carga?", "funciona enchufado?".
+   *
+   * ⚠️ TIENE TEMA PROPIO PORQUE ENERGIA CONTESTABA LO CONTRARIO. El texto
+   *    de `energia` acaba en "mientras lo usas no va conectado a nada", que
+   *    es verdad y es lo que mas vende —no quedas amarrada a un enchufe—,
+   *    pero a quien pregunta "¿puedo usarlo mientras carga?" se le leia
+   *    como un NO. Y Marco confirmo el 09-oct que SI se puede.
+   */
+  USAR_CARGANDO: "usar_cargando",
+  /** "sirve para hombres?", "lo puede usar mi esposo?". */
+  HOMBRES: "hombres",
+  /** "lo puedo usar en el trabajo?", "caminando?". */
+  EN_MOVIMIENTO: "en_movimiento",
+  /** "es difícil de usar?", "para mi mamá que no sabe". */
+  FACIL_USO: "facil_uso",
+  /** "por qué transportadora?", "me mandan la guía?". */
+  TRANSPORTADORA: "transportadora",
+  /** "cuánto tiempo lo puedo usar?", "cuántas veces al día?". */
+  TIEMPO_DE_USO: "tiempo_de_uso",
   CONFIANZA: "confianza",
   FOTOS: "fotos",
   /**
@@ -262,6 +317,24 @@ const PATRONES = [
   [TEMAS.CONTRAINDICACION, /\bmarcapaso/],
   [TEMAS.CONTRAINDICACION, /\b(endometriosis|quiste|quistes|mioma|miomas)\b/],
   [TEMAS.CONTRAINDICACION, /\b(cesarea|operada\s+(hace|de))\b/],
+  // ⚠️ AÑADIDOS EN EL PARCHE 4, Y LOS TRES DABAN RESPUESTAS MALAS DISTINTAS.
+  //
+  //   · "tengo ovario poliquistico, me sirve?" -> contestaba LA TALLA, por
+  //     el "me sirve" del final. Una condicion medica con la respuesta del
+  //     contorno de la correa.
+  //   · "estoy en posparto, puedo usarlo?"     -> la RESPUESTA GENERICA
+  //     ("te cuento lo principal: pagas al recibir..."), que es justo el
+  //     fallo que Marco pidio quitar en este parche.
+  //   · "me vino la regla y tengo anemia"      -> sin tema.
+  //
+  // La respuesta correcta para los tres es la que ya existe: no nos
+  // adelantamos y se lo pregunta a su medico. `sirve para la endometriosis`
+  // y `sirve para quistes` estan en claimsProhibidos, y SOP es lo mismo.
+  [TEMAS.CONTRAINDICACION, /\b(ovario|ovarios)\s+poliquistic/],
+  [TEMAS.CONTRAINDICACION, /\b(sop|sopq)\b/],
+  [TEMAS.CONTRAINDICACION, /\bposparto\b|\bpost\s*parto\b|\bpuerperio\b/],
+  [TEMAS.CONTRAINDICACION, /\b(dispositivo|implante)\s+(intrauterino|anticonceptivo)\b/],
+  [TEMAS.CONTRAINDICACION, /\b(diabet|hipertens|anticoagul|epileps|tromb)/],
 
   // ---- "El anuncio dice que me devuelven la plata" ----
   //
@@ -307,11 +380,17 @@ const PATRONES = [
 
   // ---- Temperatura: va ANTES de ENTREGA (por "demora") y de ENERGIA ----
   [TEMAS.TEMPERATURA, /\bgrados\b/],
-  // "¿quema?" es una pregunta por el CALOR, y su respuesta son los tres
-  // niveles mas la recomendacion de empezar por el bajo. Estaba en
-  // SEGURIDAD, que ahora se queda con lo de dormir y la piel.
-  [TEMAS.TEMPERATURA, /\bse\s+(puede\s+)?quem(a|ar|aria)\b/],
-  [TEMAS.TEMPERATURA, /\bquema\b/],
+  // "calienta?" y "da calor?" a secas. Sin esto, "¿calienta y vibra al
+  // tiempo?" solo marcaba el masaje y el bot contestaba media pregunta.
+  [TEMAS.TEMPERATURA, /\bcalient(a|an|e)\b/],
+  [TEMAS.TEMPERATURA, /\bda\s+calor\b/],
+  [TEMAS.TEMPERATURA, /\bes\s+termico\b/],
+  // "¿quema?" PASO A TENER TEMA PROPIO EN EL PARCHE 4. Estuvo primero en
+  // SEGURIDAD y luego en TEMPERATURA; las dos contestaban con informacion
+  // correcta que no respondia la pregunta. Ver TEMAS.QUEMA.
+  [TEMAS.QUEMA, /\bse\s+(puede\s+)?quem(a|ar|aria)\b/],
+  [TEMAS.QUEMA, /\bquema\b/],
+  [TEMAS.QUEMA, /\bquemadura/],
   [TEMAS.TEMPERATURA, /\bcalienta\s+(mucho|harto|demasiado)\b/],
   // "cuanto calienta" es la forma mas directa de preguntarlo, y caia en USO.
   [TEMAS.TEMPERATURA, /\bcuant[oa]\s+calienta\b/],
@@ -371,6 +450,10 @@ const PATRONES = [
   // de los colicos, que no contesta la pregunta. Y "¿es para hombre?"
   // tampoco tenia tema.
   [TEMAS.DESTINATARIO, /\b(ni[nñ]a|ni[nñ]o|nena|adolescente|muchacha|jovencita)\b/],
+  // "lo puede recibir mi mamá?" salio sin tema en la prueba de Marco.
+  [TEMAS.DESTINATARIO, /\b(lo\s+)?puede\s+recibir\b/],
+  [TEMAS.DESTINATARIO, /\b(lo\s+)?recibe\s+(mi|otra|alguien)\b/],
+  [TEMAS.DESTINATARIO, /\b(mandar|enviar)l[oa]\s+a\s+(mi\s+)?(trabajo|oficina|otra\s+direccion)\b/],
   [TEMAS.DESTINATARIO, /\b(sirve|es|funciona|vale)\s+para\s+(un\s+)?(hombre|hombres|var[oó]n|se[nñ]or)\b/],
   [TEMAS.DESTINATARIO, /\bpara\s+(mi\s+)?(hija|mama|mami|abuela|hermana|esposa|novia|suegra)\b/],
   [TEMAS.DESTINATARIO, /\bde\s+\d{1,2}\s+a[nñ]os\b/],
@@ -577,6 +660,12 @@ const PATRONES = [
   ...PREGUNTA_PRECIO.map((re) => [TEMAS.PRECIO, re]),
   [TEMAS.PRECIO, /\b(cual\s+es\s+el)\s+precio\b/],
   [TEMAS.PRECIO, /\bcuanto\b.*\bcon\s+envio\b/],
+  // "y por 5?", "por 3 cuánto?", "dos en cuánto?" — preguntan un precio por
+  // cantidad. Añadidas en el parche 4, cuando aparecio tabla hasta 5: antes
+  // "y por 5?" recibia la respuesta generica.
+  [TEMAS.PRECIO, /\b(y\s+)?por\s+(\d{1,2}|dos|tres|cuatro|cinco)\s*\??$/],
+  [TEMAS.PRECIO, /\bpor\s+(\d{1,2}|dos|tres|cuatro|cinco)\s+(cuanto|a\s+como|que\s+precio)\b/],
+  [TEMAS.PRECIO, /\b(\d{1,2}|dos|tres|cuatro|cinco)\s+en\s+cuanto\b/],
 
   // ---- Envio ----
   // "como es el envio", "hacen envios", "envian a", "domicilio", "flete".
@@ -695,9 +784,14 @@ const PATRONES = [
   // frase por frase- y el redactor no puede escribirlo; lo que si se puede
   // es contestar "1 a 3 días hábiles según tu ciudad", que es lo que el
   // cliente necesita para decidir.
-  [TEMAS.ENTREGA, /\b(llegue|llega|llegaria|llegar)\s+(hoy|ya|rapido|pronto|esta\s+tarde|esta\s+noche)\b/],
-  [TEMAS.ENTREGA, /\b(para|por)\s+hoy\b/],
-  [TEMAS.ENTREGA, /\bhoy\s+mismo\b/],
+  // ---- La URGENCIA va antes que el plazo general. Ver TEMAS.LLEGA_HOY ----
+  [TEMAS.LLEGA_HOY, /\b(llegue|llega|llegaria|llegar|llegara)\s+(hoy|ya|esta\s+tarde|esta\s+noche|manana|el\s+mismo\s+dia)\b/],
+  [TEMAS.LLEGA_HOY, /\b(para|por)\s+hoy\b/],
+  [TEMAS.LLEGA_HOY, /\bhoy\s+mismo\b/],
+  [TEMAS.LLEGA_HOY, /\b(el\s+)?mismo\s+dia\b/],
+  [TEMAS.LLEGA_HOY, /\bmanana\s+(me\s+)?(llega|lo\s+tengo)\b/],
+  [TEMAS.LLEGA_HOY, /\bpasado\s+manana\b/],
+  [TEMAS.ENTREGA, /\b(llegue|llega|llegaria|llegar)\s+(rapido|pronto)\b/],
   [TEMAS.ENTREGA, /\bmanera\s+de\s+que\s+llegue\b/],
   [TEMAS.ENTREGA, /\bcuanto\s+antes\b/],
   [TEMAS.ENTREGA, /\blo\s+necesito\s+(hoy|ya|urgente|para\s+hoy)\b/],
@@ -714,7 +808,71 @@ const PATRONES = [
   [TEMAS.MATERIAL, /\bde\s+que\s+(esta\s+hecho|es)\b/],
   [TEMAS.MATERIAL, /\b(tela|cuero|plastico|algodon)\b/],
 
+  // ---- Relajar / tension: va ANTES de USO ----
+  [TEMAS.RELAJA, /\brelaj(a|ar|arme|an)\b.*\b(musculo|musculos|tension|cuerpo)\b/],
+  [TEMAS.RELAJA, /\bpara\s+(la\s+)?(tension|el\s+estres)\b/],
+  [TEMAS.RELAJA, /\bsirve\s+para\s+relajar\b/],
+  [TEMAS.RELAJA, /\bme\s+relaja\b/],
+
+  // ---- Dormir: va ANTES de SEGURIDAD y de USO ----
+  //
+  // Marco autorizo la respuesta en el parche 4: "mejor no, quitatelo antes
+  // de dormir". Antes caia en SEGURIDAD, que habla de quemaduras, y
+  // "puedes dormir con el" estaba en claimsProhibidos — asi que la
+  // pregunta se quedaba sin una respuesta clara.
+  [TEMAS.DORMIR, /\b(dormir|dormida|dormido|durmiendo)\b/],
+  [TEMAS.DORMIR, /\btoda\s+la\s+noche\b/],
+  [TEMAS.DORMIR, /\bde(jar|jo)\s+puesto\s+en\s+la\s+noche\b/],
+
+  // ---- Apagado automatico ----
+  //
+  // Marco lo confirmo en el parche 4: NO se apaga solo. Importa decirlo
+  // bien: si el cliente cree que si, se duerme con el puesto.
+  [TEMAS.APAGADO_AUTO, /\bse\s+apaga\s+(sol[oa]|solit[oa]|automatic)/],
+  [TEMAS.APAGADO_AUTO, /\bapagado\s+automatico\b/],
+  [TEMAS.APAGADO_AUTO, /\btiene\s+temporizador\b/],
+
+  // ---- Para hombres ----
+  [TEMAS.HOMBRES, /\b(sirve|es)\s+(para|solo\s+para)\s+(hombres|mujeres)\b/],
+  [TEMAS.HOMBRES, /\blo\s+puede\s+usar\s+(mi\s+)?(esposo|novio|papa|hermano|hombre)\b/],
+  [TEMAS.HOMBRES, /\bsolo\s+(es\s+)?para\s+mujeres\b/],
+
+  // ---- Usarlo en movimiento ----
+  [TEMAS.EN_MOVIMIENTO, /\blo\s+puedo\s+(usar|llevar)\s+(en\s+el\s+)?(trabajo|trabajando|la\s+universidad|estudiando|la\s+calle|caminando)\b/],
+  [TEMAS.EN_MOVIMIENTO, /\b(usar|llevar)l[oa]\s+(puesto\s+)?(caminando|trabajando|estudiando)\b/],
+
+  // ---- Facil de usar ----
+  [TEMAS.FACIL_USO, /\bes\s+(dificil|complicado|facil)\s+de\s+usar\b/],
+  [TEMAS.FACIL_USO, /\bes\s+(muy\s+)?(complicado|dificil)\b/],
+  [TEMAS.FACIL_USO, /\bpara\s+mi\s+(mama|abuela|abuelita)\s+que\s+no\s+sabe\b/],
+
+  // ---- Transportadora y guia ----
+  [TEMAS.TRANSPORTADORA, /\b(por\s+)?que\s+transportadora\b/],
+  [TEMAS.TRANSPORTADORA, /\b(me\s+)?mandan\s+la\s+guia\b/],
+  [TEMAS.TRANSPORTADORA, /\bcomo\s+(lo\s+)?rastreo\b/],
+  [TEMAS.TRANSPORTADORA, /\b(servientrega|interrapidisimo|interapidisimo|coordinadora|envia)\b/],
+
+  // ---- Cuanto tiempo usarlo ----
+  [TEMAS.TIEMPO_DE_USO, /\bcuanto\s+tiempo\s+(lo\s+)?(puedo\s+)?(usar|tener|dejar)\b/],
+  [TEMAS.TIEMPO_DE_USO, /\bcuantas\s+veces\s+al\s+dia\b/],
+  [TEMAS.TIEMPO_DE_USO, /\blo\s+puedo\s+tener\s+todo\s+el\s+dia\b/],
+
   // ---- Para que sirve ----
+  //
+  // ⚠️ "QUITA LOS COLICOS" NO ESTABA, Y ES LA PREGUNTA NUMERO UNO.
+  //
+  // Prueba de Marco del 09-oct 02:07: "Ese quita los cólicos?" -> respuesta
+  // generica; "Pero si quita los cólicos?" -> "no te entendí bien". La
+  // lista tenia "sirve para" y "para que sirve", pero no "quita" ni
+  // "alivia" ni "dolor de la regla". De un producto que se llama "cinturon
+  // termico para colicos", eso es el colmo.
+  [TEMAS.USO, /\b(quita|quitan|saca|calma|calman|alivia|alivian|ayuda\s+con|funciona\s+para|funciona\s+con|es\s+bueno\s+para)\b.*\b(colicos|dolor|molestia|regla|periodo|menstruacion|menstrual)\b/],
+  [TEMAS.USO, /\b(colicos|dolor\s+de\s+(la\s+)?regla|dolor\s+menstrual)\b.*\b(se\s+quitan|se\s+van|se\s+calman|se\s+alivian)\b/],
+  [TEMAS.USO, /\bsi\s+quita\b/],
+  [TEMAS.USO, /\bpara\s+(los\s+)?colicos\b/],
+  [TEMAS.USO, /\bdolor\s+de\s+(la\s+)?regla\b/],
+  [TEMAS.USO, /\bes\s+bueno\s+pa(ra)?\s+(los\s+)?colicos\b/],
+
   //
   // ⚠️ "COMO FUNCIONA" YA NO ESTA AQUI. Se fue a TEMAS.COMO_SE_USA el
   //    2026-10-10, mas arriba en esta misma lista. El motivo esta escrito
@@ -792,7 +950,20 @@ const PATRONES = [
   [TEMAS.ENERGIA, /\bcargar?\b/],
   [TEMAS.ENERGIA, /\bcuantos\s+niveles\b/],
   [TEMAS.ENERGIA, /\bniveles?\s+(de|tiene|trae|maneja)\b/],
+  // "con qué lo cargo" salio sin tema en la prueba de Marco.
+  [TEMAS.ENERGIA, /\bcon\s+que\s+(lo\s+)?carg(o|a|as)\b/],
+  [TEMAS.ENERGIA, /\bcomo\s+(lo\s+)?carg(o|a|as)\b/],
+  [TEMAS.ENERGIA, /\b(power\s*bank|powerbank)\b/],
   [TEMAS.ENERGIA, /\bcuanto\s+(dura|le\s+dura)\b/],
+
+  // ---- Usarlo MIENTRAS se carga (dato confirmado el 2026-10-09) ----
+  //
+  // Estas dos lineas eran de ENERGIA y por eso se contestaba lo contrario
+  // de lo que Marco confirmo. Ver el comentario de TEMAS.USAR_CARGANDO.
+  [TEMAS.USAR_CARGANDO, /\bmientras\s+(se\s+)?(carga|esta\s+cargando|lo\s+cargo)\b/],
+  [TEMAS.USAR_CARGANDO, /\b(lo\s+)?puedo\s+usar\s+(mientras|conectado|enchufado)\b/],
+  [TEMAS.USAR_CARGANDO, /\b(funciona|sirve|se\s+puede\s+usar)\s+(cargando|conectado|enchufado)\b/],
+  [TEMAS.USAR_CARGANDO, /\b(usarlo|usarla)\s+(mientras|cargando|conectado|enchufado)\b/],
 
   // ---- Desconfianza ----
   [TEMAS.CONFIANZA, /\bes\s+(real|confiable|seguro|estafa)\b/],
@@ -979,19 +1150,19 @@ const UNIDADES_CONSULTADAS = [
   // reconoce "cuanto balen 2" como pregunta de precio pero aqui no se saca
   // el 2, se contesta el precio de UNA a una pregunta por DOS — que es
   // justo el defecto que el PR #2 arreglo.
-  /\b(?:vale|valen|bale|balen|cuesta|cuestan|kuesta|kuestan|sale|salen|saldria|saldrian|seria|serian|precio\s+de|por|como)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\b/,
+  /\b(?:vale|valen|bale|balen|cuesta|cuestan|kuesta|kuestan|sale|salen|saldria|saldrian|seria|serian|precio\s+de|por|como)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par|docena)\b/,
   // "¿y el par?" a secas.
   /^\s*y\s+(?:el\s+(par)|(?:los|las)\s+(dos))\s*\??\s*$/,
   // "y las dos", "los dos", "el par"
-  /\b(?:las|los)\s+(dos|tres|cuatro)\b/,
+  /\b(?:las|los)\s+(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
   /\bel\s+(par)\b/,
   // "dos unidades", "2 cinturones"
-  /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?)\b/,
+  /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?)\b/,
   // LA CANTIDAD DE LA PREGUNTA CONDICIONAL: "y si llevo dos?", "llevando
   // tres". El patron que la reconoce como pregunta de precio vive en
   // `texto.js`; aqui hay que sacarle el numero, o se cotizaria por la
   // cantidad de la ficha en vez de por la que pregunto.
-  /\b(?:y\s+si\s+(?:me\s+)?(?:llevo|pido|compro)|si\s+(?:me\s+)?(?:llevara|llevaria|pidiera|comprara)|llevando)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|par|docena)\b/,
+  /\b(?:y\s+si\s+(?:me\s+)?(?:llevo|pido|compro)|si\s+(?:me\s+)?(?:llevara|llevaria|pidiera|comprara)|llevando)\s+(?:las?\s+|los?\s+|el\s+)?(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par|docena)\b/,
   // EL NUMERO DELANTE DEL VERBO: "y tres cuánto valen?", "2 cuánto cuestan".
   // Faltaba, y el hueco se colaba justo donde mas duele: con un pedido ya
   // confirmado, "y tres cuanto valen?" contestaba el precio de SU pedido.
@@ -999,7 +1170,16 @@ const UNIDADES_CONSULTADAS = [
   // Va anclado al principio del mensaje -con un "y" opcional- a proposito.
   // Sin el ancla, "Calle 20 cuanto vale el envio" leeria 20 unidades: el
   // mismo error de confundir una direccion con una cantidad, otra vez.
-  /^\s*(?:y\s+)?(\d{1,2}|dos|tres|cuatro|cinco|seis|par)\s+(?:cuanto|cuantos|que)\s+(?:vale|valen|cuesta|cuestan|sale|salen)/,
+  /^\s*(?:y\s+)?(\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par)\s+(?:cuanto|cuantos|que)\s+(?:vale|valen|cuesta|cuestan|sale|salen)/,
+  // ⚠️ AÑADIDAS EN EL PARCHE 4, cuando aparecio precio para 3, 4 y 5.
+  //
+  // "y por 5?" y "quiero 4" no registraban cantidad, asi que el bot
+  // contestaba el precio de UNA a quien preguntaba por cinco. Con la tabla
+  // de dos entradas daba casi igual; con cinco, es dejar de vender.
+  /\bpor\s+(\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
+  /\bquiero\s+(\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
+  /\bllevo\s+(\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
+  /\bserian\s+(\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
 ];
 
 /**
@@ -1435,13 +1615,212 @@ function cantidadNuevaEn(plano) {
  * @returns {{temas: string[], pregunta: boolean, compra: boolean,
  *            saludo: boolean, soloSaludo: boolean}}
  */
+// ==========================================================================
+// COMO ESCRIBE LA GENTE DE VERDAD
+//
+// ⚠️ EL BOT RECONOCIA LAS PREGUNTAS POR PALABRAS EXACTAS, Y ESO FALLO CON LA
+//    PREGUNTA MAS BASICA DEL PRODUCTO.
+//
+// Prueba de Marco, 09-oct 02:07, ya con el parche 3 puesto:
+//
+//   cliente · "Ese quita los cólicos?"
+//   bot     · "Buena pregunta 🙌 Te cuento lo principal: pagas al recibir..."
+//   cliente · "Pero si quita los cólicos?"
+//   bot     · "Perdón, creo que no te entendí bien 🙈"
+//
+// La lista tenia "sirve para" y "para que sirve". No tenia "quita". De un
+// producto que se llama "cinturon termico PARA COLICOS", no entender "¿quita
+// los cólicos?" es el colmo — y es la pregunta que hace todo el mundo.
+//
+// Esta tabla traduce ANTES de buscar patrones. Son las formas reales de
+// escribir desde un movil: sin tildes, con ka, con cero por o, abreviando.
+//
+// ⚠️ SOLO SE USA PARA LOS TEMAS, NUNCA PARA EXTRAER DATOS. Si "q" se
+//    convirtiera en "que" dentro de `extraer`, un nombre o una direccion
+//    podrian deformarse. Los temas son una lectura; la ficha es un hecho.
+// ==========================================================================
+const JERGA = [
+  // "kolicos", "c0licos", "colico", "colikos"
+  [/\bk[o0]lik?[o0]s?\b/g, "colicos"],
+  [/\bc[o0]lik?[o0]s?\b/g, "colicos"],
+  [/\bcolico\b/g, "colicos"],
+  // Abreviaturas de teclado.
+  [/\bq\b/g, "que"],
+  [/\bxq\b/g, "porque"],
+  [/\bpq\b/g, "porque"],
+  [/\bpa\b/g, "para"],
+  [/\bpal\b/g, "para el"],
+  [/\bxfa\b/g, "por favor"],
+  [/\btb\b/g, "tambien"],
+  [/\btmb\b/g, "tambien"],
+  [/\bdnd\b/g, "donde"],
+  [/\bcm\b/g, "como"],
+  [/\bnesecito\b/g, "necesito"],
+  [/\bnecesito\b/g, "necesito"],
+  [/\bqiero\b/g, "quiero"],
+  [/\bkiero\b/g, "quiero"],
+  [/\bace\b/g, "hace"],
+  [/\bacen\b/g, "hacen"],
+  // Como la gente llama al producto cuando no sabe el nombre. Se traduce a
+  // "el producto" para que los patrones que hablan del producto lo cojan.
+  [/\b(esa|esta)\s+(vaina|cosa|chuch[ae]ria|mondada)\b/g, "el producto"],
+  [/\b(ese|este)\s+(aparato|aparatico|cinturon|producto|invento)\b/g, "el producto"],
+  [/\bel\s+cinturon\s+ese\b/g, "el producto"],
+  // "harto" es "mucho" en Colombia.
+  [/\bharto\b/g, "mucho"],
+  // LA K POR LA C, que es el mismo fenomeno que "kolicos" -el que puso
+  // Marco de ejemplo- aplicado al resto de las palabras del producto.
+  // "kalienta" salio en una prueba real y se quedaba sin tema.
+  [/\bkalient[ae]\b/g, "calienta"],
+  [/\bkalor\b/g, "calor"],
+  [/\bkuant[oa]\b/g, "cuanto"],
+  [/\bkomo\b/g, "como"],
+  // La B por la V y al contrario: "balen", "sirbe". `texto.js` ya tolera
+  // "bale/balen" en las preguntas de precio; aqui hace falta para los temas.
+  [/\bsirbe\b/g, "sirve"],
+  [/\bbale[n]?\b/g, "vale"],
+];
+
+/** El mensaje traducido de la jerga, listo para buscarle temas. */
+function normalizarParaTemas(plano) {
+  let t = plano;
+  for (const [re, con] of JERGA) t = t.replace(re, con);
+  return t.replace(/\s+/g, " ").trim();
+}
+
+// ==========================================================================
+// PALABRA DEL PRODUCTO -> INTENCION MAS CERCANA
+//
+// El orden MANDA: se devuelve la primera que casa, asi que lo mas especifico
+// va arriba. "cargador" antes que "carga", "masaje" antes que "vibra".
+//
+// Son las palabras que enumero Marco mas las que salieron de los chats.
+// ==========================================================================
+// ==========================================================================
+// EL NOMBRE DEL PRODUCTO NO ES UNA PREGUNTA SOBRE EL PRODUCTO
+//
+// ⚠️ ESTE FUE UN DEFECTO MIO, Y LO CAZARON LAS PRUEBAS VIEJAS.
+//
+// La tabla de abajo lleva "termico" y "colicos" porque son palabras por las
+// que la gente pregunta. Pero es que el producto SE LLAMA "cinturon termico
+// para colicos": con la red puesta tal cual, "quiero el cinturon termico"
+// dejaba de ser una compra y se contestaba "llega a 60 °C" —perdiendo el
+// precio y la pedida de datos—, y "cuentame del cinturon termico" se comia
+// el camino general.
+//
+// La red tiene que leer lo que el cliente dice SOBRE el producto, no como lo
+// llama. Asi que primero se le quita el nombre y despues se buscan palabras
+// en lo que queda:
+//
+//   "quiero el cinturon termico"   -> "quiero el"        -> sin tema (compra)
+//   "el cinturon termico calienta" -> "calienta"         -> TEMPERATURA
+//   "¿ese quita los colicos?"      -> "quita los colicos" -> USO
+//
+// El tercero es el que importa: "quita los colicos" NO es el nombre -el
+// nombre es "PARA colicos"-, asi que sobrevive al recorte. Que era el caso
+// que abrio el parche 4.
+//
+// LOS PATRONES SON LOS `aliases` DEL CATALOGO de confianza alta, copiados a
+// mano porque este modulo es dominio puro y no lee el catalogo. `test/
+// preguntas-red-de-seguridad.test.js` compara las dos listas y falla si se
+// separan, que es la unica forma de que una copia a mano no se podrezca.
+// ==========================================================================
+const NOMBRE_DEL_PRODUCTO = [
+  /\bcinturon(es)?\s+termic[oa]s?\b/g,
+  /\bfaja\s+termic[oa]s?\b/g,
+  /\b(para|contra|de)\s+(los\s+)?colicos\s+menstruales\b/g,
+  /\bcolico(s)?\s+menstruales?\b/g,
+  /\b(para|contra|de)\s+(los\s+)?colicos\b/g,
+  /\bcinturon(es)?\b/g,
+];
+
+/** El mensaje sin el nombre del producto, para que la red lea solo la duda. */
+function sinElNombreDelProducto(plano) {
+  let t = plano;
+  for (const re of NOMBRE_DEL_PRODUCTO) t = t.replace(re, " ");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+const PALABRAS_DE_PRODUCTO = [
+  [/\b(colico|colicos|regla|periodo|menstruacion|menstrual)\b/, TEMAS.USO],
+  [/\b(cargador|cable|usb|power\s*bank)\b/, TEMAS.ENERGIA],
+  [/\b(bateria|pila|carga|cargar|recargable|enchuf)\b/, TEMAS.ENERGIA],
+  [/\b(masaje|vibra|vibracion|masajea)\b/, TEMAS.MASAJE],
+  [/\b(calienta|calor|caliente|grados|termico|temperatura)\b/, TEMAS.TEMPERATURA],
+  [/\b(quema|quemar|peligro|seguro)\b/, TEMAS.SEGURIDAD],
+  [/\b(espalda|lumbar|cintura|cadera)\b/, TEMAS.ESPALDA],
+  [/\b(relaja|relajar|musculo|musculos|tension|estres)\b/, TEMAS.RELAJA],
+  [/\b(barriga|abdomen|vientre|estomago|ovarios|utero)\b/, TEMAS.USO],
+  [/\b(dolor|duele|molestia)\b/, TEMAS.USO],
+  [/\b(talla|contorno|gordita|delgada|cuerpo|mide|medida)\b/, TEMAS.MEDIDAS],
+  [/\b(material|tela|plastico|suave|piel)\b/, TEMAS.MATERIAL],
+  [/\b(garantia|devolver|devolucion)\b/, TEMAS.GARANTIA],
+  [/\b(envio|domicilio|transportadora|guia)\b/, TEMAS.ENVIO],
+  [/\b(precio|vale|cuesta|costo)\b/, TEMAS.PRECIO],
+  [/\b(sirve|funciona|ayuda)\b/, TEMAS.USO],
+];
+
+// ==========================================================================
+// PARECE UNA PREGUNTA, AUNQUE NO SE SEPA DE QUE
+//
+// Saber que es una pregunta -sin saber el tema- ya basta para no contestar
+// con un formulario. Y desde el parche 4 sirve para algo mas: para NO
+// guardar la frase como si fuera un dato del cliente (ver `extraer.nombreEn`).
+//
+// ⚠️ ESTABA DECLARADA DENTRO DE `leer`, y se subio aqui para poder
+//    exportarla. El motivo es un defecto real de produccion: "Tienes
+//    cinturones" se guardaba como NOMBRE del cliente, y el pedido salia a
+//    nombre de "Tienes cinturones". La alternativa era copiar la lista en
+//    `extraer.js`, y una lista copiada se separa de la otra en cuanto
+//    alguien añade una palabra a una sola de las dos — que es como nacio
+//    este defecto.
+// ==========================================================================
+const PALABRA_DE_PREGUNTA =
+  /\b(que|qué|cual|cuales|como|cuando|donde|cuanto|cuanta|cuantos|cuantas|quien|por\s+que|se\s+puede|puedo|podria|hay|tienes|tiene|tienen|manejas|manejan|venden|vendes|queda|quedan|sirve|funciona|es\s+seguro)\b/;
+
 function leer(texto) {
-  const plano = aplanar(texto);
+  const plano = normalizarParaTemas(aplanar(texto));
   const crudo = String(texto ?? "");
 
   const temas = [];
   for (const [tema, re] of PATRONES) {
     if (re.test(plano) && !temas.includes(tema)) temas.push(tema);
+  }
+
+  // ======================================================================
+  // RED DE SEGURIDAD: SI HABLA DEL PRODUCTO, NUNCA SE QUEDA SIN TEMA
+  //
+  // ⚠️ LO PIDIO MARCO EN EL PARCHE 4, y es la leccion de "¿Ese quita los
+  //    cólicos?": por muchos patrones que se escriban, siempre va a haber
+  //    una forma de preguntar que no esta en la lista. Lo que no puede pasar
+  //    es que ESA forma acabe en la respuesta generica o en "no te entendi".
+  //
+  // Su regla, literal: "Si el mensaje trae cualquiera de estas palabras,
+  // nunca se usa la respuesta genérica ni «no te entendí». Se responde la
+  // intención más cercana."
+  //
+  // Esta tabla ES "la intencion mas cercana", escrita a mano. No es un
+  // clasificador semantico y no pretende serlo: es el ultimo recurso, y vale
+  // mas que un modelo porque NO SE CAE. En produccion la IA lleva 80 fallos
+  // (`ia_fallo_contrato`, `ia_agotada`), y la pregunta mas basica del
+  // producto no puede depender de que un servicio externo responda.
+  //
+  // Solo actua si NO hubo ningun tema: nunca pisa un patron que si acerto.
+  // ======================================================================
+  //
+  // Y NO ACTUA SOBRE QUIEN YA DIJO QUE COMPRA. "quiero el cinturon termico"
+  // no necesita que le expliquen nada: necesita que le coticen. Contestarle
+  // la temperatura es cambiarle de tema justo cuando ya estaba decidido, y
+  // ademas le quita el precio del mensaje. La respuesta generica no es el
+  // riesgo aqui; el riesgo es perder la venta.
+  if (!temas.length && !SENALES_DE_COMPRA.some((re) => re.test(plano))) {
+    const dudaSola = sinElNombreDelProducto(plano);
+    for (const [palabra, tema] of PALABRAS_DE_PRODUCTO) {
+      if (palabra.test(dudaSola)) {
+        temas.push(tema);
+        break;
+      }
+    }
   }
 
   // ----------------------------------------------------------------------
@@ -1476,7 +1855,10 @@ function leer(texto) {
   // cuanto me salen?") ahi si quiere una cifra, y se le da. Por eso la
   // cantidad se calcula ANTES de quitar el tema.
   // ----------------------------------------------------------------------
-  const cantidadEnLaPregunta = temas.includes(TEMAS.PRECIO) ? cantidadPreguntadaEn(plano) : null;
+  // Tambien con MAYORISTA: "quiero 4" marca mayorista y hay que saber que
+  // son cuatro para poder cotizarlas.
+  const cantidadEnLaPregunta =
+    temas.includes(TEMAS.PRECIO) || temas.includes(TEMAS.MAYORISTA) ? cantidadPreguntadaEn(plano) : null;
   if (temas.includes(TEMAS.OBJECION_PRECIO) && temas.includes(TEMAS.PRECIO) && !cantidadEnLaPregunta) {
     temas.splice(temas.indexOf(TEMAS.PRECIO), 1);
   }
@@ -1516,6 +1898,14 @@ function leer(texto) {
   // "¿sirve si estoy embarazada?" y "¿me lo dejo dormida?" casan con
   // `sirve para` / USO, y la frase de los colicos no contesta ninguna.
   if (temas.includes(TEMAS.CONTRAINDICACION)) quitar(TEMAS.USO);
+  // Y TAMBIEN A LAS MEDIDAS, que es el defecto concreto que se encontro en
+  // el parche 4: "tengo ovario poliquistico, me sirve?" contestaba el
+  // contorno de la correa. El "me sirve" marca MEDIDAS, pero lo que se
+  // pregunta ahi no es si le queda, es si le conviene.
+  if (temas.includes(TEMAS.CONTRAINDICACION)) {
+    quitar(TEMAS.MEDIDAS);
+    quitar(TEMAS.TALLA);
+  }
   if (temas.includes(TEMAS.SEGURIDAD)) quitar(TEMAS.USO);
   if (temas.includes(TEMAS.DESTINATARIO)) quitar(TEMAS.USO);
   // "¿sirve para la espalda?" casa con `sirve para` de USO, y la frase de
@@ -1666,9 +2056,6 @@ function leer(texto) {
   // Saber que es una pregunta -aunque no se sepa de que- ya basta para no
   // contestar con un formulario.
   // ----------------------------------------------------------------------
-  const PALABRA_DE_PREGUNTA =
-    /\b(que|qué|cual|cuales|como|cuando|donde|cuanto|cuanta|cuantos|cuantas|quien|por\s+que|se\s+puede|puedo|podria|hay|tienes|tiene|tienen|manejas|manejan|venden|vendes|queda|quedan|sirve|funciona|es\s+seguro)\b/;
-
   return {
     temas,
     pregunta: interroga && temas.length > 0,
@@ -1742,6 +2129,7 @@ module.exports = {
   fotosRecientes,
   MINUTOS_DE_CONTEXTO_DE_FOTOS,
   SENALES_DE_COMPRA,
+  PALABRA_DE_PREGUNTA,
   SENALES_DEBILES,
   PATRONES,
   // Expuestos para las pruebas de regresion del 09-oct: cada lista nacio de

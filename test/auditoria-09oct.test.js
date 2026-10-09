@@ -429,12 +429,29 @@ describe("3 · 22 de 65 preguntas reales caían en el camino genérico", () => {
     assert.match(t, /incluido/i, t);
   });
 
-  test("ninguna respuesta promete un contorno que no se conoce", () => {
-    // Marco fue explícito: no hay medida del contorno, así que no se puede
-    // prometer que le queda a cualquiera. Está en claimsProhibidos, pero el
-    // tema DESTINATARIO es nuevo y es el que más invita a esa frase.
+  test("DESTINATARIO habla de quién RECIBE, no de a quién le queda", () => {
+    // ⚠️ ESTA PRUEBA CAMBIO DE OBJETO EL 2026-10-09, Y POR UN DEFECTO REAL.
+    //
+    // Pedia que DESTINATARIO -"¿lo puede recibir mi mamá?"- hablara del
+    // ajuste ("graduable|talla única") sin prometer que le queda a
+    // cualquiera. Y eso era el defecto, no la proteccion: a quien pregunta
+    // quién puede RECIBIR el paquete se le estaba contestando por la TALLA.
+    // Son dos cosas distintas —quien USA es talla, quien RECIBE es
+    // logistica— y mezclarlas deja la pregunta sin contestar.
+    //
+    // Asi que ahora se exige lo correcto: que conteste de la entrega. La
+    // talla se comprueba en MEDIDAS, que es su tema.
     const t = contestar.deTema(TEMAS.DESTINATARIO, { producto: elCinturon() });
-    assert.match(t, /graduable|talla única/i, t);
+    assert.match(t, /recibir|dirección|nombre/i, t);
+    assert.equal(/talla|contorno|graduable|cm\b/i.test(t), false, `contestó por la talla a quien preguntó por la entrega: ${t}`);
+  });
+
+  test("MEDIDAS da la medida confirmada sin prometer ajuste universal", () => {
+    // La otra mitad de lo de arriba: el dato de ajuste vive aqui, y desde
+    // el parche 4 existe. Lo que sigue prohibido es la frase facil.
+    const t = contestar.deTema(TEMAS.MEDIDAS, { producto: elCinturon() });
+    assert.match(t, /130 a 150 cm/, t);
+    assert.match(t, /graduable/i, "se perdió la palabra que tranquiliza a quien pregunta «¿me queda?»");
     assert.equal(/cualquier (contorno|cintura|talla)|a cualquiera|a todas/i.test(t), false, t);
   });
 });
@@ -714,16 +731,26 @@ describe("8 · una promesa sin tarea es un cliente esperando", () => {
     // confirma. Una promesa que nadie recibe.
     const c = await conversacion();
     await c.dice(ANUNCIO);
-    // ⚠️ EL EJEMPLO CAMBIO EL MISMO 09-oct: "¿a cuántos grados llega?" dejó de
-    //    ser un hueco en cuanto Marco autorizó la ficha técnica. El que sigue
-    //    siéndolo —y es el que MÁS vende— es el contorno de la correa, que él
-    //    dejó explícitamente como [CONFIRMAR].
-    const r = await c.dice("hasta qué contorno ajusta la correa?");
+    // ⚠️ EL EJEMPLO HA CAMBIADO DOS VECES, Y ESO ES LA PRUEBA DE QUE EL
+    //    DEFECTO QUE VIGILA ES REAL.
+    //
+    //    Era "¿a cuántos grados llega?" hasta que Marco autorizó la ficha
+    //    técnica el 09-oct. Pasó a ser el contorno de la correa, que él
+    //    había dejado como [CONFIRMAR]... y lo confirmó en el parche 4 ese
+    //    mismo día. Cada vez que un hueco se tapa, esta prueba se queda sin
+    //    sujeto y hay que buscarle otro.
+    //
+    //    Hoy quedan dos respuestas que prometen confirmar algo: la factura
+    //    y el precio al por mayor. Se usa la factura porque es una pregunta
+    //    corriente -quien compra para un negocio la hace siempre- y porque
+    //    no tiene ningún campo en la ficha, así que no va a dejar de ser un
+    //    hueco por accidente.
+    const r = await c.dice("me dan factura?");
 
     assert.ok(contestar.prometeConfirmar(r.enviado), `la respuesta ya no promete confirmar: ${r.enviado}`);
     const p = atencion.pendienteDe(r.conversacion);
     assert.equal(p.hay, true, "prometió confirmar un dato y no dejó tarea");
-    assert.match(p.pregunta, /contorno/i, "la tarea no guarda la pregunta");
+    assert.match(p.pregunta, /factura/i, "la tarea no guarda la pregunta");
   });
 
   test("y si contesta del todo, NO hay tarea", async () => {
