@@ -109,6 +109,9 @@ const APERTURAS = {
   [TEMAS.UBICACION]: "Con gusto:",
   // "¿y si no me funciona?" es miedo, no curiosidad.
   [TEMAS.SI_NO_FUNCIONA]: "Te entiendo, y tranquila:",
+  // Quien cita el anuncio no esta discutiendo: esta pidiendo que le
+  // confirmen lo que leyo. Se reconoce, sin ponerse a la defensiva.
+  [TEMAS.PROMESA_DEL_ANUNCIO]: "Te cuento con franqueza:",
 };
 
 /**
@@ -194,6 +197,7 @@ const EMOJIS = {
   // salian secos.
   [TEMAS.COBERTURA]: "📦",
   [TEMAS.SI_NO_FUNCIONA]: "🙌",
+  [TEMAS.PROMESA_DEL_ANUNCIO]: "🙌",
   [TEMAS.UBICACION]: "🙌",
   [TEMAS.MARCA]: "😊",
   [TEMAS.DESTINATARIO]: "🙌",
