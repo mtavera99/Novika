@@ -1813,7 +1813,7 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
   //
   //   bot      · "Confirmemos tu pedido: … ¿Está todo bien? Respóndeme
   //               «sí» y lo dejo listo ✅"
-  //   cliente  · "Moisés Humanez"      (repite su nombre, por si acaso)
+  //   cliente  · "Mauricio Benítez"      (repite su nombre, por si acaso)
   //   bot      · "Perdón, no quiero repetirme. Dime concretamente qué
   //               necesitas y lo reviso con el equipo."
   //

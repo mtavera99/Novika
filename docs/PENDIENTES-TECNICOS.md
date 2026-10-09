@@ -107,7 +107,7 @@ comprobación en la consola de Meta.
 **Es el 24 % del tráfico del anuncio, y se está tirando a la basura.**
 
 En la auditoría del 2026-10-09, **6 de 25 chats** del panel llegaron con un
-identificador tipo `CO.1024763437248218` en vez de un teléfono. El bot prepara
+identificador tipo `CO.1234567890123456` en vez de un teléfono. El bot prepara
 la respuesta, el emisor la descarta con `destinatario_sin_telefono` y queda la
 tarea. Los mensajes que el operador manda a mano **también fallan**
 (`fallo_de_envio`). Antes de que existiera el candado, Meta los rechazaba con

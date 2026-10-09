@@ -182,15 +182,15 @@ function nombreEn(textoCrudo, { seLoPidieron = false } = {}) {
   // ⚠️ VENTA PERDIDA MEDIDA (08-oct):
   //
   //   bot      · "...me pasas tu nombre completo y la dirección"
-  //   cliente  · "Moisés Humanez"
+  //   cliente  · "Mauricio Benítez"
   //   bot      · "Perdón, no quiero repetirme. Dime concretamente qué
   //               necesitas y lo reviso con el equipo."
   //
   // Exigir un marcador ("soy X", "me llamo X") es correcto cuando el nombre
   // llega SIN QUE NADIE LO PIDA: ahi "Buenos Aires" o "Interapidisimo" se
   // leerian como nombres. Pero cuando el bot ACABA DE PEDIR el nombre, lo
-  // normal es contestar solo el nombre — nadie escribe "me llamo Moisés
-  // Humanez" cuando le preguntan como se llama.
+  // normal es contestar solo el nombre — nadie escribe "me llamo
+  // Mauricio Benítez" cuando le preguntan como se llama.
   //
   // Y el efecto era doble: ademas de no capturarlo, el texto de salida
   // quedaba identico al anterior y saltaba la guarda anti-eco, asi que el

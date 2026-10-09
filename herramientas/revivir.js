@@ -116,9 +116,9 @@ async function abrirChat(nombrePerfil) {
 // --------------------------------------------------------------------------
 const CASOS = {
   moises: {
-    titulo: "Moisés · San Andrés de Sotavento (Córdoba) — la rescato una persona a mano",
-    perfil: "Moisés Humanez",
-    // Del panel: chat 573043960240. Lo que recibio de verdad:
+    titulo: "Mauricio · San Andrés de Sotavento (Córdoba) — la rescato una persona a mano",
+    perfil: "Mauricio Benítez",
+    // Del panel: el chat de San Andrés de Sotavento. Lo que recibio de verdad:
     //   "Barrio buenos aires" -> "Para preparar tu pedido me pasas la direccion"
     //   "No entiendo"         -> escalado, y el bot se callo 12 h
     //   "Interapidisimo"      -> no enviado: conversacion_pausada
@@ -134,7 +134,7 @@ const CASOS = {
       "San andres de sotavento Córdoba",
       "Uno",
       "Barrio buenos aires",
-      "Moisés Humanez",
+      "Mauricio Benítez",
       "Al lado de la tienda La Esquina",
       "si",
     ],
@@ -142,9 +142,9 @@ const CASOS = {
   },
 
   steven: {
-    titulo: "Steven · Popayán, con prisa — «No habría manera de que llegue hoy?»",
-    perfil: "Steven Rodriguez",
-    // Del panel: chat 573127671797. El cliente mas caliente del dia -tiene
+    titulo: "Andrés · Popayán, con prisa — «No habría manera de que llegue hoy?»",
+    perfil: "Andrés Quiceno",
+    // Del panel: el chat de Popayán. El cliente mas caliente del dia -tiene
     // el colico HOY- y el bot se callo 12 horas, porque "No habria manera..."
     // empieza por "no" y se leyo como una CANCELACION.
     mensajes: [
@@ -154,7 +154,7 @@ const CASOS = {
       "No habría manera de que llegue hoy?",
       "Por favor",
       "bueno listo lo quiero",
-      "Steven Rodriguez",
+      "Andrés Quiceno",
       "barrio Pueblillo, calle 5 # 3-20",
       "si",
     ],
@@ -164,7 +164,7 @@ const CASOS = {
   santiago: {
     titulo: "Santiago · el chat de pruebas de Marco — seis defectos seguidos",
     perfil: "Santiago",
-    // Del panel: chat 573058742138. En un solo chat: "1 a Bogotá" no tomaba
+    // Del panel: el chat de pruebas de Marco. En un solo chat: "1 a Bogotá" no tomaba
     // la cantidad, "Gracias" recibia una peticion de datos, "Tienes
     // cinturones" recibia "no quiero repetirme", "Cuando me llegaría" se
     // escalaba y "No cargaron" le hablaba de la bateria.

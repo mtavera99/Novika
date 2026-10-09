@@ -78,7 +78,7 @@ aparece en los logs. Desde fuera parece un día flojo de ventas.
 Se replican con `node herramientas/revivir.js`. **Las tres acaban ahora en
 pedido.**
 
-### Moisés · San Andrés de Sotavento (Córdoba)
+### Mauricio · San Andrés de Sotavento (Córdoba)
 
 ```
 cliente · Me interesa
@@ -105,7 +105,7 @@ Dos defectos a la vez, y el segundo era peor que perder la venta:
    Córdoba y con flete aéreo. `\bsan andres\b` casa dentro de «san andres de
    sotavento». Iba a despachar al departamento equivocado.
 
-### Steven · Popayán, con prisa
+### Andrés · Popayán, con prisa
 
 ```
 cliente · Estoy en Popayán

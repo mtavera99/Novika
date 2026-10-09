@@ -350,7 +350,7 @@ const ESCENARIOS = {
         "tiene garantía?",
         "y si no me funciona?",
         "listo, lo quiero",
-        "Daniela Ospina",
+        "Daniela Sarmiento",
         "Medellín, Carrera 70 # 45-12",
         "si",
       ]) {
@@ -372,7 +372,7 @@ const ESCENARIOS = {
         "en qué ciudad están",
         "y si no me llega?",
         "bueno, dale",
-        "Yuliana Tangarife, Pereira, barrio Cuba, casa esquinera blanca",
+        "Yulieth Carmona, Pereira, barrio Cuba, casa esquinera blanca",
         "si",
       ]) {
         await c.dice(m);
@@ -385,7 +385,7 @@ const ESCENARIOS = {
     correr: async () => {
       // La venta que se perdio el 08-oct. En media Colombia la direccion es
       // el barrio mas un punto de referencia.
-      const c = await abrirChat({ nombrePerfil: "Moisés" });
+      const c = await abrirChat({ nombrePerfil: "Mauricio" });
       for (const m of [
         "Hola, quiero información sobre el cinturón térmico de $49.900.",
         "llega a un corregimiento?",
@@ -394,7 +394,7 @@ const ESCENARIOS = {
         "San andres de sotavento Córdoba",
         "uno",
         "Barrio buenos aires",
-        "Moisés Humanez",
+        "Mauricio Benítez",
         "si",
       ]) {
         await c.dice(m);

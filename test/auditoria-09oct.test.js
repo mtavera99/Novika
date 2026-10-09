@@ -617,8 +617,8 @@ describe("6 · los datos que se perdían", () => {
   test("el nombre a secas vale SOLO si se le acaba de pedir", () => {
     // Sin la condición, "Buenos Aires" o "Interapidisimo" se leerían como
     // nombres de persona.
-    assert.equal(extraer.nombreEn("Moisés Humanez").valor, null, "sin pedirlo no se puede suponer");
-    assert.equal(extraer.nombreEn("Moisés Humanez", { seLoPidieron: true }).valor, "Moisés Humanez");
+    assert.equal(extraer.nombreEn("Mauricio Benítez").valor, null, "sin pedirlo no se puede suponer");
+    assert.equal(extraer.nombreEn("Mauricio Benítez", { seLoPidieron: true }).valor, "Mauricio Benítez");
 
     // Y ni una ciudad, ni una dirección, ni algo con cifras.
     for (const noEsNombre of ["Popayán", "Calle 45 # 23-10", "3058742138", "quiero dos"]) {
@@ -788,8 +788,8 @@ describe("9 · las ventas que se perdieron el 08-oct ahora cierran", () => {
   // La versión con el diálogo completo a la vista:
   //   node herramientas/revivir.js
 
-  test("Moisés · San Andrés de Sotavento — y a la ciudad correcta", async () => {
-    const c = await conversacion({ nombrePerfil: "Moisés Humanez" });
+  test("Mauricio · San Andrés de Sotavento — y a la ciudad correcta", async () => {
+    const c = await conversacion({ nombrePerfil: "Mauricio Benítez" });
     for (const m of [
       ANUNCIO,
       "Me interesa",
@@ -809,8 +809,8 @@ describe("9 · las ventas que se perdieron el 08-oct ahora cierran", () => {
     assert.equal(/Archipi|"San Andres"/.test(ciudad), false, `iba a despachar al archipiélago: ${ciudad}`);
   });
 
-  test("Steven · Popayán, con prisa — y sin un solo silencio", async () => {
-    const c = await conversacion({ nombrePerfil: "Steven Rodriguez" });
+  test("Andrés · Popayán, con prisa — y sin un solo silencio", async () => {
+    const c = await conversacion({ nombrePerfil: "Andrés Quiceno" });
     const dichos = [];
     for (const m of [
       ANUNCIO,
@@ -819,7 +819,7 @@ describe("9 · las ventas que se perdieron el 08-oct ahora cierran", () => {
       "No habría manera de que llegue hoy?",
       "Por favor",
       "bueno listo lo quiero",
-      "Steven Rodriguez",
+      "Andrés Quiceno",
       "barrio Pueblillo, calle 5 # 3-20",
       "si",
     ]) {

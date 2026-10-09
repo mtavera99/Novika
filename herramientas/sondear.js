@@ -131,10 +131,10 @@ const GRUPOS = {
     titulo: "Mensajes EXACTOS de clientes reales que el bot no supo contestar",
     // Cada uno viene de un chat del panel. El comentario dice que recibio.
     casos: [
-      // chat 573001883774 -> "Esa no te la quiero contestar a medias"
+      // el chat de «En qué ciudad» -> "Esa no te la quiero contestar a medias"
       { previo: [ANUNCIO], dice: "En qué ciudad", espera: "donde estamos / que enviamos a todo el pais" },
       { previo: [ANUNCIO], dice: "Te encuentras", espera: "responder, no pedir datos" },
-      // chat 573058742138
+      // el chat de pruebas de Marco
       { previo: [ANUNCIO], dice: "Cuando me llegaría", espera: "1 a 3 dias habiles" },
       { previo: [ANUNCIO], dice: "Me gusta", espera: "calido + avanzar sin atropellar" },
       { previo: [ANUNCIO, "Me gusta"], dice: "1 a Bogotá", espera: "tomar cantidad Y ciudad" },
@@ -143,21 +143,21 @@ const GRUPOS = {
       { previo: [ANUNCIO], dice: "1", espera: "cifra + siguiente paso" },
       { previo: [ANUNCIO], dice: "No cargaron", espera: "reenviar fotos, no hablar de bateria" },
       { previo: [ANUNCIO], dice: "A ve r", espera: "no pedir datos" },
-      // chat 573127671797 -> escalo
+      // el chat de Popayán -> escalo
       { previo: [ANUNCIO], dice: "No habría manera de que llegue hoy?", espera: "franqueza + 1 a 3 dias + seguir vendiendo" },
       { previo: [ANUNCIO], dice: "Por favor", espera: "no quedarse mudo" },
-      // chat 573144170128
+      // el chat de Bogotá del 08:10
       { previo: [ANUNCIO], dice: "Con cables para cargar", espera: "hablar de energia sin muro" },
       { previo: [ANUNCIO, "Con cables para cargar"], dice: "Trae cargador", espera: "NO repetir lo mismo" },
       { previo: [ANUNCIO], dice: "Que costó tiene", espera: "$49.900" },
       { previo: [ANUNCIO], dice: "Algo contra entrega", espera: "pagas al recibir" },
       { previo: [ANUNCIO], dice: "Ayuda con pedido", espera: "tratarlo como compra" },
-      // chat 573043960240 -> se perdio la venta, rescate manual
+      // el chat de San Andrés de Sotavento -> se perdio la venta, rescate manual
       { previo: [ANUNCIO, "Me interesa"], dice: "San andres de sotavento Córdoba", espera: "ciudad CORRECTA, no San Andres isla" },
       { previo: [ANUNCIO, "Me interesa", "San andres de sotavento Córdoba", "Uno"], dice: "Barrio buenos aires", espera: "aceptar el barrio como direccion" },
       { previo: [ANUNCIO, "Me interesa"], dice: "No entiendo", espera: "reorientar con calidez" },
       { previo: [ANUNCIO, "Me interesa"], dice: "Interapidisimo", espera: "no ignorarlo" },
-      // chat 573103485412 -> le pidio datos a quien se despedia
+      // el chat de la despedida -> le pidio datos a quien se despedia
       {
         previo: [ANUNCIO],
         dice: "Vale mil gracias, apenas vaya a pedirlo de fijo te aviso, okey, esta hermoso, muy amable, listo, gracias por la info, bendiciones🥰",

@@ -1069,7 +1069,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // UN STICKER REPETIDO NO ES UN BOT ATASCADO
     //
     // Medido el 09-oct, y hay dos chats reales del 08 con exactamente esto
-    // (573046120022 y 573214151067): clientes que solo mandan stickers y
+    // (dos chats de stickers y dos chats de stickers): clientes que solo mandan stickers y
     // emojis. El texto llega VACIO, el bot contesta lo mismo las dos veces
     // -porque no hay nada nuevo que contestar- y la guarda anti-eco lo leia
     // como un bucle propio: "Perdón, no quiero repetirme", y a la siguiente

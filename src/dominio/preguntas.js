@@ -474,7 +474,7 @@ const PATRONES = [
   // ----------------------------------------------------------------------
   // LA PRISA: "¿no habría manera de que llegue hoy?"
   //
-  // Es un mensaje REAL del 08-oct (chat de Steven, Popayán) y es el cliente
+  // Es un mensaje REAL del 08-oct (chat de Andrés, Popayán) y es el cliente
   // mas caliente que entra por aqui: quien pregunta si llega hoy tiene el
   // colico HOY. Recibio "esto lo reviso con una persona del equipo" y el bot
   // se callo 12 horas; una persona lo rescato a mano hora y media despues.
