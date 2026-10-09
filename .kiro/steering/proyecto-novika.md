@@ -121,7 +121,17 @@ Detalle en `docs/PERSISTENCIA.md`.
 - **Fase 2 · cerebro — completa, en modo sombra.** Dominio puro, cotizador, máquina de estados, IA desacoplada, capa transaccional y recuperación durable tras crash (verificada con `SIGKILL`).
 - **Fase 3A · PostgreSQL — preparada y verificada, SIN activar.** `DATABASE_URL` vacía en producción; el servicio sigue sobre archivos. Cutover, congelación de escrituras y rollback inverso implementados y probados contra una base real.
 
-Pendiente: definir los productos reales, el cutover real a PostgreSQL, y el panel.
+- **Panel operativo — completo.** Tablero, bandeja, chat, venta manual, indicadores, auditoría, y el despacho de punta a punta: lote de guías por PDF y novedades de entrega con aviso al cliente. Detalle en `docs/PANEL.md` y `docs/DESPACHO.md`.
+
+Pendiente: definir los productos reales, el cutover real a PostgreSQL, y las plantillas aprobadas de Meta (`PLANTILLA_NOVEDAD_*`, `PLANTILLA_GUIA`), que son lo único que separa el despacho de estar operativo.
+
+### El despacho: dos reglas que no se negocian
+
+**La ventana de 24 h de Meta gobierna los dos avisos más valiosos, y los dos caen fuera de ella SIEMPRE.** La guía sale al día siguiente de la compra; una novedad se reporta 1 a 3 días después. Fuera de la ventana Meta solo entrega plantillas aprobadas, y con texto libre puede **aceptar** el mensaje y no entregarlo. Por eso, sin plantilla la fila se marca **bloqueada** en vez de intentarse: un envío que falla en silencio es peor que no enviar, porque el operador tacha al cliente de su lista creyendo que ya está avisado. La regla vive en un solo sitio, `src/whatsapp/ventana.js`.
+
+**Una guía mal pareada filtra datos personales.** La etiqueta lleva nombre, dirección y teléfono impresos. Por eso hay un mínimo de 50 puntos y un margen de 20 sobre el segundo candidato, y por debajo de eso **no se envía**: se explica contra quién casi coincidió y qué señal faltó, y se ofrece asignar a mano. Es mejor que el dueño mande dos guías a mano que una al cliente equivocado.
+
+Y una lección de diseño que vino de ahí: **la decisión se separa de la lectura del archivo.** `src/despacho/guias.js` es puro y no abre nada. Esa separación es lo que convirtió el lector de guías de «código que no se puede verificar» —así lo daba por bloqueado la auditoría previa— en un módulo con pruebas que no necesitan ningún PDF real.
 
 `RESPUESTA_AUTOMATICA=0`: **NOVIKA no le ha escrito a ningún cliente todavía.** No cambiar sin autorización explícita del dueño. Las pruebas de respuesta usan dobles; nunca mensajes reales.
 

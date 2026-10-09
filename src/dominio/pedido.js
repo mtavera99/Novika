@@ -567,6 +567,126 @@ function resolverNovedad({ pedido, id, comoSeResolvio = "", ahora = new Date() }
   return { ok: true, pedido: nuevo, yaEstaba: false };
 }
 
+/**
+ * Anota QUE PASO DE VERDAD al intentar avisarle al cliente.
+ *
+ * --------------------------------------------------------------------------
+ * POR QUE SE GUARDA EL RESULTADO Y NO UN "AVISADO: SI"
+ * --------------------------------------------------------------------------
+ *
+ * Porque que Meta acepte un mensaje NO significa que lo entregue. Se midio
+ * en BIKERPRO con el cierre diario: Meta respondio ok con su `wamid` y nunca
+ * lo entrego. Un campo booleano habria dicho "avisado" de un mensaje que el
+ * cliente no vio nunca.
+ *
+ * Asi que se guarda la terna completa: si se acepto, si lo freno un
+ * interruptor -y cual-, o si fallo y con que codigo. El panel lo muestra tal
+ * cual, y la entrega real solo se da por buena cuando llega el acuse
+ * `delivered` por el webhook.
+ *
+ * NO SUBE LA VERSION NI CAMBIA EL ESTADO: avisar no modifica la venta. Pero
+ * SI queda en el historial, porque es lo que explica por que un cliente no
+ * se enteró de que su paquete estaba en una oficina.
+ *
+ * ES IDEMPOTENTE HACIA EL LADO SEGURO: un aviso que ya salio no se sobrescribe
+ * con uno que fallo. Si el primer intento se entrego y un reintento por
+ * descuido falla, el pedido tiene que seguir diciendo que el cliente fue
+ * avisado; al reves, el operador volveria a escribirle.
+ *
+ * @param {object} opciones
+ * @param {object} opciones.pedido
+ * @param {{enviado:boolean, bloqueado?:boolean, motivo?:string, wamid?:string,
+ *          porPlantilla?:boolean, plantilla?:string, codigoMeta?:number,
+ *          certeza?:number, aMano?:boolean}} opciones.resultado
+ */
+function registrarAvisoDeGuia({ pedido, resultado, ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido" };
+  if (!pedido.despacho || !pedido.despacho.guia) {
+    return { ok: false, motivo: "este pedido no tiene guia: no hay nada de lo que avisar" };
+  }
+
+  const yaSalio = pedido.despacho.avisoAlCliente && pedido.despacho.avisoAlCliente.enviado;
+  if (yaSalio && !(resultado && resultado.enviado)) {
+    return { ok: true, pedido, yaEstaba: true };
+  }
+
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  nuevo.despacho.avisoAlCliente = resumirAviso(resultado, ahora);
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "aviso_de_guia",
+    cuando: ahora.toISOString(),
+    guia: nuevo.despacho.guia,
+    enviado: nuevo.despacho.avisoAlCliente.enviado,
+    porQue: nuevo.despacho.avisoAlCliente.motivo || null,
+  });
+
+  return { ok: true, pedido: nuevo, yaEstaba: false };
+}
+
+/** Lo mismo, para el aviso de una novedad concreta. */
+function registrarAvisoDeNovedad({ pedido, id, resultado, ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido" };
+
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  nuevo.novedades = Array.isArray(nuevo.novedades) ? nuevo.novedades : [];
+  const n = nuevo.novedades.find((x) => x.id === id);
+  if (!n) return { ok: false, motivo: `no hay una novedad ${id} en este pedido` };
+
+  if (n.avisoAlCliente && n.avisoAlCliente.enviado && !(resultado && resultado.enviado)) {
+    return { ok: true, pedido, yaEstaba: true };
+  }
+
+  n.avisoAlCliente = resumirAviso(resultado, ahora);
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "aviso_de_novedad",
+    cuando: ahora.toISOString(),
+    tipo: n.tipo,
+    enviado: n.avisoAlCliente.enviado,
+    porQue: n.avisoAlCliente.motivo || null,
+  });
+
+  return { ok: true, pedido: nuevo, yaEstaba: false };
+}
+
+/**
+ * Normaliza el resultado de un envio a lo que se guarda en el pedido.
+ *
+ * Se queda con lo que permite responder "¿el cliente lo vio?" y descarta el
+ * resto: el objeto que devuelve el emisor lleva detalles de red que no
+ * tienen por que vivir dentro de un pedido para siempre.
+ */
+function resumirAviso(resultado, ahora) {
+  const r = resultado || {};
+  return {
+    enviado: Boolean(r.enviado),
+    // `bloqueado` distingue "lo paro un interruptor nuestro" de "fallo".
+    // Son dos cosas con dos soluciones distintas, y mezclarlas hace que se
+    // busque un fallo de red donde hay un interruptor apagado.
+    bloqueado: Boolean(r.bloqueado),
+    motivo: r.motivo || null,
+    wamid: r.wamid || null,
+    porPlantilla: Boolean(r.porPlantilla),
+    plantilla: r.plantilla || null,
+    codigoMeta: r.codigoMeta == null ? null : Number(r.codigoMeta),
+    // Para el flujo de guias: con que certeza se pareo, y si lo asigno una
+    // persona. Manana, ante un error, dice si fallo el puntaje o el humano.
+    certeza: r.certeza == null ? null : Number(r.certeza),
+    aMano: Boolean(r.aMano),
+    cuando: ahora.toISOString(),
+    /**
+     * La entrega REAL, que solo la confirma el acuse del webhook. Nace en
+     * null a proposito: "aceptado por Meta" y "entregado" son dos cosas, y
+     * dar la segunda por la primera es como se cuentan clientes avisados que
+     * no se enteraron de nada.
+     */
+    entregadoEn: null,
+  };
+}
+
 /** Novedades sin resolver de un pedido. */
 function novedadesAbiertas(pedido) {
   const lista = (pedido && pedido.novedades) || [];
@@ -603,6 +723,8 @@ module.exports = {
   entregar,
   registrarNovedad,
   resolverNovedad,
+  registrarAvisoDeGuia,
+  registrarAvisoDeNovedad,
   novedadesAbiertas,
   TIPOS_DE_NOVEDAD,
   requiereRecotizar,

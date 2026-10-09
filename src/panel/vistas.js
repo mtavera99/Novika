@@ -922,7 +922,7 @@ function bloqueParcial({ titulo, texto, comoSeDesbloquea = "" }) {
 }
 
 /** GUIAS Y DESPACHOS */
-function guias({ datos: d, transportadoras = [], aviso = null }) {
+function guias({ datos: d, transportadoras = [], aviso = null, envioManualActivo = false }) {
   const filaPorDespachar = (p) => {
     const listo = p._listo;
     return `<tr>
@@ -1006,15 +1006,38 @@ function guias({ datos: d, transportadoras = [], aviso = null }) {
       ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Entregado</th><th>Recaudado</th></tr></thead>
 <tbody>${d.entregados.map(filaEntregado).join("")}</tbody></table>`
       : `<div class="vacio">Ninguna entrega registrada todavía.</div>`) +
-    bloqueParcial({
-      titulo: "Lo que falta: partir el PDF de la transportadora automáticamente",
-      texto:
-        "Registrar la guía a mano <b>funciona</b> y es lo que ves arriba. Lo que no está es leer un PDF con " +
-        "muchas guías y repartir cada una a su cliente: ese lector se ajusta al formato exacto del PDF de la " +
-        "transportadora, y sin un ejemplo real sería código que no se puede verificar. Una guía asignada al " +
-        "cliente equivocado manda el paquete a otra persona.",
-      comoSeDesbloquea: "Para desbloquearlo: elegir transportadora y pasarme un PDF de guías de verdad.",
-    }) +
+    // ----------------------------------------------------------------------
+    // EL LOTE DE GUIAS, EN TRES PASOS
+    //
+    // Revisar -> asignar lo que no cruzo -> enviar. El paso del medio es el
+    // que da el valor: es donde se ve que una guia quedo sin parear y se
+    // arregla, en vez de descubrirlo cuando el cliente reclama.
+    // ----------------------------------------------------------------------
+    `<h2 style="font-size:16px;margin:28px 0 10px">Lote de guías (PDF de la transportadora)</h2>
+<div style="background:var(--tarjeta);border:1px solid var(--linea);border-radius:12px;padding:14px">
+  <p style="margin:0 0 10px;font-size:14px;color:var(--suave)">
+    Sube el PDF con todas las etiquetas. Se parte en una hoja por guía y se propone a qué cliente
+    corresponde cada una. <b>Revisar no envía nada</b>: primero lo ves, después decides.
+  </p>
+  ${
+    envioManualActivo
+      ? ""
+      : `<p class="aviso info" style="margin:0 0 10px">
+           Los envíos manuales están <b>apagados</b> (<code>PANEL_ENVIO_MANUAL=0</code>). Puedes subir el PDF y
+           revisar el pareo igual; al enviar, cada guía dirá que la frenó el interruptor en vez de salir.
+         </p>`
+  }
+  <div class="acciones">
+    <input type="file" id="pdfGuias" accept="application/pdf,.pdf">
+    <button class="primario" id="btnRevisarPdf" onclick="revisarPdf()">Revisar el PDF (no envía nada)</button>
+  </div>
+  <p style="margin:10px 0 0;font-size:13px;color:var(--suave)">
+    Las etiquetas <b>no salen del servidor</b>: el navegador recibe solo lo que se leyó de cada una.
+    Cada hoja lleva el nombre, la dirección y el teléfono de un cliente impresos.
+  </p>
+</div>
+<div id="zonaPareo" hidden style="margin-top:16px"></div>
+<div id="zonaReporte" hidden style="margin-top:16px"></div>` +
     pie(`
 async function despachar(codigo) {
   var guia = (document.getElementById("g-" + codigo) || {}).value || "";
@@ -1029,12 +1052,218 @@ async function entregar(codigo) {
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
   else avisar(r.error, "mal");
 }
+
+// ---------------------------------------------------------------------------
+// EL LOTE DE GUIAS
+//
+// OJO: este codigo vive dentro de una plantilla de JavaScript del servidor,
+// asi que NO se pueden usar acentos graves ni la interpolacion con dolar y
+// llave, ni siquiera en un comentario. Todo con concatenacion. En BIKERPRO
+// eso rompio el panel dos veces con un SyntaxError.
+// ---------------------------------------------------------------------------
+var PLAN_GUIAS = null;
+var CANDIDATOS = [];
+
+function claseDeCerteza(n) {
+  if (n >= 90) return "atendida";
+  if (n >= 70) return "pendiente";
+  return "urgente";
+}
+
+async function revisarPdf() {
+  var entrada = document.getElementById("pdfGuias");
+  var archivo = entrada && entrada.files && entrada.files[0];
+  if (!archivo) { avisar("Elige primero el PDF de la transportadora.", "mal"); return; }
+
+  var boton = document.getElementById("btnRevisarPdf");
+  boton.disabled = true;
+  boton.textContent = "Leyendo el PDF...";
+  avisar("Leyendo el PDF. No se envía nada todavía.", "info");
+
+  var r;
+  try {
+    // El PDF va como CUERPO CRUDO. No se usa FormData: en BIKERPRO llegaba
+    // vacio a Express, y en Safari de iOS el fetch con FormData falla con
+    // "The string did not match the expected pattern".
+    var resp = await fetch("/panel/guias/revisar", {
+      method: "POST",
+      headers: { "content-type": "application/pdf" },
+      body: archivo
+    });
+    var texto = await resp.text();
+    try { r = JSON.parse(texto); } catch (e) { r = null; }
+    // Se mira el ESTADO antes de interpretar el cuerpo: un 401 devuelve
+    // texto, y hacer JSON.parse a ciegas muestra un error que manda a buscar
+    // el problema donde no esta.
+    if (!resp.ok) {
+      r = { ok: false, error: (r && r.error) || ("Error " + resp.status + ": " + texto.slice(0, 160)) };
+    }
+  } catch (e) {
+    r = { ok: false, error: "Sin conexión. No se subió nada." };
+  }
+
+  boton.disabled = false;
+  boton.textContent = "Revisar el PDF (no envía nada)";
+
+  if (!r || !r.ok) { avisar((r && r.error) || "No se pudo leer el PDF.", "mal"); return; }
+
+  PLAN_GUIAS = r.id;
+  CANDIDATOS = r.candidatos || [];
+  pintarPareo(r);
+  var listas = r.filas.filter(function (f) { return f.enviar; }).length;
+  avisar("Leídas " + r.filas.length + " hojas. " + listas + " cruzan solas. Nada se ha enviado.", listas ? "ok" : "info");
+}
+
+function opcionesDeCandidatos(sel) {
+  var out = '<option value="">— elegir el pedido —</option>';
+  for (var i = 0; i < CANDIDATOS.length; i++) {
+    var c = CANDIDATOS[i];
+    var etiqueta = (c.nombre || "sin nombre") + " · " + (c.ciudad || "?") +
+      (c.cel4 ? " · ..." + c.cel4 : "") + (c.guia ? " · YA TIENE GUIA" : "");
+    out += '<option value="' + c.codigo + '"' + (sel === c.codigo ? " selected" : "") + ">" +
+      etiqueta.replace(/</g, "&lt;") + "</option>";
+  }
+  return out;
+}
+
+function pintarPareo(r) {
+  var zona = document.getElementById("zonaPareo");
+  var filas = "";
+
+  for (var i = 0; i < r.filas.length; i++) {
+    var f = r.filas[i];
+    var dice = [];
+    if (f.etiqueta.nombre) dice.push(f.etiqueta.nombre);
+    if (f.etiqueta.ciudad) dice.push(f.etiqueta.ciudad);
+    if (f.etiqueta.telefonos && f.etiqueta.telefonos.length) dice.push(f.etiqueta.telefonos.join(", "));
+
+    var corresponde = f.pedido
+      ? "<b>" + (f.pedido.nombre || f.pedido.codigo) + "</b><br><span style='font-size:12px;color:var(--suave)'>" +
+        (f.pedido.ciudad || "") + "</span>"
+      : "<span style='font-size:13px;color:var(--suave)'>" + (f.motivo || "sin pareo") + "</span>";
+
+    if (f.asignable) {
+      corresponde += "<div style='margin-top:8px'><select id='asig-" + f.pagina + "' style='max-width:260px'>" +
+        opcionesDeCandidatos("") + "</select> " +
+        "<button onclick='asignar(" + f.pagina + ")' style='min-height:40px;padding:0 10px;font-size:13px'>Asignar</button></div>";
+    }
+
+    filas += "<tr id='fila-" + f.pagina + "'>" +
+      "<td data-label='Marcar'>" +
+        (f.enviar ? "<input type='checkbox' class='marcaGuia' value='" + f.pagina + "' checked>" : "") +
+      "</td>" +
+      "<td data-label='Pág'>" + f.pagina + "</td>" +
+      "<td data-label='Guía'>" + (f.guia || "—") + (f.transportadora ? "<div class='sub'>" + f.transportadora + "</div>" : "") + "</td>" +
+      "<td data-label='Dice la etiqueta'>" + (dice.join("<br>") || "—") + "</td>" +
+      "<td data-label='Le corresponde a'>" + corresponde + "</td>" +
+      "<td data-label='Certeza'>" +
+        (f.pedido
+          ? "<span class='pastilla " + claseDeCerteza(f.certeza) + "'>" + f.certeza + "</span>" +
+            "<div class='sub'>" + (f.senales || []).join(", ") + "</div>"
+          : "—") +
+      "</td>" +
+    "</tr>";
+  }
+
+  zona.hidden = false;
+  zona.innerHTML =
+    "<h2 style='font-size:16px;margin:0 0 10px'>Revisión del lote</h2>" +
+    (r.aviso ? "<div class='aviso info'>" + r.aviso + "</div>" : "") +
+    "<table><thead><tr><th>Marcar</th><th>Pág</th><th>Guía</th><th>Dice la etiqueta</th>" +
+    "<th>Le corresponde a</th><th>Certeza</th></tr></thead><tbody>" + filas + "</tbody></table>" +
+    "<div class='acciones' style='margin-top:12px'>" +
+    "<button class='primario' id='btnEnviarGuias' onclick='enviarGuias()'>Enviar las guías marcadas</button>" +
+    "<button onclick='marcarTodasLasGuias(false)'>Desmarcar todas</button>" +
+    "</div>" +
+    "<p style='font-size:13px;color:var(--suave);margin-top:8px'>" +
+    "Una guía por debajo de 50 puntos, o empatada entre dos personas distintas, <b>no se envía sola</b>: " +
+    "la etiqueta lleva la dirección y el teléfono del cliente, y mandársela a otro es filtrar datos personales." +
+    "</p>";
+}
+
+function marcarTodasLasGuias(valor) {
+  var cajas = document.querySelectorAll(".marcaGuia");
+  for (var i = 0; i < cajas.length; i++) cajas[i].checked = valor;
+}
+
+async function asignar(pagina) {
+  var sel = document.getElementById("asig-" + pagina);
+  var codigo = sel && sel.value;
+  if (!codigo) { avisar("Elige a qué pedido corresponde esa hoja.", "mal"); return; }
+
+  var r = await pedir("/panel/guias/asignar", { id: PLAN_GUIAS, pagina: pagina, codigo: codigo });
+  if (!r.ok) { avisar(r.error, "mal"); return; }
+
+  avisar(r.aviso, "ok");
+  var fila = document.getElementById("fila-" + pagina);
+  if (fila) {
+    var celdas = fila.getElementsByTagName("td");
+    celdas[0].innerHTML = "<input type='checkbox' class='marcaGuia' value='" + pagina + "' checked>";
+    celdas[4].innerHTML = "<b>" + (r.pedido.nombre || r.pedido.codigo) + "</b>" +
+      "<div class='sub'>asignada a mano</div>";
+  }
+}
+
+async function enviarGuias() {
+  var cajas = document.querySelectorAll(".marcaGuia:checked");
+  var paginas = [];
+  for (var i = 0; i < cajas.length; i++) paginas.push(Number(cajas[i].value));
+  if (!paginas.length) { avisar("No marcaste ninguna guía.", "mal"); return; }
+
+  var boton = document.getElementById("btnEnviarGuias");
+  boton.disabled = true;
+  boton.textContent = "Enviando " + paginas.length + "...";
+
+  var r = await pedir("/panel/guias/enviar", { id: PLAN_GUIAS, paginas: paginas });
+
+  boton.disabled = false;
+  boton.textContent = "Enviar las guías marcadas";
+
+  if (!r.ok) { avisar(r.error, "mal"); return; }
+  pintarReporteDeGuias(r);
+  avisar(r.aviso, r.fallaron ? "mal" : "ok");
+}
+
+function pintarReporteDeGuias(r) {
+  var zona = document.getElementById("zonaReporte");
+  var filas = "";
+  for (var i = 0; i < r.resultados.length; i++) {
+    var x = r.resultados[i];
+    filas += "<tr>" +
+      "<td data-label='Guía'>" + (x.guia || "—") + "</td>" +
+      "<td data-label='Cliente'>" + (x.cliente || "—") + "</td>" +
+      "<td data-label='Estado'>" +
+        (x.enviado
+          ? "<span class='pastilla atendida'>" + (x.porPlantilla ? "aceptado por Meta (plantilla)" : "aceptado por Meta") + "</span>"
+          : "<span class='pastilla urgente'>no salió</span><div class='sub'>" + (x.porQue || "") + "</div>") +
+      "</td>" +
+    "</tr>";
+  }
+
+  zona.hidden = false;
+  zona.innerHTML =
+    "<h2 style='font-size:16px;margin:0 0 10px'>Resultado del envío</h2>" +
+    "<table><thead><tr><th>Guía</th><th>Cliente</th><th>Estado</th></tr></thead><tbody>" + filas + "</tbody></table>" +
+    "<p style='font-size:13px;color:var(--suave);margin-top:8px'>" +
+    "<b>Aceptado por Meta no es entregado.</b> Meta puede aceptar un mensaje y no entregarlo; la entrega real " +
+    "se confirma con el acuse del webhook." +
+    (r.planVivo
+      ? " Las que no salieron siguen marcadas: puedes reintentar sin volver a subir el PDF."
+      : "") +
+    "</p>";
+}
 `)
   );
 }
 
 /** NOVEDADES DE ENTREGA */
-function novedades({ datos: d, tipos = [], envioManualActivo = false, aviso = null }) {
+function novedades({
+  datos: d,
+  tipos = [],
+  envioManualActivo = false,
+  aviso = null,
+  faltanPlantillas = [],
+}) {
   const fila = (p) => {
     const abiertas = (p.novedades || []).filter((n) => !n.resueltaEn);
     return `<tr>
@@ -1075,18 +1304,49 @@ function novedades({ datos: d, tipos = [], envioManualActivo = false, aviso = nu
       ? `<table><thead><tr><th>Codigo</th><th>Cliente</th><th>Guía</th><th>Días</th><th>Abiertas</th><th>Registrar</th></tr></thead>
 <tbody>${d.despachados.map(fila).join("")}</tbody></table>`
       : `<div class="vacio">No hay pedidos despachados todavía. Una novedad solo existe sobre un paquete que salió.</div>`) +
-    bloqueParcial({
-      titulo: "Lo que falta: avisar al cliente por WhatsApp",
-      texto:
-        "Registrar y resolver novedades <b>funciona</b>. Lo que no se puede todavía es avisar al cliente: una " +
-        "novedad se reporta días después del pedido, cuando la ventana de 24 h de Meta ya se cerró, y fuera de " +
-        "esa ventana Meta <b>solo entrega plantillas aprobadas</b>. Con texto libre acepta el mensaje y no lo " +
-        "entrega: el cliente no se enteraría y nosotros creeríamos que sí.",
-      comoSeDesbloquea:
-        "Hay que crear en Meta Business Manager y esperar aprobación: " +
-        "<code>PLANTILLA_NOVEDAD_AUSENTE</code>, <code>PLANTILLA_NOVEDAD_DIRECCION</code> y " +
-        "<code>PLANTILLA_NOVEDAD_OFICINA</code>.",
-    }) +
+    // ----------------------------------------------------------------------
+    // AVISAR A LOS CLIENTES, DESDE EL ARCHIVO DE LA TRANSPORTADORA
+    //
+    // Se puede subir el archivo O pegar el texto. Pegar funciona hoy, sin
+    // depender de que la transportadora exporte nada ni de que su formato
+    // sea el que esperamos.
+    // ----------------------------------------------------------------------
+    `<h2 style="font-size:16px;margin:28px 0 10px">Avisar a los clientes</h2>
+<div style="background:var(--tarjeta);border:1px solid var(--linea);border-radius:12px;padding:14px">
+  ${
+    faltanPlantillas.length
+      ? `<p class="aviso mal" style="margin:0 0 10px">
+           Faltan plantillas aprobadas en Meta: ${faltanPlantillas.map((t) => `<code>${esc(t)}</code>`).join(", ")}.
+           Una novedad llega días después del pedido, cuando la ventana de 24&nbsp;h ya se cerró, y fuera de ella
+           Meta <b>solo entrega plantillas</b>. A los clientes que sí tengan la ventana abierta se les puede
+           escribir igual; al resto, su fila dirá que está bloqueada en vez de fingir el envío.
+         </p>`
+      : `<p class="aviso ok" style="margin:0 0 10px">Las tres plantillas de novedad están configuradas.</p>`
+  }
+  ${
+    envioManualActivo
+      ? ""
+      : `<p class="aviso info" style="margin:0 0 10px">
+           Los envíos manuales están <b>apagados</b> (<code>PANEL_ENVIO_MANUAL=0</code>). Puedes revisar el plan
+           completo; al avisar, cada fila dirá que la frenó el interruptor.
+         </p>`
+  }
+  <p style="margin:0 0 10px;font-size:14px;color:var(--suave)">
+    Sube el reporte de novedades de la transportadora (CSV o XLSX), o pega lo que ves en su pantalla.
+    <b>Revisar no envía nada.</b>
+  </p>
+  <div class="acciones">
+    <input type="file" id="archivoNovedades" accept=".csv,.xlsx,text/csv">
+    <button onclick="subirNovedades()">Leer el archivo</button>
+  </div>
+  <textarea id="textoNovedades" rows="6" placeholder="O pega aquí las novedades, una por línea. Cada línea necesita el número de guía y el motivo."
+    style="width:100%;margin-top:10px"></textarea>
+  <div class="acciones" style="margin-top:8px">
+    <button class="primario" id="btnRevisarNovedades" onclick="revisarNovedades()">Revisar (no envía nada)</button>
+  </div>
+</div>
+<div id="zonaNovedades" hidden style="margin-top:16px"></div>
+<div id="zonaReporteNovedades" hidden style="margin-top:16px"></div>` +
     pie(`
 async function registrar(codigo) {
   var tipo = (document.getElementById("n-" + codigo) || {}).value || "";
@@ -1100,6 +1360,204 @@ async function resolver(codigo, id) {
   var r = await pedir("/panel/novedades/resolver", { codigo: codigo, id: id, comoSeResolvio: como });
   if (r.ok) { avisar(r.aviso, "ok"); setTimeout(function(){ location.reload(); }, 700); }
   else avisar(r.error, "mal");
+}
+
+// ---------------------------------------------------------------------------
+// AVISAR A LOS CLIENTES
+//
+// Sin acentos graves ni interpolacion: esto vive dentro de una plantilla del
+// servidor. Ver el aviso en la pantalla de guias.
+// ---------------------------------------------------------------------------
+var PLAN_NOVEDADES = null;
+
+async function subirNovedades() {
+  var entrada = document.getElementById("archivoNovedades");
+  var archivo = entrada && entrada.files && entrada.files[0];
+  if (!archivo) { avisar("Elige primero el archivo de la transportadora.", "mal"); return; }
+
+  var r;
+  try {
+    var resp = await fetch("/panel/novedades/archivo?nombre=" + encodeURIComponent(archivo.name), {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: archivo
+    });
+    var texto = await resp.text();
+    try { r = JSON.parse(texto); } catch (e) { r = null; }
+    if (!resp.ok) r = { ok: false, error: (r && r.error) || ("Error " + resp.status + ": " + texto.slice(0, 160)) };
+  } catch (e) {
+    r = { ok: false, error: "Sin conexión. No se subió nada." };
+  }
+
+  if (!r || !r.ok) { avisar((r && r.error) || "No se pudo leer el archivo.", "mal"); return; }
+
+  document.getElementById("textoNovedades").value = r.texto;
+  avisar("Leídas " + r.cuantas + " filas del " + r.formato + "." + (r.aviso ? " " + r.aviso : "") +
+    " Revisa antes de avisar a nadie.", r.aviso ? "info" : "ok");
+}
+
+async function revisarNovedades() {
+  var texto = (document.getElementById("textoNovedades") || {}).value || "";
+  if (!texto.trim()) { avisar("No hay nada que revisar: pega el texto o sube el archivo.", "mal"); return; }
+
+  var boton = document.getElementById("btnRevisarNovedades");
+  boton.disabled = true;
+  boton.textContent = "Revisando...";
+
+  var r = await pedir("/panel/novedades/revisar", { texto: texto, datos: datosEscritosAMano() });
+
+  boton.disabled = false;
+  boton.textContent = "Revisar (no envía nada)";
+
+  if (!r.ok) { avisar(r.error, "mal"); return; }
+
+  PLAN_NOVEDADES = r.id;
+  pintarNovedades(r);
+  avisar(r.listas + " listas para avisar, " + r.bloqueadas + " bloqueadas. Nada se ha enviado.",
+    r.listas ? "ok" : "info");
+}
+
+// Lo escrito a mano se recoge de la pantalla y VIAJA SIEMPRE, tambien en el
+// segundo envio. En BIKERPRO las filas ya resueltas dejaban de dibujar sus
+// campos, esos datos no viajaban, y las filas volvian a bloquearse pidiendo
+// lo que ya se habia escrito.
+function datosEscritosAMano() {
+  var out = {};
+  var campos = document.querySelectorAll("[data-guia]");
+  for (var i = 0; i < campos.length; i++) {
+    var c = campos[i];
+    var g = c.getAttribute("data-guia");
+    var campo = c.getAttribute("data-campo");
+    if (!c.value) continue;
+    if (!out[g]) out[g] = {};
+    out[g][campo] = c.value;
+  }
+  return out;
+}
+
+function pintarNovedades(r) {
+  var zona = document.getElementById("zonaNovedades");
+  var filas = "";
+
+  for (var i = 0; i < r.filas.length; i++) {
+    var f = r.filas[i];
+
+    var quien = f.cliente
+      ? "<b>" + f.cliente + "</b>" +
+        (f.comoSeEncontro && f.comoSeEncontro !== "por la guia"
+          ? "<div class='sub'>" + f.comoSeEncontro + "</div>"
+          : "")
+      : "<span style='font-size:13px;color:var(--suave)'>no identificado</span>";
+
+    if (f.requiereConfirmacion) {
+      quien += "<div class='sub'><b>Confírmalo antes de enviar:</b> cruzó por nombre, no por la guía.</div>";
+    }
+
+    var canal = f.bloqueada
+      ? "<span class='pastilla urgente'>bloqueada</span><div class='sub'>" + f.bloqueada + "</div>"
+      : (f.porPlantilla
+          ? "<span class='pastilla pendiente'>plantilla</span><div class='sub'>" + f.plantilla + "</div>"
+          : "<span class='pastilla atendida'>texto libre</span><div class='sub'>ventana abierta" +
+            (f.ventana && f.ventana.restante ? ", quedan " + f.ventana.restante : "") + "</div>");
+
+    // Los campos que la plantilla de oficina necesita. Se dibujan SIEMPRE que
+    // el tipo los pida, tambien en las filas ya listas, para que lo escrito
+    // sobreviva a un segundo envio.
+    var pide = "";
+    if (f.tipoClave === "oficina") {
+      pide =
+        "<div style='margin-top:6px'>" +
+        "<input data-guia='" + f.guia + "' data-campo='oficina' placeholder='oficina' value='" +
+          (f.oficina || "").replace(/'/g, "&#39;") + "' style='max-width:170px'> " +
+        "<input data-guia='" + f.guia + "' data-campo='plazo' placeholder='hasta cuándo' value='" +
+          (f.plazo || "").replace(/'/g, "&#39;") + "' style='max-width:150px'>" +
+        "</div>";
+    }
+
+    var queVeElCliente = f.mensaje
+      ? "<details><summary style='cursor:pointer;font-size:13px;color:var(--suave)'>ver el mensaje</summary>" +
+        "<div style='white-space:pre-wrap;font-size:13px;margin-top:6px'>" +
+        f.mensaje.replace(/</g, "&lt;") + "</div></details>"
+      : (f.porPlantilla
+          ? "<div class='sub'>lo arma Meta con la plantilla aprobada" +
+            (f.variables && f.variables.length ? " (" + f.variables.join(" · ") + ")" : "") + "</div>"
+          : "");
+
+    filas += "<tr>" +
+      "<td data-label='Marcar'>" +
+        (f.enviar ? "<input type='checkbox' class='marcaNov' value='" + f.i + "' checked>" : "") +
+      "</td>" +
+      "<td data-label='Guía'>" + (f.guia || "—") + "</td>" +
+      "<td data-label='Novedad'>" + f.tipo + "<div class='sub'>" + (f.motivo || "").replace(/</g, "&lt;") + "</div>" + pide + "</td>" +
+      "<td data-label='Cliente'>" + quien + "</td>" +
+      "<td data-label='Cómo sale'>" + canal + "</td>" +
+      "<td data-label='Mensaje'>" + queVeElCliente + "</td>" +
+    "</tr>";
+  }
+
+  zona.hidden = false;
+  zona.innerHTML =
+    "<h2 style='font-size:16px;margin:0 0 10px'>Revisión de las novedades</h2>" +
+    (r.plantillasQueFaltan && r.plantillasQueFaltan.length
+      ? "<div class='aviso mal'>Hay filas que no pueden salir porque falta su plantilla en Meta: " +
+        r.plantillasQueFaltan.join(", ") + "</div>"
+      : "") +
+    "<table><thead><tr><th>Marcar</th><th>Guía</th><th>Novedad</th><th>Cliente</th>" +
+    "<th>Cómo sale</th><th>Mensaje</th></tr></thead><tbody>" + filas + "</tbody></table>" +
+    "<div class='acciones' style='margin-top:12px'>" +
+    "<button class='primario' id='btnAvisar' onclick='avisarNovedades()'>Avisar a los marcados</button>" +
+    "<button onclick='revisarNovedades()'>Volver a revisar con lo que escribí</button>" +
+    "</div>" +
+    "<p style='font-size:13px;color:var(--suave);margin-top:8px'>" +
+    "Si escribiste una oficina o un plazo, pulsa <b>volver a revisar</b> para que esa fila se desbloquee." +
+    "</p>";
+}
+
+async function avisarNovedades() {
+  var cajas = document.querySelectorAll(".marcaNov:checked");
+  var indices = [];
+  for (var i = 0; i < cajas.length; i++) indices.push(Number(cajas[i].value));
+  if (!indices.length) { avisar("No marcaste ninguna novedad.", "mal"); return; }
+
+  var boton = document.getElementById("btnAvisar");
+  boton.disabled = true;
+  boton.textContent = "Avisando a " + indices.length + "...";
+
+  var r = await pedir("/panel/novedades/avisar", {
+    id: PLAN_NOVEDADES,
+    indices: indices,
+    datos: datosEscritosAMano()
+  });
+
+  boton.disabled = false;
+  boton.textContent = "Avisar a los marcados";
+
+  if (!r.ok) { avisar(r.error, "mal"); return; }
+
+  var zona = document.getElementById("zonaReporteNovedades");
+  var filas = "";
+  for (var j = 0; j < r.resultados.length; j++) {
+    var x = r.resultados[j];
+    filas += "<tr>" +
+      "<td data-label='Guía'>" + (x.guia || "—") + "</td>" +
+      "<td data-label='Cliente'>" + (x.cliente || "—") + "</td>" +
+      "<td data-label='Estado'>" +
+        (x.enviado
+          ? "<span class='pastilla atendida'>" + (x.porPlantilla ? "aceptado por Meta (plantilla)" : "aceptado por Meta") + "</span>"
+          : "<span class='pastilla urgente'>no salió</span><div class='sub'>" + (x.porQue || "") + "</div>") +
+      "</td>" +
+    "</tr>";
+  }
+
+  zona.hidden = false;
+  zona.innerHTML =
+    "<h2 style='font-size:16px;margin:0 0 10px'>Resultado</h2>" +
+    "<table><thead><tr><th>Guía</th><th>Cliente</th><th>Estado</th></tr></thead><tbody>" + filas + "</tbody></table>" +
+    "<p style='font-size:13px;color:var(--suave);margin-top:8px'>" +
+    "<b>Aceptado por Meta no es entregado.</b> La novedad queda registrada en el pedido con el resultado real " +
+    "del intento, salga o no." +
+    "</p>";
+  avisar(r.aviso, r.fallaron ? "mal" : "ok");
 }
 `)
   );

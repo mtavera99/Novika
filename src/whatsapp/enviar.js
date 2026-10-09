@@ -133,7 +133,27 @@ const MOTIVOS_BLOQUEO = {
   CONVERSACION_PAUSADA: "conversacion_pausada",
   /** La imagen no cumple lo que Meta exige, o no se puede alcanzar. */
   IMAGEN_NO_ENVIABLE: "imagen_no_enviable",
+  /**
+   * Hace falta una plantilla aprobada y no hay ninguna configurada.
+   *
+   * Es un motivo APARTE de "no se pudo enviar" a proposito: no es un fallo
+   * de red ni un rechazo de Meta, es una tarea pendiente de una persona
+   * -crear la plantilla y que Meta la apruebe-. Mezclarlo con los errores
+   * de envio lo esconde en el ruido, y entonces nadie la crea.
+   */
+  SIN_PLANTILLA: "sin_plantilla_aprobada",
+  /** El documento no se pudo subir a Meta, asi que no hay nada que mandar. */
+  DOCUMENTO_NO_SUBIDO: "documento_no_subido",
 };
+
+/**
+ * Tope del nombre de archivo que ve el cliente.
+ *
+ * Meta rechaza nombres muy largos, y el nombre de una guia lo construimos
+ * nosotros: recortarlo aqui evita que un numero de guia raro tumbe un envio
+ * que ya tenia el PDF subido.
+ */
+const MAX_NOMBRE_ARCHIVO = 240;
 
 /**
  * Tope del pie de foto de WhatsApp.
@@ -460,6 +480,294 @@ function crearEmisor({
     return { ...r, url: enlace, archivo: archivo || null };
   }
 
+  /**
+   * UNA PLANTILLA APROBADA.
+   *
+   * ------------------------------------------------------------------------
+   * POR QUE HACE FALTA, Y POR QUE NO ES "ENVIAR TEXTO CON OTRO NOMBRE"
+   * ------------------------------------------------------------------------
+   *
+   * Fuera de la ventana de 24 horas Meta SOLO entrega plantillas. Y los dos
+   * mensajes mas valiosos del negocio caen siempre fuera de esa ventana:
+   *
+   *   · la guia  -> se despacha al dia siguiente de la compra
+   *   · la novedad de entrega -> aparece 1 a 3 dias despues
+   *
+   * Con texto libre Meta responde 131047 ("re-engagement message") y el
+   * cliente no recibe nada. En BIKERPRO esto se midio con el cierre diario:
+   * Meta acepto el mensaje con ok:true y NUNCA lo entrego. De ahi la regla
+   * que gobierna todo este modulo: aceptado por Meta no es entregado.
+   *
+   * Si no hay plantilla configurada NO se intenta con texto libre. Se
+   * devuelve SIN_PLANTILLA, que es una tarea para una persona, en vez de
+   * quemar un intento y anotar un fallo que parece de red.
+   *
+   * @param {object}   opciones
+   * @param {string}   opciones.plantilla  nombre aprobado en Meta
+   * @param {string[]} [opciones.variables] los {{1}}, {{2}}... en orden
+   * @param {{mediaId:string, nombreArchivo:string}} [opciones.documento]
+   *        PDF para la cabecera de la plantilla, ya subido a Meta
+   */
+  async function enviarPlantilla({
+    para,
+    plantilla,
+    idioma = config.idiomaPlantillas,
+    variables = [],
+    documento = null,
+    permiso = PERMISOS.CONVERSACION,
+    conversacionId = null,
+  }) {
+    const nombre = String(plantilla || "").trim();
+    if (!nombre) {
+      registrar("warn", "plantilla_sin_nombre", {
+        detalle:
+          "Se pidio enviar una plantilla sin nombre. Fuera de la ventana de 24 h es el unico " +
+          "mensaje que Meta entrega: hay que crearla y que Meta la apruebe.",
+      });
+      return { enviado: false, bloqueado: true, motivo: MOTIVOS_BLOQUEO.SIN_PLANTILLA };
+    }
+
+    const componentes = [];
+    if (documento && documento.mediaId) {
+      componentes.push({
+        type: "header",
+        parameters: [
+          {
+            type: "document",
+            document: {
+              id: documento.mediaId,
+              filename: String(documento.nombreArchivo || "documento.pdf").slice(0, MAX_NOMBRE_ARCHIVO),
+            },
+          },
+        ],
+      });
+    }
+    const cuerpoVars = (Array.isArray(variables) ? variables : [])
+      .map((v) => String(v == null ? "" : v))
+      .filter((v) => v !== "");
+    if (cuerpoVars.length) {
+      componentes.push({
+        type: "body",
+        parameters: cuerpoVars.map((v) => ({ type: "text", text: v })),
+      });
+    }
+
+    const contenido = {
+      name: nombre,
+      // El CODIGO DE IDIOMA es exacto y no se adivina. Con "es" Meta rechaza
+      // con 132001 ("template name does not exist in the translation") aunque
+      // la plantilla este aprobada, porque la subio en Spanish (COL) y para
+      // Meta "es" y "es_CO" son dos traducciones distintas.
+      language: { code: String(idioma || "es_CO") },
+    };
+    if (componentes.length) contenido.components = componentes;
+
+    const r = await entregar({
+      para,
+      permiso,
+      conversacionId,
+      // Para la revision de permisos lo que hay que mandar es la plantilla.
+      // Un envio sin texto no debe caer en TEXTO_VACIO, que es una
+      // comprobacion pensada para mensajes de texto.
+      texto: nombre,
+      tipo: "template",
+      contenido,
+      aLog: { plantilla: nombre, idioma, variables: cuerpoVars.length, conDocumento: Boolean(documento) },
+    });
+
+    return { ...r, plantilla: nombre, porPlantilla: true };
+  }
+
+  /**
+   * Sube un archivo a Meta y devuelve su `mediaId`.
+   *
+   * ------------------------------------------------------------------------
+   * POR QUE SE SUBE EN VEZ DE MANDAR UN ENLACE
+   * ------------------------------------------------------------------------
+   *
+   * Una guia lleva impresos el NOMBRE, LA DIRECCION Y EL TELEFONO del
+   * cliente. Publicarla en una URL alcanzable -aunque sea con un nombre
+   * difícil de adivinar- es dejar datos personales expuestos en internet
+   * mientras esa URL viva.
+   *
+   * Subiendola, el PDF viaja a Meta por el canal autenticado, se identifica
+   * con un `mediaId` que caduca a los 30 dias, y nunca se publica. Por eso
+   * las fotos del catalogo si van por `link` -son publicas a proposito- y
+   * las guias no.
+   *
+   * NUNCA LANZA: devuelve el motivo, porque quien llama tiene que poder
+   * mostrarselo al operador en vez de perderlo en un catch.
+   */
+  async function subirMedia({ datos, nombreArchivo, mime = "application/pdf" }) {
+    if (!config.whatsappToken || !config.idNumero) {
+      return { ok: false, motivo: MOTIVOS_BLOQUEO.SIN_CREDENCIALES };
+    }
+    if (!datos || !datos.length) {
+      return { ok: false, motivo: MOTIVOS_BLOQUEO.DOCUMENTO_NO_SUBIDO, detalle: "el archivo esta vacio" };
+    }
+
+    const url = `https://graph.facebook.com/${config.versionGraph}/${config.idNumero}/media`;
+    const nombre = String(nombreArchivo || "documento.pdf").slice(0, MAX_NOMBRE_ARCHIVO);
+
+    let ultimo = { estado: 0, codigo: null, detalle: null };
+
+    // Se reintenta igual que un envio: subir es una llamada de red mas, y un
+    // 500 de Meta aqui dejaria la guia sin salir aunque el pareo fuera
+    // correcto. Reintentar una subida es seguro -son mediaId distintos y solo
+    // se usa el ultimo-, al contrario que reintentar un envio de mensaje.
+    for (let intento = 1; intento <= ESPERAS_MS.length + 1; intento++) {
+      let respuesta;
+      try {
+        const form = new FormData();
+        form.append("messaging_product", "whatsapp");
+        form.append("type", mime);
+        // El Blob se construye en cada intento: un cuerpo de FormData ya
+        // consumido no se puede volver a enviar.
+        form.append("file", new Blob([datos], { type: mime }), nombre);
+        respuesta = await hacerFetch(url, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.whatsappToken}` },
+          body: form,
+        });
+      } catch (e) {
+        ultimo = { estado: 0, codigo: null, detalle: e && e.message };
+        registrar("warn", "subida_error_de_red", { intento });
+        if (await esperar(intento)) continue;
+        break;
+      }
+
+      let cuerpo = null;
+      try {
+        cuerpo = await respuesta.json();
+      } catch {
+        cuerpo = null;
+      }
+
+      if (respuesta.ok && cuerpo && cuerpo.id) {
+        contar("documento_subido");
+        registrar("info", "documento_subido", { intentos: intento, nombreArchivo: nombre });
+        return { ok: true, mediaId: cuerpo.id, nombreArchivo: nombre };
+      }
+
+      const codigo = cuerpo?.error?.code ?? null;
+      ultimo = { estado: respuesta.status, codigo, detalle: cuerpo?.error?.message || null };
+      registrar("warn", "subida_rechazada", { intento, estado: respuesta.status, codigo });
+
+      const temporal = HTTP_TEMPORALES.has(respuesta.status) || CODIGOS_TEMPORALES.has(codigo);
+      if (temporal && (await esperar(intento))) continue;
+      break;
+    }
+
+    contar("documento_no_subido");
+    registrar("error", "subida_fallida", { estado: ultimo.estado, codigo: ultimo.codigo });
+    return {
+      ok: false,
+      motivo: MOTIVOS_BLOQUEO.DOCUMENTO_NO_SUBIDO,
+      estado: ultimo.estado,
+      codigoMeta: ultimo.codigo,
+      detalle: ultimo.detalle,
+    };
+  }
+
+  /**
+   * UN PDF, subiendolo primero.
+   *
+   * Decide solo entre documento libre y plantilla segun la ventana de 24 h,
+   * porque quien llama no tiene por que saber esa regla de Meta:
+   *
+   *   · `ventanaAbierta: true`  -> documento con pie de foto
+   *   · `ventanaAbierta: false` -> plantilla con el PDF en la cabecera
+   *
+   * El pie NO viaja en la plantilla: su texto ya esta aprobado en Meta y no
+   * se puede cambiar desde aqui. Quien llama recibe `porPlantilla` para
+   * poder decirle al operador que el cliente vio el texto aprobado, no el
+   * que se escribio.
+   *
+   * SE SUBE UNA SOLA VEZ aunque haya que reintentar el mensaje: el `mediaId`
+   * se devuelve siempre, incluso si el envio falla, para que un reintento no
+   * vuelva a gastar la subida.
+   */
+  async function enviarDocumento({
+    para,
+    datos,
+    nombreArchivo,
+    pie = "",
+    ventanaAbierta = true,
+    plantilla = null,
+    idioma = config.idiomaPlantillas,
+    mediaId = null,
+    permiso = PERMISOS.CONVERSACION,
+    conversacionId = null,
+  }) {
+    // Los permisos se revisan ANTES de subir. Subir un PDF que despues no se
+    // va a poder enviar gasta una llamada y deja un mediaId huerfano en Meta.
+    const previo = revisarPermiso({ para, texto: nombreArchivo || "documento", permiso });
+    if (!previo.puede) {
+      registrar(previo.motivo === MOTIVOS_BLOQUEO.INTERRUPTOR ? "info" : "warn", "documento_bloqueado", {
+        motivo: previo.motivo,
+      });
+      return { enviado: false, bloqueado: true, motivo: previo.motivo };
+    }
+
+    // Sin plantilla y con la ventana cerrada no hay nada que intentar: Meta
+    // no entrega texto libre fuera de las 24 h. Se dice antes de subir.
+    if (!ventanaAbierta && !plantilla) {
+      return {
+        enviado: false,
+        bloqueado: true,
+        motivo: MOTIVOS_BLOQUEO.SIN_PLANTILLA,
+        detalle:
+          "la ventana de 24 h de este cliente esta cerrada y no hay plantilla configurada para mandarle el documento",
+      };
+    }
+
+    let id = mediaId;
+    if (!id) {
+      const subida = await subirMedia({ datos, nombreArchivo });
+      if (!subida.ok) {
+        return {
+          enviado: false,
+          motivo: subida.motivo,
+          estado: subida.estado,
+          codigoMeta: subida.codigoMeta,
+          detalle: subida.detalle,
+        };
+      }
+      id = subida.mediaId;
+    }
+
+    const nombre = String(nombreArchivo || "documento.pdf").slice(0, MAX_NOMBRE_ARCHIVO);
+
+    if (!ventanaAbierta) {
+      const r = await enviarPlantilla({
+        para,
+        plantilla,
+        idioma,
+        documento: { mediaId: id, nombreArchivo: nombre },
+        permiso,
+        conversacionId,
+      });
+      return { ...r, mediaId: id, nombreArchivo: nombre };
+    }
+
+    const pieRecortado = String(pie || "").slice(0, MAX_PIE_DE_FOTO);
+    const r = await entregar({
+      para,
+      permiso,
+      conversacionId,
+      texto: pieRecortado || nombre,
+      tipo: "document",
+      contenido: {
+        id,
+        filename: nombre,
+        ...(pieRecortado ? { caption: pieRecortado } : {}),
+      },
+      aLog: { nombreArchivo: nombre, longitud: pieRecortado.length },
+    });
+
+    return { ...r, mediaId: id, nombreArchivo: nombre, porPlantilla: false };
+  }
+
   async function esperar(intento) {
     const ms = ESPERAS_MS[intento - 1];
     if (ms === undefined) return false;
@@ -467,7 +775,16 @@ function crearEmisor({
     return true;
   }
 
-  return { enviarTexto, enviarImagen, revisarPermiso, PERMISOS, MOTIVOS_BLOQUEO };
+  return {
+    enviarTexto,
+    enviarImagen,
+    enviarPlantilla,
+    enviarDocumento,
+    subirMedia,
+    revisarPermiso,
+    PERMISOS,
+    MOTIVOS_BLOQUEO,
+  };
 }
 
 module.exports = {
@@ -478,6 +795,7 @@ module.exports = {
   esUnBsuid,
   destinatarioDe,
   MAX_PIE_DE_FOTO,
+  MAX_NOMBRE_ARCHIVO,
   CODIGOS_TEMPORALES,
   HTTP_TEMPORALES,
 };

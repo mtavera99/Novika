@@ -30,8 +30,8 @@ El token se manda **una vez** por POST y lo que queda es una cookie firmada, `Ht
 | **Buscar** | Por teléfono, nombre o ciudad |
 | **Venta manual** | Ventas cerradas fuera del bot, cotizadas por el mismo motor |
 | **Exportar** | CSV de pedidos, abre bien en Excel en español |
-| **Guías** | Pedidos por despachar, registrar la guía y despachar, lista de despachados |
-| **Novedades** | Registrar y resolver novedades de entrega (ausente · dirección · oficina) |
+| **Guías** | Pedidos por despachar, registrar la guía a mano o **subir el PDF de la transportadora** y repartir cada guía a su cliente, despachados y entregados |
+| **Novedades** | Registrar y resolver novedades (ausente · dirección · oficina), y **avisar al cliente** desde el reporte de la transportadora |
 | **Auditoría** | Últimos 14 días, **embudo** y **atribución** |
 
 ### Clasificación
@@ -176,7 +176,7 @@ src/almacen/atencion.js   pausa, atención e historial, persistidos
 
 ---
 
-## Guías y despachos — implementado, con una parte bloqueada
+## Guías y despachos
 
 **Funciona:** ver los pedidos por despachar, registrar el número de guía con su transportadora, y despachar. La transición es del dominio (`dominioPedido.despachar`), así que queda **versionada y en el historial** igual que si la hubiera hecho el bot.
 
@@ -189,13 +189,22 @@ src/almacen/atencion.js   pausa, atención e historial, persistidos
 | El motor lo sostiene | `CHECK (estado <> 'despachado' OR despacho->>'guia' IS NOT NULL)` — probado insertando a mano, saltándose el adaptador |
 | Se busca **por guía** | `pedidos.guia` es columna generada e **indexada**: cuando la transportadora llama diciendo "la guía 123456 tiene una novedad", eso es una consulta con índice y no recorrer todos los pedidos |
 
-**Bloqueado:** partir automáticamente un PDF con muchas guías. El lector se ajusta al formato exacto del PDF de la transportadora, y sin un ejemplo real sería código que no se puede verificar. **Una guía asignada al cliente equivocado manda el paquete a otra persona.** Para desbloquearlo: elegir transportadora y pasarme un PDF de guías de verdad (sirve una sola).
+### El lote por PDF — ya no está bloqueado
 
-> Detalle técnico de su implementación que habrá que repetir: `pdfjs` **no devuelve la memoria** que usa (+71 MB por lote, medido por ellos), así que corre en un proceso hijo.
+Subir el PDF de la transportadora, partirlo en una hoja por guía y repartir cada una a su cliente **está implementado y verificado**. Detalle completo en [DESPACHO.md](DESPACHO.md).
+
+Esto antes se daba por bloqueado, y el motivo era bueno: *«sin un PDF real de la transportadora, portar el lector es escribir código que no se puede verificar»*. Lo que se descubrió es que esa conclusión asumía una dependencia que no existe:
+
+- **La decisión está separada de la lectura.** `src/despacho/guias.js` es **puro**: recibe el texto ya extraído y decide de quién es cada etiqueta. No abre ningún archivo. Así el 95 % del riesgo —*a quién se le manda*— se prueba con líneas de texto escritas a mano. En BIKERPRO leer el archivo y decidir el destinatario viven en la misma función, y por eso allí hacía falta un PDF de verdad para probar cualquier cosa.
+- **El PDF de prueba se genera.** `test/despacho-lote-de-guias.test.js` crea un PDF con `pdf-lib` —la misma librería que lo parte— con los rótulos que imprimen las transportadoras colombianas, y recorre el flujo entero por HTTP.
+
+Lo que sigue siendo cierto: **si la transportadora que elija NOVIKA usa rótulos distintos, el lector habrá que ajustarlo.** Pero entonces es una línea en `extraerCampos` con una batería de 34 pruebas de red, no un módulo entero sin verificar.
+
+> `pdfjs` **no devuelve la memoria** que usa (+41 MB solo por cargarse, +71 MB por lote; medido). Corre en un proceso hijo que muere con la memoria dentro, y el diario anota si esa lectura usó el hijo o cayó al respaldo — porque una fuga de 71 MB por lote registrada como lectura normal es un reinicio por memoria que nadie sabe explicar.
 
 ---
 
-## Novedades de entrega — implementado, con el aviso bloqueado
+## Novedades de entrega
 
 **Funciona:** registrar una novedad sobre un pedido despachado, verla en la lista con los días que lleva, y resolverla.
 
@@ -207,11 +216,17 @@ src/almacen/atencion.js   pausa, atención e historial, persistidos
 | **Idempotente** por tipo abierto | La transportadora reporta lo mismo varias veces |
 | Solo sobre un pedido **despachado** | Una novedad sobre un pedido que no salió significa que alguien se equivocó de pedido, y avisar al cliente equivocado es peor que no avisar |
 
-**Bloqueado:** avisar al cliente por WhatsApp. Una novedad se reporta días después del pedido, cuando la ventana de 24 h ya se cerró, y fuera de esa ventana **Meta solo entrega plantillas aprobadas**: con texto libre acepta el mensaje y no lo entrega, así que el cliente no se enteraría y nosotros creeríamos que sí.
+### Avisar al cliente — implementado; lo que falta es de Meta, no de código
 
-El campo `avisoAlCliente` existe y queda en `null` — **no en "avisado"**. El día que haya plantilla, ahí se verá si Meta lo aceptó y si llegó el acuse, que no es lo mismo.
+Subir el reporte de la transportadora (CSV o XLSX), clasificar cada novedad, cruzarla con su pedido y avisar al cliente **está implementado**. Detalle en [DESPACHO.md](DESPACHO.md).
 
-Hay que crear en Meta Business Manager y esperar aprobación: `PLANTILLA_NOVEDAD_AUSENTE`, `PLANTILLA_NOVEDAD_DIRECCION`, `PLANTILLA_NOVEDAD_OFICINA`.
+Lo que **no depende de nosotros** es la plantilla. Una novedad se reporta días después del pedido, cuando la ventana de 24 h ya se cerró, y fuera de esa ventana **Meta solo entrega plantillas aprobadas**: con texto libre acepta el mensaje y no lo entrega.
+
+Por eso el panel **bloquea esa fila en vez de intentarlo**, y lo dice arriba, antes de que se suba ningún archivo. Un envío que falla en silencio es peor que no enviar: el operador tacha al cliente de su lista creyendo que ya está avisado.
+
+Hay que crear en Meta Business Manager y esperar aprobación: `PLANTILLA_NOVEDAD_AUSENTE`, `PLANTILLA_NOVEDAD_DIRECCION`, `PLANTILLA_NOVEDAD_OFICINA`. Mientras no existan, a los clientes que **sí** tengan la ventana abierta se les escribe igual, con texto libre.
+
+El campo `avisoAlCliente` ya se rellena, y **no con un "avisado: sí"**: guarda si Meta lo aceptó, si lo frenó un interruptor —y cuál—, o si falló y con qué código. `entregadoEn` nace en `null` y solo lo confirma el acuse del webhook. Que Meta acepte un mensaje no significa que lo entregue; se midió.
 
 ---
 

@@ -117,6 +117,30 @@ function crearApp() {
       escrituras_congeladas: congelacion.estado(config.dirDatos).congelado,
       ia_configurada: Boolean(config.iaApiKey),
       almacen_transaccional: config.databaseUrl ? "postgres" : "archivos",
+
+      // --------------------------------------------------------------------
+      // CUANTAS PLANTILLAS DE AVISO HAY, no como se llaman.
+      //
+      // Mismo criterio que `numeros_de_prueba`: se publica el NUMERO, no el
+      // contenido. Un nombre de plantilla es un dato de la cuenta de Meta.
+      //
+      // Se publica porque contesta un "no funciona" muy concreto: la guia o
+      // la novedad no le llegan al cliente, y la causa casi siempre es que
+      // falta la plantilla, no que haya un defecto. Fuera de la ventana de
+      // 24 h Meta solo entrega plantillas, y los dos avisos caen fuera
+      // SIEMPRE: la guia sale al dia siguiente, la novedad a los dias.
+      //
+      // 0 de 3 novedades = esos avisos estan bloqueados a proposito, y el
+      // panel lo dice en pantalla. No es un fallo que haya que buscar.
+      // --------------------------------------------------------------------
+      plantillas_de_novedad: [
+        config.plantillaNovedadDireccion,
+        config.plantillaNovedadAusente,
+        config.plantillaNovedadOficina,
+      ].filter(Boolean).length,
+      plantilla_de_guia: Boolean(config.plantillaGuia),
+      idioma_de_plantillas: config.idiomaPlantillas,
+      telefonos_remitente: config.telefonosRemitente.length,
     };
 
     const conToken = config.panelToken && (req.query.token || req.get("x-panel-token")) === config.panelToken;
