@@ -301,8 +301,15 @@ describe("4 · qué le dice", () => {
   });
 
   test("usa el nombre de pila, y no un emoji", () => {
+    // ⚠️ ESTA PRUEBA PASABA EN VACIO. El objeto de abajo se escribia a mano
+    //    como `{confirmado, candidato, origen}`, y la forma real de un campo
+    //    es `{valor, estado, origen, ...}`. Asi que `valorConfirmado`
+    //    devolvia null, el nombre no se usaba nunca y la asercion se cumplia
+    //    sola — comprobaba que no se saluda a un emoji en un caso donde no
+    //    se saludaba a nadie. Es el error que el propio fichero advierte en
+    //    el comentario de `conversacionCallada`, cometido justo debajo.
     const conEmoji = conversacionCallada();
-    conEmoji.ficha.nombre = { confirmado: "🤪", candidato: null, origen: "cliente" };
+    conEmoji.ficha.nombre = confirmado("🤪");
     const t = recordar.texto({ conversacion: conEmoji, producto: elCinturon(), orden: 1 });
     assert.equal(/Hola, 🤪/.test(t), false, `saludó a un emoji: ${t}`);
 
@@ -310,6 +317,72 @@ describe("4 · qué le dice", () => {
     const t2 = recordar.texto({ conversacion: conNombre, producto: elCinturon(), orden: 1 });
     assert.match(t2, /Hola, Ana/, t2);
     assert.equal(/Ana María/.test(t2), false, `usó el apellido, suena a cobro: ${t2}`);
+  });
+
+  // ------------------------------------------------------------------------
+  // EL NOMBRE, SOLO SI LO ESCRIBIO EL CLIENTE
+  //
+  // Lo pidió Marco: «en los recordatorios, usa el nombre del cliente solo si
+  // él lo escribió». Antes se usaba cualquier nombre confirmado, y el de
+  // perfil de WhatsApp se guarda confirmado: el recordatorio podía saludar
+  // «Hola, Ailid 😊» a quien se llama Nevis Johana.
+  //
+  // Un recordatorio es el peor sitio para equivocarse con el nombre: llega
+  // sin que el cliente haya escrito nada, y con un nombre que no es suyo
+  // parece un envío masivo.
+  // ------------------------------------------------------------------------
+  const conOrigen = (valor, origen) =>
+    campos.confirmar(campos.proponer(campos.campoVacio(), valor, origen), () => ({ ok: true, valor }));
+
+  test("el nombre de PERFIL de WhatsApp no se usa para saludar", () => {
+    for (const [etiqueta, valor] of [
+      ["un apodo con emoji", "Ailid🥰"],
+      ["algo que parece un nombre", "Santiago"],
+      ["una frase", "Tienes cinturones"],
+    ]) {
+      const c = conversacionCallada();
+      c.ficha.nombre = conOrigen(valor, campos.ORIGENES.PERFIL);
+      const t = recordar.texto({ conversacion: c, producto: elCinturon(), orden: 1 });
+      assert.equal(/^Hola, /.test(t), false, `saludó con el nombre de perfil (${etiqueta}): ${t}`);
+      // Y lo que es más importante: no le llama por ese nombre en ningún sitio.
+      assert.equal(
+        new RegExp(String(valor).split(/\s+/)[0], "i").test(t),
+        false,
+        `usó el nombre de perfil (${etiqueta}): ${t}`
+      );
+    }
+  });
+
+  test("y tampoco el que propuso la IA ni el que escribió un operador", () => {
+    // El de la IA, porque nadie lo validó. El del operador, porque no lo
+    // escribió el cliente — y eso es lo que pidió Marco, literal. Es la
+    // opción conservadora: si prefiere incluir al operador, es una línea.
+    for (const origen of [campos.ORIGENES.IA, campos.ORIGENES.PERSONA]) {
+      const c = conversacionCallada();
+      c.ficha.nombre = conOrigen("Carolina", origen);
+      const t = recordar.texto({ conversacion: c, producto: elCinturon(), orden: 1 });
+      assert.equal(/Carolina/.test(t), false, `usó un nombre de origen ${origen}: ${t}`);
+    }
+  });
+
+  test("con el nombre que escribió el cliente SÍ saluda", () => {
+    // El otro lado: si esto falla, la regla se pasó de estricta y el
+    // recordatorio quedó frío con quien sí dio su nombre.
+    const c = conversacionCallada();
+    c.ficha.nombre = conOrigen("Nevis Johana Sánchez", campos.ORIGENES.CLIENTE);
+    const t = recordar.texto({ conversacion: c, producto: elCinturon(), orden: 1 });
+    assert.match(t, /^Hola, Nevis 😊/, t);
+  });
+
+  test("un nombre de perfil tampoco cuenta como nombre a la hora de pedirlo", () => {
+    // El mismo defecto por el otro lado: con un nombre de perfil puesto, el
+    // recordatorio daba el nombre por resuelto y NUNCA lo pedía. No solo
+    // saludaba mal: tampoco preguntaba.
+    const c = conversacionCallada();
+    c.ficha.nombre = conOrigen("Ailid🥰", campos.ORIGENES.PERFIL);
+    c.ficha.direccion = confirmado("Calle 5 # 3-20");
+    const t = recordar.texto({ conversacion: c, producto: elCinturon(), orden: 1 });
+    assert.match(t, /tu nombre completo/i, `no pidió el nombre teniendo solo el del perfil: ${t}`);
   });
 });
 
