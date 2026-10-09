@@ -22,7 +22,7 @@
 // ==========================================================================
 
 const { aplanar, cantidadesEn, NUMEROS_EN_PALABRAS } = require("./texto");
-const { CIUDADES, DEPARTAMENTOS, NO_ES_UN_NOMBRE } = require("./destino");
+const { CIUDADES, DEPARTAMENTOS, NO_ES_UN_NOMBRE, oficinaEn: oficinaDeTransportadoraEn } = require("./destino");
 
 /**
  * El detector de "esto es una pregunta", que vive en `preguntas.js`.
@@ -964,6 +964,21 @@ function direccionEn(textoCrudo) {
   // Lo que protege de verdad contra una direccion inventada es la exigencia
   // de un TIPO DE VIA mas un NUMERO, que esta justo debajo; el telefono se
   // RECORTA mas abajo, que es lo que habia que hacer desde el principio.
+  // ------------------------------------------------------------------
+  // LA OFICINA DE LA TRANSPORTADORA, ANTES DE BUSCAR UN TIPO DE VIA.
+  //
+  // Lo autorizo Marco el 2026-10-09 («nosotros tambien podemos llevar a la
+  // oficina inter rapidisimo o a la oficina de coordinadora»). Un envio a
+  // oficina no tiene calle ni numero, asi que el candado de "tipo de via mas
+  // numero" lo tiraba: "oficina de interrapidisimo" devolvia null y el bot
+  // seguia pidiendo la direccion a quien ya la habia dado.
+  //
+  // Se normaliza a "Oficina <Transportadora>" para que la guia diga lo
+  // mismo siempre, en vez de guardar la frase tal cual la escribio el
+  // cliente ("en la de inter", "la recojo en interrapidisimo").
+  const oficina = oficinaDeTransportadoraEn(crudo);
+  if (oficina) return { valor: oficina, porQue: "lo recoge en la oficina de la transportadora" };
+
   const m = plano.match(VIA);
   if (!m) return { valor: null, porQue: "no se reconoce ningun tipo de via" };
   if (!/\d/.test(plano.slice(m.index))) {

@@ -55,6 +55,13 @@ const NOMBRES = [
   // Interesa contarlo: si sube, es que el bot esta capturando mal los datos
   // y alguien lo esta tapando a mano pedido por pedido.
   "panel_destinatario_corregido",
+  // Una duda sobre un dato se habia levantado en un turno anterior y se
+  // recupero al cerrar el pedido. Si sube, es que la direccion o el nombre
+  // llegan flojos y el pedido se habria despachado sin poder entregarse.
+  "duda_recuperada_al_cerrar",
+  // El bot pidio un punto de referencia porque la direccion era solo el
+  // barrio. Lo pidio Marco: "el bot siempre debe pedir la direccion".
+  "pidio_punto_de_referencia",
 
   // --- producto ---
   "producto_identificado",

@@ -193,6 +193,15 @@
         "bogota": "1 a 2 días hábiles"
       },
       "matizRural": "En zonas rurales puede tardar un poquito más; el tiempo exacto te lo confirmo cuando salga la guía."
+    },
+    "recogeEnOficina": {
+      "activo": true,
+      "transportadoras": [
+        "Interrapidísimo",
+        "Coordinadora"
+      ],
+      "texto": "si no tienes una dirección fija, también podemos dejarlo en la oficina de Interrapidísimo o de Coordinadora de tu ciudad y lo recoges ahí",
+      "_porQue": "AUTORIZADO POR MARCO EL 2026-10-09, textual: «recuerda que nosotros tambien podemos llevar a la oficina inter rapidisimo o a la oficina de coordinadora».\n\nPARA QUE SIRVE, Y NO ES UN ADORNO: es la SALIDA cuando el cliente no tiene nomenclatura. Marco puso una regla dura el mismo dia -«sin direccion no podemos dejar que el bot lo tome como pedido, porque si no no se va a generar [la guia]»- y una regla dura sin alternativa es una venta perdida. Esta es la alternativa: a quien solo dice «barrio centenario» se le ofrece la oficina en vez de repetirle la misma pregunta hasta que se va, que es exactamente lo que costo la venta del 08-oct en San Andres de Sotavento.\n\nEL BOT OFRECE, EL CLIENTE CONFIRMA, y ese orden importa: no sabemos si hay oficina en cada pueblo de Colombia, y afirmarlo seria prometer algo que no consta. El cliente si lo sabe. Por eso el texto dice «tambien podemos dejarlo en la oficina... de tu ciudad» y espera su respuesta, en vez de dar por hecho que existe.\n\nNO SE INVENTA LA DIRECCION DE NINGUNA OFICINA: lo que se guarda es «Oficina Interrapidisimo» mas la ciudad, que es lo que la transportadora necesita para un envio a oficina. Si algun dia hay una lista de oficinas con su direccion, va aqui."
     }
   },
   "_nota_envio": "COBERTURA NO DECLARADA. Marco dijo 'envio incluido' sin acotar a que ciudades. Para el cliente no hay riesgo: paga 49.900 y nada mas, en cualquier destino. El riesgo es de MARGEN, y es suyo: un envio a una zona apartada puede costar mas que el margen del producto. No se asume ninguna restriccion por mi cuenta porque restringir ciudades tambien seria inventar una politica. Si quiere limitar cobertura, se cambia 'tipo' a 'por_destino' con la tabla de departamentos y el cotizador empieza a exigir el departamento antes de cotizar.",

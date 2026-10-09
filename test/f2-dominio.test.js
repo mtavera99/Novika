@@ -193,10 +193,53 @@ test("las frases semanticas NO son una direccion", () => {
   }
 });
 
-test("una direccion sin ningun numero no sirve para despachar", () => {
+test("una zona CON punto de referencia se acepta, aunque no traiga ningun numero", () => {
+  // ⚠️ ESTA PRUEBA DECIA LO CONTRARIO, y el ejemplo que usaba la delataba:
+  //    "barrio la esperanza cerca del parque" es una direccion a la que un
+  //    mensajero SI puede llegar. Rechazarla es la venta perdida del 08-oct
+  //    en San Andres de Sotavento, otra vez.
+  //
+  // Lo que importa no es el numero: es que haya algo mas que el nombre del
+  // barrio. Se acepta marcada, porque una persona confirma el destino antes
+  // de la guia.
   const r = destino.validarDireccion("barrio la esperanza cerca del parque");
-  assert.equal(r.ok, false);
-  assert.match(r.motivo, /sin ningun numero/);
+  assert.equal(r.ok, true);
+  assert.equal(r.revisar, true);
+});
+
+test("pero SOLO el barrio no se puede despachar: Marco lo pidio el 09-oct", () => {
+  // Su regla: «hay una regla basica para despachar un pedido y es que nos den
+  // direccion... sin eso no podemos dejar que el Bot lo tome como pedido
+  // porque si no no se va a generar [la guia]».
+  //
+  // Nace de un caso real: el bot acepto "barrio centenario" como direccion
+  // final de un pedido de Ipiales, lo cerro, y Marco tuvo que LLAMAR al
+  // celular para conseguir la direccion de verdad.
+  //
+  // Se acepta -no se le repite la pregunta al cliente, que es lo que costo la
+  // otra venta- pero queda MARCADA, y marcada significa que no se despacha.
+  for (const sola of ["barrio centenario", "Barrio buenos aires", "barrio centro", "vereda alta"]) {
+    const r = destino.validarDireccion(sola);
+    assert.equal(r.revisar, true, `"${sola}" no quedó marcada: se despacharía sin poder entregarse`);
+    assert.equal(r.faltaReferencia, true, `"${sola}" no pide el punto de referencia`);
+  }
+});
+
+test("la oficina de la transportadora ES una direccion valida y completa", () => {
+  // Autorizado por Marco el 09-oct: «nosotros tambien podemos llevar a la
+  // oficina inter rapidisimo o a la oficina de coordinadora». Antes se
+  // rechazaba por no traer numero, que es justo el caso donde no hace falta.
+  for (const o of ["oficina de interrapidisimo", "en la oficina de coordinadora", "la recojo en interrapidisimo"]) {
+    const r = destino.validarDireccion(o);
+    assert.equal(r.ok, true, `rechazó un envío a oficina: "${o}"`);
+    assert.equal(r.revisar, false, `marcó para revisión un envío a oficina: "${o}"`);
+    assert.equal(r.aOficina, true);
+  }
+  // Y se normaliza, porque esto acaba impreso en una guía.
+  assert.equal(destino.oficinaEn("la recojo en inter rapidisimo"), "Oficina Interrapidísimo");
+  assert.equal(destino.oficinaEn("en la oficina de coordinadora"), "Oficina Coordinadora");
+  // "mi oficina" es el trabajo del cliente, no una transportadora.
+  assert.equal(destino.oficinaEn("mi oficina"), null);
 });
 
 test("una direccion con via y numero se acepta limpia", () => {
@@ -229,10 +272,24 @@ test("un nombre no lleva numeros ni es una cortesia", () => {
   assert.equal(destino.validarNombre("si").ok, false);
 });
 
-test("un solo nombre se acepta marcado: puede faltar el apellido", () => {
-  const r = destino.validarNombre("Ana");
-  assert.equal(r.ok, true);
-  assert.equal(r.revisar, true);
+test("un nombre de pila BASTA: no se marca por no traer apellido", () => {
+  // ⚠️ ESTA PRUEBA EXIGIA `revisar: true`, Y MARCO LO CAMBIO EL 09-oct:
+  //    «al igual que el nombre, no es necesario el nombre completo, pero sí
+  //    un nombre por lo menos».
+  //
+  // Marcar era caro: `revisar` pone el pedido EN_REVISION y eso IMPIDE
+  // despachar. "Duber" —el nombre real del cliente de Ipiales— bloqueaba su
+  // propia guía por no traer apellido, y había que entrar al panel a
+  // desbloquearlo a mano.
+  for (const pila of ["Ana", "Duber", "Marcela"]) {
+    const r = destino.validarNombre(pila);
+    assert.equal(r.ok, true, `rechazó un nombre de pila: "${pila}"`);
+    assert.equal(r.revisar, false, `marcó "${pila}" y eso bloquea el despacho`);
+  }
+  // Lo que sigue rechazándose es lo que NO es un nombre.
+  for (const falso of ["Sii", "ok", "listo"]) {
+    assert.equal(destino.validarNombre(falso).ok, false, `aceptó "${falso}" como nombre`);
+  }
 });
 
 // --------------------------------------------------------------------------

@@ -870,6 +870,10 @@ function textoDeterminista({
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
   huboSenalDeCompra = false,
+  // ¿La direccion es solo el barrio, sin nada por donde encontrarla? Entonces
+  // el resumen pide un punto de referencia u ofrece la oficina. Ver el bloque
+  // del `case "resumen"`.
+  faltaReferencia = false,
   // ¿Hay un resumen del pedido en pantalla? Lo usa `cierreSegunLoQueFalta`:
   // con el resumen puesto, el unico paso que queda es el "sí", y ofrecer
   // apartar algo que ya esta apartado es retroceder un paso.
@@ -1576,7 +1580,18 @@ function textoDeterminista({
       const d = datosDeEntrega || {};
       const aQuien = [d.nombre, d.ciudad].filter(Boolean).join(" · ");
       if (aQuien) entrega.push(`Para: ${aQuien}`);
-      if (d.direccion) entrega.push(`Dirección: ${d.direccion}`);
+      // ⚠️ LA REFERENCIA VA EN EL RESUMEN, PEGADA A LA DIRECCION.
+      //
+      // El resumen es lo que el cliente aprueba con su "sí", asi que tiene
+      // que decir lo que de verdad va a ir en la guia. Sin esto, quien
+      // contestaba "al frente de la droguería Cristal" a la pregunta del
+      // punto de referencia veia luego "Dirección: barrio centenario" —su
+      // respuesta no aparecia— y lo razonable es que pensara que no se
+      // habia guardado.
+      if (d.direccion) {
+        const completa = [d.direccion, d.referencia].filter(Boolean).join(", ");
+        entrega.push(`Dirección: ${completa}`);
+      }
 
       // ------------------------------------------------------------------
       // SI ACABA DE CORREGIR ALGO, EL MENSAJE LO DICE PRIMERO.
@@ -1618,6 +1633,28 @@ function textoDeterminista({
         `Total: ${pesos(cotizacion.total)}`,
         ...lineasDeCondiciones(cotizacion),
         ...entrega,
+        // ----------------------------------------------------------------
+        // SI LA DIRECCION ES SOLO EL BARRIO, SE PIDE AQUI MISMO.
+        //
+        // ⚠️ LO PIDIO MARCO: «se supone que el Bot siempre debe pedir la
+        //    direccion». En el pedido de Ipiales el bot acepto "barrio
+        //    centenario", mostro el resumen y cerro la venta; la direccion
+        //    de verdad la consiguio el llamando al celular.
+        //
+        // VA DENTRO DEL RESUMEN Y COMO FRASE, NO COMO PREGUNTA, y las dos
+        // cosas importan. Un mensaje aparte preguntandolo rompia el caso 2
+        // de sus 20 -"Barrio buenos aires" tiene que llegar al resumen y el
+        // "sí" siguiente tiene que confirmar-, porque volver a preguntar es
+        // lo que perdio la venta de San Andres de Sotavento. Y una segunda
+        // interrogacion rompe la regla de tono de una pregunta por mensaje.
+        //
+        // Asi el cliente elige: da la referencia, pide la oficina, o dice
+        // "sí" y sigue. Si dice "sí", el pedido se cierra MARCADO y no se
+        // puede despachar hasta completarlo — que es la otra mitad de la
+        // regla de Marco.
+        // ----------------------------------------------------------------
+        faltaReferencia ? "" : null,
+        faltaReferencia ? pedirLaReferencia(producto) : null,
         "",
         aviso.length ? "¿Así está bien?" : '¿Está todo bien? Respóndeme "sí" y lo dejo listo ✅',
       ]
@@ -2119,6 +2156,22 @@ const TEMAS_SIN_CIERRE = [preguntas.TEMAS.OTRO_DIA, preguntas.TEMAS.MENOR_DE_EDA
  * en cuanto alguien toque una, que es como nacieron tres defectos de este
  * mismo repositorio.
  */
+/**
+ * Pide un punto de referencia, y ofrece la oficina como alternativa.
+ *
+ * El texto de la oficina sale del CATALOGO, no escrito aqui: es un dato
+ * comercial que autorizo Marco el 2026-10-09 y vive donde viven los datos.
+ * Si algun dia desactiva el envio a oficina, esta frase se cae sola.
+ */
+function pedirLaReferencia(producto) {
+  const partes = ["Una cosa más para que el mensajero te encuentre: mándame un punto de referencia (una tienda, una esquina, el color de la casa)."];
+  const oficina = producto && producto.logistica && producto.logistica.recogeEnOficina;
+  if (oficina && oficina.activo && oficina.texto) {
+    partes.push(`O ${oficina.texto}.`);
+  }
+  return partes.join(" ");
+}
+
 function cierreSegunLoQueFalta({
   lectura,
   ciudadConfirmada,
@@ -2351,6 +2404,20 @@ function preparar({
   fotosYaEnviadas = false,
   pideReenvioDeFotos = false,
   huboSenalDeCompra = false,
+  // ⚠️ ESTOS DOS HAY QUE DECLARARLOS AQUI, Y OLVIDARLO NO ROMPE NADA.
+  //
+  // `preparar` enumera a mano lo que le pasa a `textoDeterminista`. Si un
+  // parametro nuevo no se añade en las DOS listas, el cerebro lo manda, el
+  // redactor usa su valor por defecto, y la funcion nueva simplemente no
+  // hace nada. Sin error, sin prueba roja: inerte.
+  //
+  // Me paso con `resumenMostrado` en el parche del "retomar" (09-oct): lo
+  // cablee en el cerebro, no lo declare aqui, y la rama del cierre que
+  // empuja al "sí" con el resumen en pantalla nunca se ejecuto en
+  // produccion. Lo encontre al cablear `faltaReferencia` y ver que tampoco
+  // llegaba.
+  faltaReferencia = false,
+  resumenMostrado = false,
 }) {
   const determinista = textoDeterminista({
     situacion,
@@ -2375,6 +2442,8 @@ function preparar({
     fotosYaEnviadas,
     pideReenvioDeFotos,
     huboSenalDeCompra,
+    faltaReferencia,
+    resumenMostrado,
   });
   const bloqueos = [];
 
