@@ -62,7 +62,7 @@ function crearCliente({ proveedor = null, intentos = 2, timeoutMs = 12000, log =
   /**
    * @returns {Promise<{ok: boolean, analisis: object, motivo?: string, intentos: number}>}
    */
-  async function analizar({ sistema, usuario }) {
+  async function analizar({ sistema, usuario, historial = [] }) {
     if (!proveedor || typeof proveedor.completar !== "function") {
       contar("ia_sin_proveedor");
       return {
@@ -81,7 +81,10 @@ function crearCliente({ proveedor = null, intentos = 2, timeoutMs = 12000, log =
       let respuesta;
 
       try {
-        respuesta = await proveedor.completar({ sistema, usuario, timeoutMs });
+        // El historial va APARTE del mensaje del turno, como turnos de
+        // chat de verdad: asi el modelo distingue lo que ya se dijo de lo
+        // que tiene que contestar ahora.
+        respuesta = await proveedor.completar({ sistema, usuario, historial, timeoutMs });
       } catch (e) {
         // Incluye el AbortError del timeout. Se trata como red: puede salir
         // distinto al reintentar.

@@ -199,7 +199,11 @@ test("un mensaje sin señal de producto deja el producto DESCONOCIDO y pregunta"
   assert.equal(traza.respuesta.situacion, "producto_desconocido");
   // El texto se volvio mas cercano ("Cuéntame qué producto te interesa") pero
   // la garantia es la misma: se PREGUNTA en vez de adivinar.
-  assert.match(traza.respuesta.texto, /qué producto|cuál producto/i);
+  //
+  // Desde el 2026-11-11 la pregunta va con la lista de lo que se vende:
+  // pedirle que nombre un producto que todavia no ha visto era hacerle
+  // adivinar a el. Sigue sin elegir ninguno.
+  assert.match(traza.respuesta.texto, /qué producto|cuál producto|cuál te interesa/i);
   assert.equal(metricas.valor("producto_desconocido") >= 1, true);
 });
 

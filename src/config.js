@@ -188,6 +188,21 @@ const config = {
   iaBaseUrl: texto("IA_BASE_URL", "https://api.openai.com/v1"),
   iaModelo: texto("IA_MODELO", "gpt-4o-mini"),
   iaTimeoutMs: entero("IA_TIMEOUT_MS", 12000),
+  // Cuantos mensajes recientes de la conversacion ve el modelo. 8 son cuatro
+  // turnos: lo que BIKERPRO midio como suficiente para no perder el hilo sin
+  // triplicar el coste de una charla larga.
+  iaHistorial: entero("IA_HISTORIAL", 8),
+  // Quien redacta cuando el modelo y el catalogo saben contestar:
+  //   natural  -> el modelo redacta las dudas informativas (por defecto)
+  //   catalogo -> el texto del catalogo siempre que cubra el tema (el de antes)
+  //   siempre  -> el modelo siempre que pase los filtros
+  // En los tres, el borrador pasa por los mismos candados de importes,
+  // claims, cifras y despacho. IA_REDACTA_SIEMPRE=1 se sigue respetando.
+  iaRedaccion: ["natural", "catalogo", "siempre"].includes(texto("IA_REDACCION"))
+    ? texto("IA_REDACCION")
+    : bandera("IA_REDACTA_SIEMPRE", false)
+      ? "siempre"
+      : "natural",
 
   // PostgreSQL para la informacion transaccional. Mientras este vacio, se
   // usan archivos sobre el disco persistente. Si se define sin que exista el

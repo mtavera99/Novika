@@ -17,6 +17,8 @@
   ],
 
   "descripcionAutorizada": "",
+  "enUnaFrase": "",
+  "_nota_enUnaFrase": "Lo que hace el producto en una frase corta y aprobada, en minuscula y sin punto final (\"da calor y masaje en la parte baja del abdomen...\"). Es lo que dice el bot cuando le preguntan que vende la tienda y en el primer mensaje. Si falta, se usa la primera frase de descripcionAutorizada.",
   "caracteristicasAutorizadas": [],
 
   "datosConfirmados": {

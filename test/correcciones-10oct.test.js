@@ -114,7 +114,7 @@ async function chat({ nombrePerfil = null } = {}) {
 }
 
 const elCinturon = () =>
-  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).productos[0];
+  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get("cinturon-termico-colicos");
 
 // ==========================================================================
 // 1 · EL "SI" DESPUES DE LA PREGUNTA DE CIERRE

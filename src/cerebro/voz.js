@@ -65,6 +65,8 @@ const APERTURAS = {
   // alguien le reconozca que es plata. Se valida y se explica, sin ponerse
   // a la defensiva y sin pedir disculpas por el precio.
   [TEMAS.OBJECION_PRECIO]: "Te entiendo, y te explico:",
+  // Comparar es lo normal. No se discute ni se defiende: se reconoce.
+  [TEMAS.VISTO_MAS_BARATO]: "Te entiendo, es normal comparar.",
 
   // ======================================================================
   // APERTURAS DE LOS TEMAS DEL 2026-10-09
@@ -389,13 +391,89 @@ function unir(partes) {
   // interrogacion o admiracion. Sin contemplar el "¿" salia
   // "...al recibir 📦 ¿te lo aparto?", y ese defecto ya existia antes del
   // emoji -"¡Claro que sí! ¿te lo aparto?"- solo que no se habia visto.
-  return texto.replace(
+  const conMayusculas = texto.replace(
     /([.!?])(\s+(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]+\s+)?[¿¡"']*)(\p{Ll})/gu,
     (_, signo, medio, letra) => `${signo}${medio}${letra.toUpperCase()}`
   );
+  return sinMayusculaTrasComa(conMayusculas);
+}
+
+// --------------------------------------------------------------------------
+// LA MAYUSCULA DESPUES DE COMA O DE DOS PUNTOS
+//
+// Defecto conocido y anotado en ESTADO-Y-PENDIENTES desde el 08-oct:
+//
+//   «Sí, La correa es graduable»
+//   «Te cuento: Es en plástico…»
+//
+// Las piezas del catalogo empiezan con mayuscula porque pueden ir solas, y
+// al ponerles una apertura delante la mayuscula se queda en medio de la
+// frase. Es de los descuidos que mas delatan a una maquina.
+//
+// SOLO PALABRAS COMUNES, y es lo que hace esto seguro: tras la coma puede
+// venir un nombre propio -«¡Perfecto, Ana!», «A Bogotá, Cundinamarca»- y ese
+// se queda como esta. Se baja la mayuscula unicamente si la palabra es un
+// articulo, pronombre o verbo de los que abren las frases del catalogo.
+// --------------------------------------------------------------------------
+const COMUNES_TRAS_COMA = new Set([
+  "la", "el", "los", "las", "lo", "le", "les", "un", "una", "unos", "unas",
+  "es", "son", "está", "esta", "están", "estan", "este", "ese", "esa",
+  "te", "se", "si", "no", "ya", "y", "o", "pero", "para", "por", "con", "en", "de", "del", "al",
+  "tiene", "tienen", "trae", "traen", "viene", "vienen", "va", "van", "llega", "llegan",
+  "pagas", "puedes", "funciona", "sirve", "hay", "cuando", "mientras", "como", "así", "asi",
+  "también", "tambien", "cada", "tu", "su", "nos", "me", "mi",
+]);
+
+function sinMayusculaTrasComa(texto) {
+  return String(texto).replace(/([,:])(\s+)(\p{Lu})(\p{Ll}*)/gu, (todo, signo, espacio, inicial, resto) => {
+    const palabra = (inicial + resto).toLowerCase();
+    if (!COMUNES_TRAS_COMA.has(palabra)) return todo;
+    return `${signo}${espacio}${inicial.toLowerCase()}${resto}`;
+  });
+}
+
+// --------------------------------------------------------------------------
+// NOMBRAR EL PRODUCTO SIN ESCRIBIRLO
+//
+// Habia frases cableadas al cinturon -«¿Para qué ciudad sería tu
+// cinturón?», «Cuéntame qué quieres saber del cinturón»- en una tienda que
+// se diseño multiproducto. Con el champu en el catalogo, a quien pregunta
+// por el champu le habrian preguntado la ciudad de su cinturon.
+//
+// Todo sale de `nombreCorto`, que el catalogo escribe con su articulo
+// («el cinturón térmico»). Sin producto, se dice lo que es verdad para
+// cualquiera: «tu pedido».
+// --------------------------------------------------------------------------
+function sinArticulo(nombre) {
+  return String(nombre || "").trim().replace(/^(el|la|los|las|un|una)\s+/i, "");
+}
+
+/** «tu cinturón térmico», o «tu pedido» si no se sabe el producto. */
+function tuProducto(producto) {
+  const n = sinArticulo(producto && (producto.nombreCorto || producto.nombre));
+  return n ? `tu ${n}` : "tu pedido";
+}
+
+/** «del cinturón térmico» / «de la crema», o «de lo que vendemos». */
+function delProducto(producto) {
+  const n = String((producto && (producto.nombreCorto || producto.nombre)) || "").trim();
+  if (!n) return "de lo que vendemos";
+  if (/^el\s+/i.test(n)) return `del ${n.replace(/^el\s+/i, "")}`;
+  if (/^(la|los|las)\s+/i.test(n)) return `de ${n}`;
+  return `de ${n}`;
+}
+
+/** «el cinturón térmico», o «el producto». */
+function elProducto(producto) {
+  return String((producto && (producto.nombreCorto || producto.nombre)) || "").trim() || "el producto";
 }
 
 module.exports = {
+  sinMayusculaTrasComa,
+  sinArticulo,
+  tuProducto,
+  delProducto,
+  elProducto,
   APERTURAS,
   EMOJIS,
   TOPE_DE_EMOJIS,

@@ -21,6 +21,36 @@ gastar la mitad del contexto redescubriendo lo ya hecho.
 > Lo de aquí abajo sigue siendo válido como historia. Para saber qué está
 > pendiente HOY, la lista buena es la de la auditoría.
 
+> ### 2026-11-11 · el número nuevo, y lo que encontró
+>
+> Con el número nuevo de WhatsApp API en producción, «hola» y «qué vendes»
+> recibían el precio de una unidad y «¿Para qué ciudad sería?» sin nombrar el
+> producto. Las causas y lo que se arregló (PR «Frente A»):
+>
+> - **Cada turno con IA acababa en `ia_contrato_incumplido`.** El guion pedía
+>   una intención de lista cerrada sin dar la lista; el modelo devolvía
+>   `informacion_producto`. Ahora el guion enumera las 14 y hay una tabla
+>   cerrada de alias (`ALIAS_DE_INTENCION`) para los nombres que se vieron.
+> - **El modelo solo veía el último mensaje.** Ahora recibe los últimos 8
+>   (`IA_HISTORIAL`), solo los que el cliente leyó de verdad, y todos los
+>   textos aprobados del producto (`catalogo/presentar.js#textosAutorizados`).
+> - **«qué vendes» asumía el cinturón.** Nueva situación `catalogo`: presenta
+>   lo que está activo, con precio del cotizador, y pregunta cuál le
+>   interesa, sin pedir datos. Con dos productos activos los lista.
+> - **El modelo casi no redactaba.** Nuevo `IA_REDACCION=natural` (por
+>   defecto): redacta las dudas informativas, con un candado nuevo de
+>   **cifras** (ninguna cifra con unidad que el catálogo no tenga).
+>   `catalogo` deja el reparto anterior.
+> - **Textos cableados al cinturón**, fuera: salen de `nombreCorto`.
+> - **§F arreglados:** dos «gracias» seguidos, mayúscula tras `,` y `:`,
+>   «¿y si llevo dos?» fijando la cantidad. Y «lo vi más barato» tiene tema
+>   propio (`VISTO_MAS_BARATO`), fuera de la escalera de precio.
+> - **Champú para canas** en borrador: `catalogo/productos/champu-para-canas.json`.
+>   No se vende ni se presenta hasta que Marco dé los seis datos de sus
+>   `pendientes`.
+>
+> Pruebas: `test/tienda-multiproducto.test.js`.
+
 ---
 
 ## Dónde está todo
@@ -317,18 +347,19 @@ pruebas, o capturas de producción.
 
 ### F · Defectos conocidos y no arreglados
 
-- A **«gracias»** se le responde *«¿cuántos quieres? y para preparar tu pedido
-  me pasas la ciudad y la dirección»*. Pedir datos a quien agradece.
-- Mayúscula tras dos puntos en algunas composiciones: *«Te cuento: Es en
-  plástico…»*.
+> **2026-11-11:** el «gracias», la mayúscula tras `:` o `,` y la cantidad de
+> la pregunta hipotética quedaron arreglados. Queda el `wamid`.
+
+- ~~A **«gracias»** se le responde *«¿cuántos quieres?…»*~~. Arreglado antes;
+  lo que quedaba era el segundo «gracias», que recibía «no te entendí».
+- ~~Mayúscula tras dos puntos en algunas composiciones: *«Te cuento: Es en
+  plástico…»*.~~
 - Los mensajes del bot **no guardan el `wamid`** en la conversación, así que
   cruzarlos con los acuses del diario es parcial.
-- Una pregunta **hipotética** por otra cantidad («y si llevo dos?») sí deja
-  la cantidad en la ficha (`aporto:cantidad`), porque la pone el extractor y
-  no el detector. La **cotización** ya es solo informativa, así que no cambia
-  el total que se confirma; pero la ficha queda en 2 y conviene cerrarlo.
-- «Sí, **L**a correa es graduable»: mayúscula después de coma, el mismo
-  defecto de la mayúscula tras dos puntos.
+- ~~Una pregunta **hipotética** por otra cantidad («y si llevo dos?») sí deja
+  la cantidad en la ficha.~~ Arreglado: la cantidad de una pregunta de precio
+  no entra en la ficha salvo que venga con un verbo de compra.
+- ~~«Sí, **L**a correa es graduable»: mayúscula después de coma.~~
 
 ---
 

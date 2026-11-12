@@ -85,6 +85,18 @@ function pesos(n) {
   return `$${Number(n).toLocaleString("es-CO", { maximumFractionDigits: 0 })}`;
 }
 
+function mayusculaInicial(t) {
+  const x = String(t || "");
+  return x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
+}
+
+/** "a, b y c". */
+function enumerar(lista) {
+  const xs = (lista || []).filter(Boolean);
+  if (xs.length <= 1) return xs[0] || "";
+  return `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}`;
+}
+
 /** Como nombrar el producto en una frase. */
 function comoSeLlama(producto) {
   if (!producto) return "el producto";
@@ -797,8 +809,13 @@ function deTema(
       return "lo apagas tú con el botón cuando termines. Lo ideal son ratos de 15 a 20 minutos.";
     }
 
-    case TEMAS.HOMBRES:
-      return "¡claro! Para la espalda baja o la cintura lo puede usar cualquier persona.";
+    // Decia «para la espalda baja o la cintura», escrito a mano para el
+    // cinturon. Las zonas salen ahora de la ficha (`zonasDeUso`); sin ellas
+    // se contesta solo lo que es verdad para cualquier producto unisex.
+    case TEMAS.HOMBRES: {
+      const zonas = producto && producto.zonasDeUso && producto.zonasDeUso.texto;
+      return zonas ? `¡claro! Lo puede usar cualquier persona: ${zonas}` : "¡claro! Lo puede usar cualquier persona.";
+    }
 
     case TEMAS.EN_MOVIMIENTO: {
       const e = producto && producto.energia;
@@ -944,6 +961,25 @@ function deTema(
         return partes.join(" ");
       }
       return "somos NOVIKA, una tienda colombiana, y te llega a tu casa con envíos a todo el país.";
+    }
+
+    // ----------------------------------------------------------------------
+    // «LO VI MÁS BARATO EN OTRO LADO»
+    //
+    // No se rebaja y no se ofrece la pareja: bajar el precio contra un
+    // numero que no conocemos es una carrera perdida (BIKERPRO lo trata
+    // aparte por eso). Se contesta con lo que la otra tienda no puede
+    // asegurar, y SOLO con lo que este producto tiene en el catalogo: si no
+    // hay envio incluido, no se dice; si no hay garantia, tampoco.
+    // ----------------------------------------------------------------------
+    case TEMAS.VISTO_MAS_BARATO: {
+      const ventajas = [];
+      if (envioVaIncluido(producto, cotizacion)) ventajas.push("el precio ya trae el envío");
+      if (pagaAlRecibir(producto, cotizacion)) ventajas.push("pagas cuando lo tienes en la mano");
+      if (producto && producto.garantia) ventajas.push(`te va con ${producto.garantia} de garantía`);
+      if (!ventajas.length) return "lo que te puedo asegurar es que te atendemos por aquí de principio a fin, antes y después de la compra.";
+      const cola = pagaAlRecibir(producto, cotizacion) ? " Si no te llega, no pagas nada." : "";
+      return `por ahí hay de todo, y no sé qué trae ese. Lo que sí te aseguro aquí: ${enumerar(ventajas)}.${cola}`;
     }
 
     // ----------------------------------------------------------------------
@@ -1558,8 +1594,12 @@ function deTema(
     // ----------------------------------------------------------------------
     case TEMAS.OTRO_MODELO: {
       const partes = ["por ahora manejamos este modelo."];
-      const color = caracteristica(producto, /color|rosad/i);
-      if (color) partes.push("Viene únicamente en rosado y es talla única.");
+      // Las caracteristicas tal como las aprobo Marco, no una frase escrita
+      // a mano con el color del cinturon dentro.
+      const color = caracteristica(producto, /color/i);
+      const talla = caracteristica(producto, /talla/i);
+      const rasgos = [color, talla].filter(Boolean);
+      if (rasgos.length) partes.push(`${mayusculaInicial(enumerar(rasgos))}.`);
       partes.push("Si quieres te aviso cuando entren más referencias.");
       return partes.join(" ");
     }
