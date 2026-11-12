@@ -242,6 +242,29 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // todos los campos. Se completa en vez de fallar.
     conversacion.ficha = { ...campos.fichaVacia(), ...(conversacion.ficha || {}) };
 
+    // ------------------------------------------------------------------
+    // DE QUE ANUNCIO VINO, GUARDADO EN LA CONVERSACION
+    //
+    // Meta manda el `referral` SOLO en el primer mensaje que sale del
+    // anuncio. El pedido lo copiaba del evento del «sí», que casi nunca lo
+    // trae, asi que en el panel todas las ventas salian «sin anuncio» y la
+    // tabla por anuncio no se podia leer. Se guarda la PRIMERA vez y no se
+    // pisa: el anuncio que trajo al cliente es el primero.
+    //
+    // Solo los campos que identifican el anuncio. Nada del cliente.
+    // ------------------------------------------------------------------
+    if (evento.referral && !conversacion.referral) {
+      const r = evento.referral;
+      conversacion.referral = {
+        source_id: r.source_id || null,
+        source_type: r.source_type || null,
+        source_url: r.source_url || null,
+        headline: typeof r.headline === "string" ? r.headline.slice(0, 120) : null,
+        ctwa_clid: r.ctwa_clid || null,
+        en: new Date().toISOString(),
+      };
+    }
+
     return { contacto, conversacion };
   }
 
@@ -2749,7 +2772,12 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       conversacionId: conversacion.contactoId,
       ofertaId: conversacion.ofertaId,
       wamidConfirmacion: evento.wamid,
-      origen: evento.referral ? { tipo: "anuncio", referral: evento.referral } : null,
+      // El anuncio del evento, o el que se guardo al llegar el cliente: el
+      // «sí» casi nunca trae el referral, el primer mensaje si.
+      origen:
+        evento.referral || conversacion.referral
+          ? { tipo: "anuncio", referral: evento.referral || conversacion.referral }
+          : null,
       revisiones: revisionesFinales,
     });
 

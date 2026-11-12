@@ -333,6 +333,124 @@ tr:last-child td { border-bottom:0; }
   width:46px; height:46px; border-radius:999px; background:var(--azul); color:#fff;
   align-items:center; justify-content:center; text-decoration:none; font-size:20px;
   box-shadow:0 4px 14px rgba(0,0,0,.45); z-index:30; display:none; }
+
+/* ======================================================================
+   EL TABLERO OPERATIVO (2026-11-11)
+   Misma organizacion que el panel con el que Marco ya trabaja: atajos
+   fijos arriba, numeros contra ayer, acciones del dia, atencion por dias,
+   embudo, cola de despacho y las conversaciones en la misma pantalla.
+   OJO: esto vive dentro de un template literal. Ni acentos graves ni
+   interpolaciones, tampoco en los comentarios.
+   ====================================================================== */
+.marca { color:var(--suave); font-size:12px; margin:-8px 0 8px; }
+.atajos { position:sticky; top:0; z-index:25; display:flex; gap:6px;
+  background:rgba(15,17,21,.94); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  padding:8px 0 9px; margin:0 0 12px; border-bottom:1px solid var(--borde); }
+.atajos a { flex:1; text-align:center; text-decoration:none; color:#c8cfdd; font-size:13px;
+  font-weight:600; background:#1b212b; border:1px solid #2c3340; border-radius:9px;
+  padding:10px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.atajos a.rojo { background:#2a1517; border-color:#6b2b2b; color:#ffb4b4; }
+.atajos a.atajoPosventa { background:#33204d; border-color:#6b3fa0; color:#d9b8ff; }
+h2.seccion, .atencion, #atencion, #despachar, #conversaciones { scroll-margin-top:72px; }
+.kpi { text-align:center; }
+.kpi.big b { font-size:28px; }
+.kpi.ok b { color:var(--verde); }
+.kpi.warn b { color:var(--ambar); }
+.kpi .d { display:block; font-size:12px; font-style:normal; margin-top:3px; color:var(--suave); }
+.kpi .d.up { color:#3ddc84; }
+.kpi .d.dn { color:#ff6b6b; }
+.nota { color:var(--suave); font-size:12px; margin:8px 0 0; }
+.acciones { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 4px; }
+.acciones .boton.destacado { background:#1d4ed8; border-color:var(--azul); color:#fff; }
+
+.atencion { background:#161a21; border:1px solid var(--borde); border-radius:12px; padding:12px; margin:16px 0; }
+.atencion h3 { margin:0 0 8px; font-size:15px; }
+.atencion.ok h3 { margin:0; color:#8ff0b5; }
+.atencion .grupo h4 { margin:10px 0 6px; font-size:12px; color:#9aa4b8; text-transform:uppercase;
+  letter-spacing:.5px; font-weight:600; }
+.fila { display:flex; gap:8px; align-items:center; padding:6px 8px; border-radius:9px; margin-bottom:6px;
+  background:#1b212b; border-left:3px solid #6b5416; }
+.fila.alta { border-left-color:#ff6b6b; background:#241417; }
+.fila.media { border-left-color:#ffb020; background:#241f14; }
+.fila.posventa { border-left-color:#a06bff; border-left-width:5px; background:#1d1630; }
+.fila .punto { min-height:40px; width:40px; min-width:40px; padding:0; border:0; background:transparent; }
+.fila .punto span { display:block; width:16px; height:16px; border-radius:50%; border:2px solid #7d8698; }
+.fila.alta .punto span { border-color:#ff6b6b; }
+.fila.media .punto span { border-color:#ffb020; }
+.fila.hecho { border-left-color:#2ea043; background:#151a18; opacity:.55; }
+.fila.hecho .punto span { background:#2ea043; border-color:#2ea043; }
+.fila.hecho .filaLink b { text-decoration:line-through; }
+.fila .filaLink { flex:1; min-width:0; color:var(--texto); text-decoration:none; display:flex; flex-direction:column; }
+.fila .por { font-size:12px; color:#c8cfdd; overflow-wrap:anywhere; }
+.fila .cuando { font-size:11px; color:var(--suave); white-space:nowrap; }
+.fila .vendio { width:40px; height:40px; display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid #2c3340; border-radius:9px; background:#1f2630; text-decoration:none; }
+
+.embudo { background:var(--caja); border:1px solid var(--borde); border-radius:12px; padding:12px; }
+.paso { position:relative; display:flex; align-items:center; gap:12px; padding:10px 12px; margin-bottom:6px;
+  border-radius:10px; overflow:hidden; background:#12161d; }
+.paso .barra { position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg,#1d4ed8,#2563eb); opacity:.28; }
+.paso.fuga .barra { background:linear-gradient(90deg,#7d2630,#c2410c); opacity:.34; }
+.paso.fuga { outline:1px solid #7d2630; }
+.paso .etiq { position:relative; flex:1; }
+.paso .etiq b { font-size:19px; margin-right:6px; }
+.paso .baja { position:relative; text-align:right; color:var(--rojo); font-weight:600; font-size:14px; }
+.porque { font-size:12px; color:#ffd479; background:#241f14; padding:7px 9px; border-radius:8px; margin-top:6px; }
+
+.tag { font-size:11px; padding:2px 8px; border-radius:99px; background:#2a313d; color:#c8cfdd;
+  white-space:nowrap; display:inline-block; margin:2px 2px 0 0; }
+.tag.ok { background:#12351f; color:var(--verde); }
+.tag.warn { background:#3a2d0c; color:var(--ambar); }
+.tag.no { background:#3a1414; color:var(--rojo); }
+.tag.oficina { background:#132c40; color:#7fd1ff; }
+.tag.posventa { background:#33204d; color:#d9b8ff; border:1px solid #6b3fa0; }
+.sub { color:var(--suave); font-size:12px; margin-top:3px; overflow-wrap:anywhere; }
+.sub b.rojo { color:#ff9aa4; }
+.mini { min-height:36px; padding:0 10px; font-size:13px; border-radius:8px; }
+.mini.peligro { background:#2a1a1c; border-color:#5e2a2a; color:#ff9aa4; }
+.mini.verde { background:#12351f; border-color:#1d6b3d; color:#8ff0b5; }
+.despachar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.despachar input { width:130px; min-height:36px; padding:6px 9px; font-size:16px; }
+tr.anulado td { opacity:.6; }
+.chatlink { font-size:12px; font-weight:600; color:#7fd1ff; border:1px solid #2a4a5e; border-radius:6px;
+  padding:1px 6px; text-decoration:none; margin-left:4px; }
+.corregir { margin-top:6px; }
+.corregir summary { cursor:pointer; color:#7fd1ff; font-size:13px; }
+.corregir .campos { display:flex; flex-direction:column; gap:6px; margin-top:6px; }
+
+.plegable { background:#161a21; border:1px solid var(--borde); border-radius:12px; padding:10px 12px; margin:14px 0; }
+.plegable > summary { cursor:pointer; list-style:none; font-size:15px; font-weight:600; }
+.plegable > summary::-webkit-details-marker { display:none; }
+.plegable > summary::after { content:"▸"; float:right; color:var(--suave); }
+.plegable[open] > summary::after { content:"▾"; }
+.plegable .pista { display:block; font-size:12px; color:var(--suave); font-weight:400; }
+.plegable table { margin-top:10px; }
+td.mal { color:var(--rojo); font-weight:700; }
+td.medio { color:#ffd479; }
+td.bien { color:var(--verde); }
+
+.buscarChat { display:flex; gap:8px; margin-bottom:10px; }
+.buscarChat input { flex:1; }
+.conv { background:var(--caja); border:1px solid var(--borde); border-radius:12px; margin-bottom:10px; padding:12px 14px; }
+.conv[open] { border-color:#2f3947; background:#171c24; }
+.conv > summary { display:flex; gap:8px; align-items:center; flex-wrap:wrap; list-style:none; cursor:pointer; }
+.conv > summary::-webkit-details-marker { display:none; }
+.conv > summary::after { content:"›"; margin-left:auto; font-size:22px; color:var(--suave); }
+.conv[open] > summary::after { content:"⌄"; }
+.conv .meta { color:var(--suave); font-size:12px; }
+.conv .hilo { margin:10px 0; max-height:50vh; }
+.conv .resp { display:flex; flex-direction:column; gap:8px; }
+.conv .resp .botones { display:flex; gap:8px; flex-wrap:wrap; }
+.conv .envio { font-size:13px; color:var(--suave); }
+.conv .envio.ok { color:#8ff0b5; }
+.conv .envio.mal { color:#ff9aa4; }
+@media (max-width: 760px) {
+  .atajos { margin:0 -12px 10px; padding:8px 12px 9px; }
+  .atajos a { font-size:12px; padding:9px 4px; }
+  .acciones { flex-direction:column; }
+  .acciones .boton { width:100%; }
+  .despachar input { width:100%; }
+}
 `;
 
 /** Guion comun. Preserva borrador, conversacion abierta y scroll. */
@@ -489,41 +607,546 @@ function pestanas(cuentas, activa, dia) {
     .join("")}</nav>`;
 }
 
+
+/**
+ * Guion del tablero operativo.
+ *
+ * Mismas reglas que GUION: es texto dentro de un template literal, asi que
+ * aqui no van acentos graves ni interpolaciones, y ningun "\n" dentro de
+ * una cadena (se volveria un salto de linea real y romperia el script; es
+ * el SyntaxError que caza test/panel-javascript.test.js).
+ */
+const GUION_TABLERO = `
+// ---------------------------------------------------------------------------
+// SE ACTUALIZA SOLO CADA 45 s, Y NUNCA MIENTRAS ESCRIBES
+//
+// Recargar en mitad de una respuesta es perder lo escrito: la herramienta
+// deja de usarse. Antes de recargar se mira si hay un campo con el foco,
+// un borrador a medias o una accion en vuelo. La conversacion abierta y el
+// scroll se recuperan despues de recargar.
+// ---------------------------------------------------------------------------
+var enVuelo = 0;
+var CADA_MS = 45000;
+
+function ocupado() {
+  var a = document.activeElement;
+  if (a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT" || a.tagName === "SELECT")) return true;
+  if (enVuelo > 0) return true;
+  var cajas = document.querySelectorAll(".conv textarea, .despachar input, .corregir input");
+  for (var i = 0; i < cajas.length; i++) {
+    if (cajas[i].value && cajas[i].value.trim() && !cajas[i].disabled && cajas[i].defaultValue !== cajas[i].value) return true;
+  }
+  return false;
+}
+
+function recordarAbiertas() {
+  var abiertas = [];
+  var d = document.querySelectorAll("details.conv[open], details.plegable[open]");
+  for (var i = 0; i < d.length; i++) {
+    if (d[i].id) abiertas.push(d[i].id);
+    else if (d[i].dataset.clave) abiertas.push("@" + d[i].dataset.clave);
+  }
+  recordar("abiertas", abiertas.join("|"));
+}
+
+function reabrir() {
+  var lista = (recordado("abiertas") || "").split("|");
+  for (var i = 0; i < lista.length; i++) {
+    if (!lista[i]) continue;
+    var el = lista[i].charAt(0) === "@"
+      ? document.querySelector('details[data-clave="' + lista[i].slice(1) + '"]')
+      : document.getElementById(lista[i]);
+    if (el) el.open = true;
+  }
+  var cajas = document.querySelectorAll(".conv textarea");
+  for (var j = 0; j < cajas.length; j++) {
+    var b = leerBorrador(cajas[j].dataset.id);
+    if (b) cajas[j].value = b;
+  }
+}
+
+document.addEventListener("toggle", function () { recordarAbiertas(); }, true);
+window.addEventListener("DOMContentLoaded", function () {
+  reabrir();
+  setInterval(function () {
+    if (document.hidden || ocupado()) return;
+    recordarAbiertas();
+    guardarScroll();
+    location.reload();
+  }, CADA_MS);
+});
+
+function avisoDe(boton, texto, clase) {
+  avisar(texto, clase);
+  if (boton) boton.disabled = false;
+}
+
+// ---------------------------------------------------------------------------
+// EL PUNTO DE UN TOQUE
+//
+// Cambia de color EN EL MOMENTO, sin esperar a la red y sin recargar. La
+// fila NO se mueve: si se moviera, el dedo quedaria sobre otro chat y el
+// siguiente toque marcaria al equivocado. Si el servidor dice que no, se
+// deshace y se avisa.
+// ---------------------------------------------------------------------------
+function recontar() {
+  var total = document.querySelectorAll(".atencion .fila[data-listo='0']").length;
+  var f = document.getElementById("faltan");
+  if (f) f.textContent = String(total);
+  var grupos = document.querySelectorAll(".atencion .grupo");
+  for (var i = 0; i < grupos.length; i++) {
+    var n = grupos[i].querySelectorAll(".fila[data-listo='0']").length;
+    var s = grupos[i].querySelector(".faltanGrupo");
+    if (s) s.textContent = String(n);
+  }
+}
+
+async function marcarChat(boton) {
+  var fila = boton.closest(".fila");
+  if (!fila) return;
+  var deshacer = fila.dataset.listo === "1";
+  var antes = fila.className;
+  fila.dataset.listo = deshacer ? "0" : "1";
+  if (deshacer) fila.classList.remove("hecho"); else fila.classList.add("hecho");
+  recontar();
+  enVuelo++;
+  var r = await pedir("/panel/atendido", { id: fila.dataset.id, deshacer: deshacer });
+  enVuelo--;
+  if (!r.ok) {
+    fila.className = antes;
+    fila.dataset.listo = deshacer ? "1" : "0";
+    recontar();
+    avisar(r.error || "No se pudo marcar.", "mal");
+    if (r.caducada) location.href = "/panel";
+  }
+}
+
+function abrirConversacion(enlace) {
+  var c = document.getElementById("c-" + enlace.dataset.id);
+  if (c) c.open = true;
+}
+
+function filtrarConversaciones(q) {
+  var t = String(q || "").toLowerCase().trim();
+  var lista = document.querySelectorAll("details.conv");
+  for (var i = 0; i < lista.length; i++) {
+    var dato = lista[i].dataset.buscar || "";
+    lista[i].hidden = Boolean(t) && dato.indexOf(t) === -1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RESPONDER Y TOMAR EL CONTROL SIN SALIR DE LA PANTALLA
+// ---------------------------------------------------------------------------
+async function responderEnLinea(boton) {
+  var id = boton.dataset.id;
+  var caja = document.getElementById("texto-" + id);
+  var estado = document.getElementById("envio-" + id);
+  var texto = caja ? caja.value.trim() : "";
+  if (!texto) return;
+  boton.disabled = true;
+  if (estado) { estado.className = "envio"; estado.textContent = "Enviando…"; }
+  enVuelo++;
+  var r = await pedir("/panel/responder", { id: id, texto: texto });
+  enVuelo--;
+  boton.disabled = false;
+  if (!r.ok) {
+    if (estado) { estado.className = "envio mal"; estado.textContent = r.error || "No se envio."; }
+    if (r.caducada) location.href = "/panel";
+    return;
+  }
+  borrarBorrador(id);
+  if (caja) caja.value = "";
+  if (estado) {
+    estado.className = r.enviado === false ? "envio mal" : "envio ok";
+    estado.textContent = r.aviso || (r.enviado === false ? "No salio." : "Enviado.");
+  }
+  var hilo = boton.closest(".conv") && boton.closest(".conv").querySelector(".hilo");
+  if (hilo && r.enviado !== false) {
+    var b = document.createElement("div");
+    b.className = "burbuja operador";
+    b.textContent = texto;
+    hilo.appendChild(b);
+    hilo.scrollTop = hilo.scrollHeight;
+  }
+}
+
+async function cambiarControl(boton) {
+  var tomar = boton.dataset.tomar === "1";
+  boton.disabled = true;
+  enVuelo++;
+  var r = await pedir("/panel/control", { id: boton.dataset.id, tomar: tomar });
+  enVuelo--;
+  if (!r.ok) return avisoDe(boton, r.error || "No se pudo cambiar.", "mal");
+  boton.dataset.tomar = tomar ? "0" : "1";
+  boton.textContent = tomar ? "▶️ Devolverle el chat al bot" : "⏸️ Tomar el control";
+  avisoDe(boton, r.aviso || (tomar ? "Tienes el control de este chat." : "El bot vuelve a atender este chat."), "ok");
+}
+
+// ---------------------------------------------------------------------------
+// ACCIONES DE LA COLA DE DESPACHO
+// ---------------------------------------------------------------------------
+async function accionDePedido(boton, url, cuerpo, pregunta) {
+  if (pregunta && !confirm(pregunta)) return;
+  boton.disabled = true;
+  enVuelo++;
+  var r = await pedir(url, cuerpo);
+  enVuelo--;
+  if (!r.ok) {
+    if (r.caducada) location.href = "/panel";
+    return avisoDe(boton, r.error || "No se pudo.", "mal");
+  }
+  avisar(r.aviso || "Hecho.", "ok");
+  setTimeout(function () { location.reload(); }, 900);
+}
+
+function yaLaEnvie(boton) {
+  var codigo = boton.dataset.codigo;
+  var caja = document.getElementById("guia-" + codigo);
+  var guia = caja ? caja.value.trim() : "";
+  if (!guia) { avisar("Escribe el número de guía antes.", "mal"); if (caja) caja.focus(); return; }
+  accionDePedido(boton, "/panel/guias/despachar", { codigo: codigo, guia: guia },
+    "¿La guía " + guia + " ya salió? El pedido pasa a despachado. NO se le escribe nada al cliente.");
+}
+
+function anular(boton) {
+  accionDePedido(boton, "/panel/pedido/cancelar", { codigo: boton.dataset.codigo, motivo: "anulado desde el panel" },
+    "¿Anular este pedido? Deja de contar como venta, pero queda en el registro.");
+}
+
+function entregado(boton) {
+  accionDePedido(boton, "/panel/guias/entregar", { codigo: boton.dataset.codigo },
+    "¿Llegó y el cliente pagó? Queda como recaudado.");
+}
+
+function reactivar(boton) {
+  accionDePedido(boton, "/panel/pedido/reactivar", { codigo: boton.dataset.codigo },
+    "¿Reactivar este pedido? Vuelve a la cola de despacho.");
+}
+
+function corregirDatos(boton) {
+  var codigo = boton.dataset.codigo;
+  var cuerpo = { codigo: codigo };
+  var nombres = ["nombre", "telefono", "direccion"];
+  for (var i = 0; i < nombres.length; i++) {
+    var el = document.getElementById(nombres[i] + "-" + codigo);
+    if (el && el.value.trim() && el.value !== el.defaultValue) cuerpo[nombres[i]] = el.value.trim();
+  }
+  if (Object.keys(cuerpo).length === 1) { avisar("No cambiaste ningún dato.", "info"); return; }
+  accionDePedido(boton, "/panel/pedido/destinatario", cuerpo, null);
+}
+
+async function mandarCierre(boton) {
+  boton.disabled = true;
+  enVuelo++;
+  var r = await pedir("/panel/cierre", {});
+  enVuelo--;
+  boton.disabled = false;
+  if (!r.ok) return avisar(r.error || "No se pudo mandar el cierre.", "mal");
+  avisar(r.aviso || "Cierre enviado.", r.enviado ? "ok" : "ambar");
+}
+`;
+
 /** TABLERO */
-function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualActivo = false }) {
-  const r = datos.resumen;
-  const chats = datos.porClase[clase] || [];
+// ==========================================================================
+// LA PANTALLA PRINCIPAL, ORGANIZADA COMO SE TRABAJA EL DIA (2026-11-11)
+//
+// Marco la pidio con la misma forma que el panel que ya usa en su otro
+// negocio, en este orden:
+//
+//   1. atajos fijos arriba: Atender · Posventa · Despachar · Chats
+//   2. los numeros de hoy contra ayer
+//   3. las acciones del dia (guias, auditoria, novedades, CSV, cierre…)
+//   4. ⏳ lo que hay que atender, por dias, con el punto de un toque
+//   5. 📉 donde se caen los clientes
+//   6. 📋 lo que hay que despachar, con sus alertas y acciones en la fila
+//   7. plegados: ya despachados · anulados · por anuncio · por producto
+//   8. 💬 las conversaciones, abiertas en la misma pantalla
+//
+// Los datos salen de `operativo.js`, que es puro y esta probado. Aqui solo
+// se pinta. Todo lo que viene de un cliente pasa por `esc`.
+// ==========================================================================
 
-  const filas = chats.length
-    ? chats
-        .map(
-          (c) => `<tr>
-  <td data-label="Cliente">${esc(c.nombre.texto)}${
-            c.nombre.hay && !c.nombre.confirmado ? ` <span class="pastilla pendiente">sin confirmar</span>` : ""
-          }</td>
-  <td data-label="Telefono">${esc(c.telefono)}</td>
-  <td data-label="Estado"><span class="pastilla ${esc(c.clase)}">${esc(ETIQUETAS[c.clase] || c.clase)}</span>${
-            c.atencion.pausado ? ` <span class="pastilla pausado">bot pausado</span>` : ""
-          }</td>
-  <td data-label="Ultimo">${esc(c.ultimoMensaje ? fecha.hace(c.ultimoMensaje.ts) : "")}</td>
-  <td data-label="Mensajes">${c.cuantosMensajes}</td>
-  <td class="acciones" data-label="Acciones">
-    <a class="boton primario" href="/panel/chat?id=${encodeURIComponent(c.contactoId)}">Abrir</a>
-  </td>
-</tr>`
-        )
-        .join("")
+/** «▲ 12%» / «▼ 8%» / «= ayer», o nada si ayer fue cero. */
+function vsAyer(v) {
+  if (!v) return "";
+  if (v.igual) return `<i class="d">= ayer</i>`;
+  return v.sube ? `<i class="d up">▲ ${v.pct}% vs ayer</i>` : `<i class="d dn">▼ ${v.pct}% vs ayer</i>`;
+}
+
+function nombreDelProducto(p) {
+  return (p && p.producto && (p.producto.nombre || p.producto.id)) || (p && p.cotizacion && p.cotizacion.productoId) || "—";
+}
+
+/** Las etiquetas de alerta de un pedido pendiente. */
+function etiquetasDePedido(a) {
+  return [
+    a.repetido ? `<span class="tag no">⚠️ ¿REPETIDO?</span>` : "",
+    a.sinConfirmar ? `<span class="tag no">🔴 SIN CONFIRMAR</span>` : "",
+    a.precio ? `<span class="tag no">🔴 PRECIO NO CUADRA</span>` : "",
+    a.guiaEnviada ? `<span class="tag ok">📦 GUÍA YA ENVIADA</span>` : "",
+    a.viejo ? `<span class="tag warn">+1 día</span>` : "",
+  ].join("");
+}
+
+/** Una fila de pedido. `modo`: pendiente · despachado · anulado. */
+function filaDePedido(p, { alertas = null, modo = "pendiente" } = {}) {
+  const d = p.destinatario || {};
+  const a = alertas || {};
+  const codigo = esc(p.id);
+  const verChat = p.contactoId
+    ? `<a class="chatlink" href="/panel/chat?id=${encodeURIComponent(p.contactoId)}">ver chat</a>`
     : "";
+  const detalle = [
+    esc(d.telefono || p.contactoId || ""),
+    a.faltaCelular ? `<b class="rojo">🔴 falta celular</b>` : "",
+    a.sinConfirmar ? `<b class="rojo">🔴 ${esc(a.sinConfirmar)}</b>` : "",
+    a.precio ? `<b class="rojo">🔴 ${esc(a.precio)}</b>` : "",
+    a.repetido ? `<b class="rojo">⚠️ este cliente tiene otro pedido vivo: confirma antes de despachar</b>` : "",
+  ]
+    .filter(Boolean)
+    .join("<br>");
 
-  const tabla = chats.length
+  const direccion = a.faltaDireccion
+    ? `<b class="rojo">🔴 falta dirección: abre el chat</b>`
+    : `${esc(d.direccion)}${d.referencia ? ` · ${esc(d.referencia)}` : ""}`;
+
+  let acciones = "";
+  if (modo === "pendiente") {
+    const bloqueado = Boolean(a.sinConfirmar || a.faltaCelular || a.faltaDireccion);
+    acciones = `<div class="despachar">
+      <input type="text" inputmode="numeric" autocomplete="off" placeholder="N° de guía" aria-label="Número de guía" id="guia-${codigo}"${bloqueado ? " disabled" : ""}>
+      <button type="button" class="mini verde" data-codigo="${codigo}" onclick="yaLaEnvie(this)"${bloqueado ? " disabled" : ""}>✅ ya la envié</button>
+      <button type="button" class="mini peligro" data-codigo="${codigo}" onclick="anular(this)">🚫 anular</button>
+    </div>
+    <details class="corregir"><summary>✏️ corregir datos de entrega</summary>
+      <div class="campos">
+        <input type="text" placeholder="Nombre" value="${esc(d.nombre || "")}" id="nombre-${codigo}">
+        <input type="tel" placeholder="Celular" value="${esc(d.telefono || "")}" id="telefono-${codigo}">
+        <input type="text" placeholder="Dirección" value="${esc(d.direccion || "")}" id="direccion-${codigo}">
+        <button type="button" class="mini" data-codigo="${codigo}" onclick="corregirDatos(this)">Guardar</button>
+      </div>
+    </details>`;
+  } else if (modo === "despachado") {
+    acciones =
+      p.estado === "despachado"
+        ? `<button type="button" class="mini verde" data-codigo="${codigo}" onclick="entregado(this)">✅ la plata entró (entregado)</button>`
+        : `<span class="tag ok">✅ entregado ${esc(fecha.horaBogota(p.entrega && p.entrega.entregadoEn))}</span>`;
+  } else if (modo === "anulado") {
+    acciones = `<button type="button" class="mini" data-codigo="${codigo}" onclick="reactivar(this)">↩️ reactivar</button>`;
+  }
+
+  const tercera =
+    modo === "despachado"
+      ? `<td data-label="Guía"><code>${esc((p.despacho && p.despacho.guia) || "")}</code><div class="sub">${esc(
+          (p.despacho && p.despacho.transportadora) || ""
+        )}</div></td>`
+      : modo === "anulado"
+        ? `<td data-label="Motivo"><span class="sub">${esc(p.motivoCancelacion || "sin motivo")}</span></td>`
+        : `<td data-label="Pago"><span class="sub">${esc(
+            (p.cotizacion && p.cotizacion.condiciones && p.cotizacion.condiciones.pagoMetodo) || ""
+          )}</span></td>`;
+
+  return `<tr${modo === "anulado" ? ' class="anulado"' : ""}>
+  <td data-label="Fecha">${esc(fecha.fechaYHoraBogota(p.creadoEn))}</td>
+  <td data-label="Cliente"><b>${esc(d.nombre || "(sin nombre)")}</b>${verChat}<div>${etiquetasDePedido(a)}</div><div class="sub">${detalle}</div></td>
+  <td data-label="Dirección">${esc(d.ciudad || "")}${a.oficina ? ` <span class="tag oficina">🏢 OFICINA</span>` : ""}<div class="sub">${direccion}</div></td>
+  <td data-label="Producto">${esc(nombreDelProducto(p))} × ${esc(String((p.cotizacion && p.cotizacion.cantidad) || p.cantidad || 1))}</td>
+  <td data-label="Total"><b>${esc(pesos((p.cotizacion && p.cotizacion.total) || 0))}</b><div class="sub"><code>${codigo}</code></div></td>
+  ${tercera}
+  <td class="acciones" data-label="Acciones">${acciones}</td>
+</tr>`;
+}
+
+function tablaDePedidos(filas, ultimaColumna) {
+  return `<table>
+<thead><tr><th>Fecha</th><th>Cliente</th><th>Dirección</th><th>Producto</th><th>Total</th><th>${esc(ultimaColumna)}</th><th></th></tr></thead>
+<tbody>${filas}</tbody></table>`;
+}
+
+/** Una fila de la lista de atencion, con el punto de un toque. */
+function filaDeAtencion(f) {
+  const clase = f.hecho ? "hecho" : f.nivel;
+  const venta = `/panel/venta-manual?contactoId=${encodeURIComponent(f.contactoId)}&nombre=${encodeURIComponent(
+    f.nombre || ""
+  )}&telefono=${encodeURIComponent(f.telefono || "")}`;
+  return `<div class="fila ${esc(clase)}${!f.hecho && f.posventa ? " posventa" : ""}" data-id="${esc(f.contactoId)}" data-listo="${f.hecho ? "1" : "0"}">
+  <button type="button" class="punto" onclick="marcarChat(this)" title="Toca cuando ya le respondiste" aria-label="Marcar atendido"><span></span></button>
+  <a class="filaLink" href="#c-${esc(f.contactoId)}" data-id="${esc(f.contactoId)}" onclick="abrirConversacion(this)">
+    <b>${esc(f.nombre)}${!f.hecho && f.posventa ? ` <span class="tag posventa">🛟 posventa</span>` : ""}</b>
+    <span class="por">${esc(MOTIVOS_EN_CLARO[f.motivo] || f.motivo)}${f.pregunta ? ` · «${esc(String(f.pregunta).slice(0, 90))}»` : ""}</span>
+  </a>
+  <span class="cuando">${esc(fecha.hace(f.desde))}</span>
+  <a class="vendio" href="${esc(venta)}" title="Registrar la venta de este cliente" aria-label="Venta manual">💰</a>
+</div>`;
+}
+
+function bloqueDeAtencion(at) {
+  if (!at || !at.grupos.length) {
+    return `<div class="atencion ok" id="atencion"><h3>🟢 Ningún chat está esperando respuesta</h3></div>`;
+  }
+  const desglose =
+    at.grupos.length > 1 ? ` · <span class="desglose">${at.grupos.map((g) => `${g.faltan} ${esc(g.titulo.toLowerCase())}`).join(" · ")}</span>` : "";
+  return `<div class="atencion" id="atencion">
+  <h3>⏳ <span id="faltan">${at.faltan}</span> chat(s) esperando respuesta${desglose}</h3>
+  ${at.grupos
+    .map(
+      (g) => `<div class="grupo"><h4>${esc(g.titulo)} · <span class="faltanGrupo">${g.faltan}</span></h4>
+    ${g.filas.slice(0, 25).map(filaDeAtencion).join("")}
+    ${g.filas.length > 25 ? `<p class="nota">…y ${g.filas.length - 25} más de ${esc(g.titulo.toLowerCase())}. Están en <a href="/panel/sin-responder">Sin responder</a>.</p>` : ""}
+  </div>`
+    )
+    .join("")}
+  <p class="nota">Toca el punto cuando ya le respondiste. Si el cliente vuelve a escribir, se prende solo.</p>
+</div>`;
+}
+
+function bloqueDeEmbudo(emb) {
+  if (!emb || !emb.hayDatos) return `<div class="vacio">Sin conversaciones todavía.</div>`;
+  const fuga = [...emb.filas].filter((f) => f.perdidosEnElPaso > 0).sort((a, b) => b.perdidosEnElPaso - a.perdidosEnElPaso)[0];
+  return `<div class="embudo">${emb.filas
+    .map((f) => {
+      const ancho = emb.total ? Math.max(4, Math.round((f.cuantos / emb.total) * 100)) : 4;
+      return `<div class="paso${fuga && fuga.id === f.id ? " fuga" : ""}">
+    <div class="barra" style="width:${ancho}%"></div>
+    <div class="etiq"><b>${f.cuantos}</b>${esc(f.etiqueta)} <span class="sub">${f.conversionDesdeArriba === null ? "" : `${esc(f.conversionDesdeArriba)}% del total`}</span></div>
+    <div class="baja">${f.perdidosEnElPaso ? `−${f.perdidosEnElPaso}` : ""}</div>
+  </div>`;
+    })
+    .join("")}
+  ${fuga ? `<div class="porque">La mayor caída está en <b>${esc(fuga.etiqueta)}</b>: ahí se quedan ${fuga.perdidosEnElPaso}. El detalle está en <a href="/panel/auditoria">Auditoría</a>.</div>` : ""}
+</div>`;
+}
+
+function bloquePorAnuncio(filas) {
+  if (!filas || !filas.length) return `<div class="vacio">Todavía no hay conversaciones.</div>`;
+  const claseSin = (pct) => (pct === null ? "" : pct >= 60 ? "mal" : pct >= 45 ? "medio" : "bien");
+  return `<table>
+<thead><tr><th>Anuncio</th><th>Charlas</th><th>Se fueron sin escribir</th><th>Pedidos</th><th>% Cierre</th><th>Vendido</th></tr></thead>
+<tbody>${filas
+    .map(
+      (f) => `<tr>
+  <td data-label="Anuncio">${esc(f.titulo)}${f.id && f.id !== f.titulo && !["directo", "panel"].includes(f.id) ? `<div class="sub">…${esc(String(f.id).slice(-6))}</div>` : ""}</td>
+  <td data-label="Charlas">${f.charlas}</td>
+  <td data-label="Sin escribir" class="${claseSin(f.pctSinEscribir)}">${f.sinEscribir}${f.pctSinEscribir === null ? "" : ` (${f.pctSinEscribir}%)`}</td>
+  <td data-label="Pedidos">${f.pedidos}</td>
+  <td data-label="% Cierre">${f.cierre === null ? "—" : `${esc(f.cierre)}%`}</td>
+  <td data-label="Vendido">${esc(pesos(f.vendido))}</td>
+</tr>`
+    )
+    .join("")}</tbody></table>`;
+}
+
+function conversacionEnLinea(c) {
+  const id = esc(c.contactoId);
+  const burbujas = (c.mensajes || [])
+    .map((m) => {
+      const quien = m.de === "cliente" ? "cliente" : m.de === "operador" || m.por ? "operador" : "bot";
+      const noSalio = m.estado && m.estado !== "enviado";
+      return `<div class="burbuja ${quien}">${esc(m.texto)}<span class="meta">${esc(fecha.horaBogota(m.ts))} · ${quien === "cliente" ? "cliente" : quien === "operador" ? "tú" : "bot"}${
+        noSalio ? ` · <span class="sinenviar">no enviado: ${esc(m.estado)}</span>` : ""
+      }</span></div>`;
+    })
+    .join("");
+  const etiquetas = [
+    c.clase === "urgente" ? `<span class="tag no">🔴 atender</span>` : "",
+    c.clase === "pendiente" ? `<span class="tag warn">🟡 esperando</span>` : "",
+    c.clase === "posventa" ? `<span class="tag posventa">🛟 posventa</span>` : "",
+    c.compro ? `<span class="tag ok">compró</span>` : "",
+    c.pausado ? `<span class="tag warn">bot pausado</span>` : "",
+  ].join("");
+  return `<details class="conv" id="c-${id}" data-buscar="${esc(`${c.nombre.texto} ${c.telefono}`.toLowerCase())}">
+  <summary><b>${esc(c.nombre.texto)}</b>${etiquetas}<span class="meta">${c.cuantosMensajes} msg · ${esc(fecha.hace(c.ultimo))}</span></summary>
+  <div class="hilo">${burbujas || `<div class="vacio">Sin mensajes todavía.</div>`}</div>
+  <div class="resp">
+    <textarea id="texto-${id}" placeholder="Escríbele a ${esc(c.nombre.texto)}…" data-id="${id}" oninput="guardarBorrador(this.dataset.id, this.value)"></textarea>
+    <div class="botones">
+      <button type="button" class="primario" data-id="${id}" onclick="responderEnLinea(this)">Enviar</button>
+      <button type="button" data-id="${id}" data-tomar="${c.pausado ? "0" : "1"}" onclick="cambiarControl(this)">${c.pausado ? "▶️ Devolverle el chat al bot" : "⏸️ Tomar el control"}</button>
+      <a class="boton" href="/panel/chat?id=${encodeURIComponent(c.contactoId)}">Abrir el chat completo</a>
+    </div>
+    <div class="envio" id="envio-${id}"></div>
+  </div>
+</details>`;
+}
+
+function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualActivo = false, numeroDelBot = "" }) {
+  const r = datos.resumen;
+  const op = datos.operativo || null;
+
+  // Sin el bloque operativo -una llamada antigua o una prueba que arma los
+  // datos a mano- se pinta lo minimo: el resumen del dia. Nunca se rompe.
+  if (!op) {
+    return (
+      cabecera({ titulo: "Tablero", dia: datos.dia, seccion: "tablero" }) +
+      (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
+      `<div class="kpis">
+  <div class="kpi"><b>${r.pedidos}</b><span>pedidos</span></div>
+  <div class="kpi"><b>${r.unidades}</b><span>unidades</span></div>
+  <div class="kpi"><b>${esc(pesos(r.importe))}</b><span>importe</span></div>
+  <div class="kpi"><b>${r.cancelados}</b><span>cancelados</span></div>
+</div>` +
+      pie()
+    );
+  }
+
+  const h = op.hoy;
+  const cola = op.cola;
+  const at = op.atencion;
+
+  const atajos = `<div class="marca">${esc(numeroDelBot ? `WhatsApp ${numeroDelBot}` : "WhatsApp de NOVIKA")} · se actualiza cada 45 s, nunca mientras escribes</div>
+<nav class="atajos" aria-label="Atajos">
+  <a href="#atencion" class="${at.faltan ? "rojo" : ""}">🔴 Atender (${at.faltan})</a>
+  <a href="#atencion" class="atajoPosventa">🛟 Posventa (${at.posventa})</a>
+  <a href="#despachar">📋 Despachar (${cola.pendientes.length})</a>
+  <a href="#conversaciones">💬 Chats</a>
+</nav>`;
+
+  const kpis = `<div class="kpis">
+  <div class="kpi big ok"><b>${h.pedidos}</b><span>pedidos hoy</span>${vsAyer(op.variaciones.pedidos)}<i class="d">${esc(pesos(h.vendido))} vendidos</i></div>
+  <div class="kpi big ok"><b>${esc(pesos(h.recaudo))}</b><span>recaudo hoy</span>${vsAyer(op.variaciones.recaudo)}<i class="d">${h.entregas} entrega(s) marcadas</i></div>
+  <div class="kpi"><b>${h.unidades}</b><span>unidades</span></div>
+  <div class="kpi"><b>${esc(pesos(h.ticketPromedio))}</b><span>ticket promedio</span></div>
+  <div class="kpi"><b>${h.conversaciones}</b><span>conversaciones hoy</span>${vsAyer(op.variaciones.conversaciones)}</div>
+  <div class="kpi"><b>${h.cierre.toFixed(1)}%${h.cierreTopado ? "*" : ""}</b><span>cierre</span></div>
+  <div class="kpi"><b>${h.share2uds.toFixed(0)}%</b><span>share 2 uds</span></div>
+  <div class="kpi ${op.esperandoHumano ? "warn" : ""}"><b>${op.esperandoHumano}</b><span>esperando humano</span></div>
+  <div class="kpi ${cola.pendientes.length ? "warn" : "ok"}"><b>${cola.pendientes.length}</b><span>pendientes de despachar</span>
+    <i class="d">${cola.pendientes.length ? `${esc(pesos(cola.porRecaudar))} por recaudar` : "todo despachado"}</i></div>
+  ${
+    cola.paraRevisar.length
+      ? `<div class="kpi no"><b>${cola.paraRevisar.length}</b><span>🔴 revisar antes de despachar</span><i class="d">${esc(pesos(cola.sinConfirmar))} sin confirmar</i></div>`
+      : ""
+  }
+</div>
+${h.cierreTopado ? `<p class="nota">* Hay más pedidos que conversaciones de hoy: alguien escribió ayer y confirmó hoy. El cierre se topa en 100%.</p>` : ""}
+${h.topCiudades.length ? `<p class="nota">📍 ${h.topCiudades.map(([c, n]) => `${esc(c)} <b>${n}</b>`).join(" · ")}</p>` : ""}
+<p class="nota">«Recaudo hoy» es lo <b>entregado</b> hoy: esto es contraentrega, y vendido no es cobrado.</p>`;
+
+  const acciones = `<div class="acciones">
+  <a class="boton destacado" href="/panel/guias">📦 Enviar guías (subir el PDF)</a>
+  <a class="boton" href="/panel/auditoria">🔍 Auditar el día</a>
+  <a class="boton" href="/panel/novedades">📮 Avisar novedades de entrega</a>
+  <a class="boton" href="/panel/pedidos.csv">⬇️ Descargar pedidos (CSV)</a>
+  <button type="button" onclick="mandarCierre(this)">📲 Mandarme el cierre por WhatsApp</button>
+  <a class="boton" href="/panel/duplicados">🧹 Revisar pedidos duplicados${op.duplicados.length ? ` (${op.duplicados.length})` : ""}</a>
+  <a class="boton" href="/panel/venta-manual">💰 Venta manual</a>
+</div>`;
+
+  const pendientes = cola.pendientes.length
+    ? tablaDePedidos(cola.pendientes.map((x) => filaDePedido(x.pedido, { alertas: x.alertas })).join(""), "Pago")
+    : `<div class="vacio">🎉 No hay nada pendiente de despachar.</div>`;
+
+  const despachados = cola.despachados.length
+    ? tablaDePedidos(cola.despachados.slice(0, 60).map((p) => filaDePedido(p, { modo: "despachado" })).join(""), "Guía")
+    : `<div class="vacio">Todavía no ha salido ningún pedido.</div>`;
+
+  const anulados = cola.anulados.length
+    ? tablaDePedidos(cola.anulados.slice(0, 40).map((p) => filaDePedido(p, { modo: "anulado" })).join(""), "Motivo")
+    : `<div class="vacio">No hay pedidos anulados.</div>`;
+
+  const porProducto = r.porProducto.length
     ? `<table>
-<thead><tr><th>Cliente</th><th>Telefono</th><th>Estado</th><th>Ultimo</th><th>Mensajes</th><th>Acciones</th></tr></thead>
-<tbody>${filas}</tbody></table>`
-    : `<div class="vacio">No hay conversaciones en <b>${esc(ETIQUETAS[clase] || clase)}</b>.</div>`;
-
-  const desglose = r.porProducto.length
-    ? `<h2 style="font-size:16px;margin:22px 0 10px">Por producto</h2>
-<table>
 <thead><tr><th>Producto</th><th>Pedidos</th><th>Unidades</th><th>Importe</th></tr></thead>
 <tbody>${r.porProducto
         .map(
@@ -535,36 +1158,78 @@ function tablero({ datos, clase = CLASES.PENDIENTE, aviso = null, envioManualAct
 </tr>`
         )
         .join("")}</tbody></table>`
-    : "";
+    : `<div class="vacio">Sin pedidos ese día.</div>`;
+
+  const conversaciones = (datos.recientes || []).length
+    ? datos.recientes.map(conversacionEnLinea).join("")
+    : `<div class="vacio">Sin conversaciones todavía.</div>`;
 
   return (
     cabecera({ titulo: "Tablero", dia: datos.dia, seccion: "tablero" }) +
+    atajos +
     (aviso ? `<div class="aviso ${esc(aviso.clase)}">${esc(aviso.texto)}</div>` : "") +
     (!envioManualActivo
       ? `<div class="aviso info">Los envios manuales estan <b>apagados</b> (<code>PANEL_ENVIO_MANUAL=0</code>).
          El panel funciona completo y te dira el resultado real de cada intento, pero no saldra ningun WhatsApp.</div>`
       : "") +
-    `<form method="get" action="/panel" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap">
-  <div style="flex:0 0 190px">
-    <label for="dia" style="font-size:13px;color:var(--suave)">Dia (hora de Colombia)</label>
-    <input id="dia" name="dia" type="date" value="${esc(datos.dia)}">
-  </div>
-  <input type="hidden" name="clase" value="${esc(clase)}">
-  <button class="primario" type="submit">Ver</button>
-  <a class="boton" href="/panel/pedidos.csv?dia=${encodeURIComponent(datos.dia)}">Exportar CSV</a>
-  <a class="boton" href="/panel/venta-manual">Venta manual</a>
+    kpis +
+    acciones +
+    bloqueDeAtencion(at) +
+    `<h2 class="seccion">📉 Dónde se caen los clientes</h2>` +
+    bloqueDeEmbudo(op.embudo) +
+    `<h2 class="seccion" id="despachar">📋 Pendientes de despachar · ${cola.pendientes.length}</h2>
+<p class="nota">Del más viejo al más nuevo. Suman <b>${esc(pesos(cola.porRecaudar))}</b> por recaudar${
+      cola.sinCelular ? ` · <b>${cola.sinCelular}</b> sin celular` : ""
+    }. Uno con 🔴 no se puede despachar hasta corregirlo.</p>` +
+    pendientes +
+    `<details class="plegable"><summary>✅ Ya despachados · ${cola.despachados.length}<span class="pista">${cola.enLaCalle} en la calle, el resto entregados. Toca para ver la lista</span></summary>${despachados}</details>` +
+    `<details class="plegable"><summary>🚫 Anulados · ${cola.anulados.length}<span class="pista">No cuentan como venta, pero quedan en el registro</span></summary>${anulados}</details>` +
+    `<details class="plegable"><summary>📣 Por anuncio<span class="pista">Charlas, los que se fueron sin escribir, pedidos y cierre</span></summary>${bloquePorAnuncio(op.porAnuncio)}</details>` +
+    `<details class="plegable"><summary>🧾 Por producto · ${esc(datos.dia)}<span class="pista">${r.pedidos} pedidos · ${r.unidades} unidades · ${esc(pesos(r.importe))}</span></summary>${porProducto}</details>` +
+    `<h2 class="seccion" id="conversaciones">💬 Conversaciones</h2>
+<form class="buscarChat" method="get" action="/panel/chats" onsubmit="return true">
+  <input type="search" name="q" placeholder="Buscar por nombre o teléfono" aria-label="Buscar conversación" oninput="filtrarConversaciones(this.value)">
+  <button type="submit">Buscar</button>
 </form>` +
-    `<div class="kpis">
-  <div class="kpi"><b>${r.pedidos}</b><span>pedidos</span></div>
-  <div class="kpi"><b>${r.unidades}</b><span>unidades</span></div>
-  <div class="kpi"><b>${esc(pesos(r.importe))}</b><span>importe</span></div>
-  <div class="kpi"><b>${r.cancelados}</b><span>cancelados</span>
-    ${r.cancelados ? `<div class="nota">${esc(pesos(r.importeCancelado))} anulados</div>` : ""}</div>
+    conversaciones +
+    pie(GUION_TABLERO)
+  );
+}
+
+/** EL CIERRE DEL DIA: el texto que se manda por WhatsApp, para leerlo o copiarlo. */
+function cierre({ texto, dueno = "" }) {
+  return (
+    cabecera({ titulo: "Cierre del día", seccion: "tablero" }) +
+    `<p class="nota">${dueno ? `Se manda a <b>${esc(dueno)}</b> (OWNER_WHATSAPP).` : "Falta <code>OWNER_WHATSAPP</code> en Render: mientras tanto, cópialo de aquí."}</p>
+<pre style="white-space:pre-wrap;background:var(--caja);border:1px solid var(--borde);border-radius:12px;padding:14px;font:15px/1.5 system-ui">${esc(texto)}</pre>
+<div class="acciones">
+  <button type="button" class="primario" onclick="mandarCierre(this)">📲 Mandármelo por WhatsApp</button>
+  <a class="boton" href="/panel">Volver al tablero</a>
 </div>` +
-    pestanas(datos.cuentas, clase, datos.dia) +
-    tabla +
-    desglose +
-    pie()
+    pie(GUION_TABLERO)
+  );
+}
+
+/** PEDIDOS DUPLICADOS: grupos del mismo cliente con el mismo total. */
+function duplicados({ grupos = [] }) {
+  const cuerpo = grupos.length
+    ? grupos
+        .map(
+          (g, i) => `<h2 class="seccion">Grupo ${i + 1} · ${g.length} pedidos de ${esc(
+            (g[0].destinatario && g[0].destinatario.nombre) || g[0].contactoId
+          )} por ${esc(pesos((g[0].cotizacion && g[0].cotizacion.total) || 0))}</h2>` +
+            tablaDePedidos(
+              g.map((p) => filaDePedido(p, { modo: "pendiente", alertas: { repetido: true } })).join(""),
+              "Pago"
+            )
+        )
+        .join("")
+    : `<div class="vacio">🎉 No hay pedidos duplicados: ningún cliente tiene dos pedidos vivos por el mismo total.</div>`;
+  return (
+    cabecera({ titulo: "Pedidos duplicados", seccion: "tablero" }) +
+    `<p class="nota">Dos pedidos vivos del mismo cliente (mismo celular o mismo chat) por el mismo total. Puede ser una compra doble de verdad: <b>lee el chat antes de anular</b>. Anular no borra nada.</p>` +
+    cuerpo +
+    pie(GUION_TABLERO)
   );
 }
 
@@ -2324,6 +2989,9 @@ function sinResponder({ datos, config: cfg = {} }) {
 }
 
 module.exports = {
+  cierre,
+  duplicados,
+  GUION_TABLERO,
   sinResponder,
   bandeja,
   datosDeEntrega,

@@ -285,3 +285,11 @@ Bloqueos reales:
 3. **El catálogo no tiene productos activos**, así que la venta manual no tiene de dónde elegir. No es un fallo del panel: es que todavía no hay productos definidos, y el panel no inventa ninguno.
 4. **Responder de verdad necesita `PANEL_ENVIO_MANUAL=1`.** `WHATSAPP_TOKEN` ya está configurado en el servicio (verificado por `puede_enviar: true` en `/health`, sin leer su valor).
 5. **La atribución dirá `directo`** hasta que haya anuncios de Click-to-WhatsApp activos. El cálculo está probado; falta el dato.
+
+## El tablero operativo (2026-11-11)
+
+`/panel` se reorganizó como el panel con el que Marco ya trabaja: atajos fijos (Atender · Posventa · Despachar · Chats), KPI de hoy contra ayer, acciones del día, ⏳ atención por Hoy / Ayer / Más viejos con el punto de un toque, 📉 embudo, 📋 pendientes de despachar con alertas (¿REPETIDO?, SIN CONFIRMAR, PRECIO NO CUADRA, GUÍA YA ENVIADA, OFICINA) y acciones en la fila, plegables de despachados, anulados (con ↩️ reactivar), por anuncio y por producto, y 💬 las conversaciones abiertas en la misma pantalla. Se recarga sola cada 45 s, nunca mientras escribes.
+
+Diferencias deliberadas: «recaudo hoy» es lo **entregado** hoy (contraentrega); no hay tarjeta de pagos por verificar porque NOVIKA no cobra por adelantado; el cierre por WhatsApp va a `OWNER_WHATSAPP` solo si la ventana de 24 h del dueño está abierta.
+
+Cálculos en `src/panel/operativo.js` (puro), pruebas en `test/panel-operativo.test.js`. Captura: `docs/panel/escritorio-tablero-operativo.png`.

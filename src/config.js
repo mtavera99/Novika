@@ -90,6 +90,10 @@ const config = {
   panelEnvioManual: bandera("PANEL_ENVIO_MANUAL", false),
   zonaHoraria: texto("ZONA_HORARIA", "America/Bogota"),
   ownerWhatsapp: texto("OWNER_WHATSAPP"),
+  // El numero del bot COMO SE LEE, solo para mostrarlo en la cabecera del
+  // panel («WhatsApp +57 …»). No se usa para enviar: eso va por el
+  // phone_number_id. Vacio, el panel dice «WhatsApp de NOVIKA».
+  numeroDelBot: texto("NUMERO_DEL_BOT"),
 
   // --- Despacho: guias y novedades de entrega ---
 

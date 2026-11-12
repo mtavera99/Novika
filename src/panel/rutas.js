@@ -315,7 +315,15 @@ function crearRutasDelPanel({ obtenerCerebro }) {
         ? req.query.clase
         : datos.CLASES.PENDIENTE;
       const tabla = await datos.tablero(repos, { dia });
-      html(res, vistas.tablero({ datos: tabla, clase, envioManualActivo: config.panelEnvioManual }));
+      html(
+        res,
+        vistas.tablero({
+          datos: tabla,
+          clase,
+          envioManualActivo: config.panelEnvioManual,
+          numeroDelBot: config.numeroDelBot || "",
+        })
+      );
     } catch (e) {
       log.error("panel_tablero_fallo", { detalle: e.message });
       html(res, vistas.tablero({
@@ -1125,18 +1133,166 @@ const responder = require("../cerebro/responder");
     }
   });
 
-  // NO hay "reactivar un pedido cancelado", y es deliberado.
+  // ----------------------------------------------------------------------
+  // REACTIVAR UN PEDIDO ANULADO
   //
-  // El indice unico de la clave de oferta es PARCIAL: solo aplica a los
-  // pedidos vivos (WHERE estado <> 'cancelado'). Eso existe para que un
-  // cliente que cancela pueda volver a comprar. Pero significa que, despues
-  // de una cancelacion, puede haber YA otro pedido vivo con la misma clave.
+  // Aqui habia una nota que lo descartaba a proposito, y su motivo sigue
+  // siendo verdad: el indice unico de la clave de oferta es PARCIAL -solo
+  // cubre los pedidos no cancelados-, asi que despues de anular puede haber
+  // YA otro pedido vivo con la misma clave, y reactivar el viejo chocaria.
   //
-  // Reactivar el viejo chocaria contra ese indice -o, peor, dejaria dos
-  // pedidos vivos para la misma oferta si el indice no estuviera-. Un boton
-  // que falla la mitad de las veces por un motivo que nadie entiende es peor
-  // que no tenerlo: lo correcto es registrar una venta nueva, que ademas
-  // deja el rastro de lo que de verdad paso.
+  // Lo que cambia (2026-11-11, el panel operativo) es que ese choque se
+  // COMPRUEBA ANTES, con el mismo dato que mira el indice, y se dice en
+  // castellano. Un boton que se niega explicando por que no es el boton que
+  // «falla la mitad de las veces sin que nadie entienda»: es el que evita
+  // rehacer a mano una venta anulada por error, que era el arreglo de hoy.
+  //
+  // Se niega si el contacto ya tiene otro pedido vivo, o si otro pedido no
+  // cancelado comparte la clave de oferta (incluidos los despachados y
+  // entregados, que el indice tambien cubre). El dominio pone el resto:
+  // solo desde cancelado, nunca si llego a despacharse.
+  // ----------------------------------------------------------------------
+  router.post("/pedido/reactivar", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    const codigo = String((req.body && req.body.codigo) || "").trim();
+    if (!codigo) return res.status(400).json({ ok: false, error: "Falta el codigo del pedido." });
+
+    try {
+      const { repos } = await piezas();
+      const pedido = await repos.pedidos.obtener(codigo);
+      if (!pedido) return res.status(404).json({ ok: false, error: "Ese pedido no existe." });
+
+      const delContacto = await repos.pedidos.porContacto(pedido.contactoId);
+      const otroVivo = delContacto.find(
+        (p) => p.id !== pedido.id && !dominioPedido.CERRADOS.has(p.estado)
+      );
+      if (otroVivo) {
+        return res.status(409).json({
+          ok: false,
+          error: `Este cliente ya tiene otro pedido vivo (${otroVivo.id}). Reactivarlo dejaría dos para despachar: anula uno primero.`,
+        });
+      }
+      const mismaOferta = delContacto.find(
+        (p) => p.id !== pedido.id && p.estado !== "cancelado" && p.claveDeOferta && p.claveDeOferta === pedido.claveDeOferta
+      );
+      if (mismaOferta) {
+        return res.status(409).json({
+          ok: false,
+          error: `La misma oferta ya terminó en otro pedido (${mismaOferta.id}, ${mismaOferta.estado}). Registra una venta nueva si hace falta.`,
+        });
+      }
+
+      const r = dominioPedido.reactivar({ pedido, porQue: "reactivado desde el panel" });
+      if (!r.ok) return res.status(409).json({ ok: false, error: r.motivo });
+
+      await repos.pedidos.reemplazar(r.pedido);
+      diario.anotar("panel_pedido_reactivado", { codigo, estado: r.pedido.estado });
+      metricas.incrementar("panel_pedido_reactivado");
+      return res.json({
+        ok: true,
+        aviso:
+          r.pedido.estado === "en_revision"
+            ? `Pedido ${codigo} reactivado. Vuelve EN REVISIÓN: tenía dudas sin cerrar.`
+            : `Pedido ${codigo} reactivado. Vuelve a la cola de despacho.`,
+      });
+    } catch (e) {
+      log.error("panel_reactivar_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // EL CIERRE DEL DIA POR WHATSAPP
+  //
+  // GET lo ENSEÑA; POST lo manda al celular del dueño (OWNER_WHATSAPP).
+  //
+  // Lo manda una persona tocando un boton, asi que va con el permiso de la
+  // atencion manual y obedece PANEL_ENVIO_MANUAL. Y la ventana de 24 h
+  // tambien rige aqui: si el dueño no le ha escrito al numero del bot en las
+  // ultimas 24 h, Meta acepta el texto y NO lo entrega. En ese caso no se
+  // intenta: se dice que hay que escribirle primero y se devuelve el texto
+  // para copiarlo. Un «enviado» que no llega es peor que no enviar.
+  // ----------------------------------------------------------------------
+  async function armarCierre(repos) {
+    const [pedidos, conversaciones] = await Promise.all([
+      repos.pedidos.listar({ limite: 5000 }),
+      repos.conversaciones.listar({ limite: 2000 }),
+    ]);
+    const op = require("./operativo");
+    const hoy = op.delDia(fecha.hoyBogota(), { conversaciones, pedidos });
+    const ayer = op.delDia(fecha.diaAnterior(fecha.hoyBogota()), { conversaciones, pedidos });
+    const cola = op.colaDeDespacho(pedidos);
+    return op.textoDeCierre({ hoy, ayer, cola, pesos: (n) => `$${Number(n).toLocaleString("es-CO", { maximumFractionDigits: 0 })}` });
+  }
+
+  router.get("/cierre", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    try {
+      const { repos } = await piezas();
+      html(res, vistas.cierre({ texto: await armarCierre(repos), dueno: config.ownerWhatsapp || "" }));
+    } catch (e) {
+      res.status(500).send(`No se pudo armar el cierre: ${e.message}`);
+    }
+  });
+
+  router.post("/cierre", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config, { comoJson: true })) return;
+    try {
+      const { repos, emisor } = await piezas();
+      const texto = await armarCierre(repos);
+      const dueno = String(config.ownerWhatsapp || "").replace(/\D/g, "");
+      if (!dueno) {
+        return res.json({
+          ok: true,
+          enviado: false,
+          texto,
+          aviso: "Falta tu número: configura OWNER_WHATSAPP en Render. Mientras tanto el cierre está en /panel/cierre para copiarlo.",
+        });
+      }
+      const convDelDueno = await repos.conversaciones.obtener(dueno).catch(() => null);
+      const v = ventana.estado(convDelDueno);
+      if (!v.abierta) {
+        return res.json({
+          ok: true,
+          enviado: false,
+          texto,
+          aviso: "No te lo mando: desde tu celular no le has escrito al número del bot en las últimas 24 h, y fuera de esa ventana WhatsApp no lo entrega. Escríbele cualquier cosa y vuelve a tocar el botón.",
+        });
+      }
+      const envio = await emisor.enviarTexto({ para: dueno, texto, permiso: PERMISOS.ATENCION_MANUAL });
+      diario.anotar("panel_cierre_del_dia", { enviado: envio.enviado === true, motivo: envio.motivo || null });
+      metricas.incrementar(envio.enviado ? "panel_cierre_enviado" : "panel_cierre_no_enviado");
+      return res.json({
+        ok: true,
+        enviado: envio.enviado === true,
+        texto,
+        aviso: envio.enviado
+          ? "Cierre enviado a tu WhatsApp."
+          : `No salió: ${EXPLICACION[envio.motivo] || envio.motivo || "motivo desconocido"}.`,
+      });
+    } catch (e) {
+      log.error("panel_cierre_fallo", { detalle: e.message });
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // PEDIDOS DUPLICADOS
+  //
+  // Solo los ENSEÑA. Dos pedidos vivos del mismo cliente con el mismo total
+  // pueden ser una compra doble de verdad; decide una persona, y se anula
+  // desde aqui con el mismo boton de la cola, que deja el registro.
+  // ----------------------------------------------------------------------
+  router.get("/duplicados", async (req, res) => {
+    if (!auth.exigirSesion(req, res, config)) return;
+    try {
+      const { repos } = await piezas();
+      const pedidos = await repos.pedidos.listar({ limite: 5000 });
+      html(res, vistas.duplicados({ grupos: require("./operativo").duplicados(pedidos) }));
+    } catch (e) {
+      res.status(500).send(`No se pudieron revisar los duplicados: ${e.message}`);
+    }
+  });
 
   // ----------------------------------------------------------------------
   // Venta manual
@@ -1145,7 +1301,14 @@ const responder = require("../cerebro/responder");
     if (!auth.exigirSesion(req, res, config)) return;
     try {
       const { catalogo } = await piezas();
-      html(res, vistas.ventaManual({ productos: catalogo.activos || [] }));
+      // El 💰 de la lista de atencion llega con el cliente puesto: no hay que
+      // volver a copiar su numero ni su nombre.
+      const q = req.query || {};
+      const valores = {};
+      for (const k of ["contactoId", "nombre", "telefono", "ciudad", "direccion"]) {
+        if (typeof q[k] === "string" && q[k].trim()) valores[k] = q[k].trim().slice(0, 200);
+      }
+      html(res, vistas.ventaManual({ productos: catalogo.activos || [], valores }));
     } catch (e) {
       html(res, vistas.ventaManual({ productos: [], aviso: { clase: "mal", texto: e.message } }), 500);
     }

@@ -129,6 +129,10 @@ const NOMBRES = [
   "panel_fotos_no_enviadas",
   "panel_despachado",
   "panel_entregado",
+  // El tablero operativo (2026-11-11).
+  "panel_pedido_reactivado",
+  "panel_cierre_enviado",
+  "panel_cierre_no_enviado",
 
   // --- el bot se calla, o casi ---
   //
