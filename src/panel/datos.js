@@ -14,6 +14,7 @@
 const fecha = require("./fecha");
 const atencion = require("../almacen/atencion");
 const fichaDe = require("./ficha");
+const operativo = require("./operativo");
 
 /** Estados de pedido que NO cuentan como venta. */
 const NO_CUENTAN = new Set(["cancelado"]);
@@ -126,12 +127,26 @@ function resumirPedidos(pedidos) {
  * @param {object} opciones
  * @param {string} [opciones.dia]  AAAA-MM-DD en Bogota. Por defecto hoy.
  */
-async function tablero(repos, { dia = null, ahora = Date.now(), limiteChats = 200 } = {}) {
+async function tablero(
+  repos,
+  { dia = null, ahora = Date.now(), limiteChats = 200, motivosEnClaro = {}, limiteOperativo = 2000 } = {}
+) {
   const elDia = dia || fecha.hoyBogota(ahora);
 
-  const [pedidosDelDia, conversaciones] = await Promise.all([
+  // ------------------------------------------------------------------
+  // TRES LECTURAS, Y LA TERCERA ES NUEVA (2026-11-11)
+  //
+  // El tablero leia solo los pedidos DEL DIA. El tablero operativo necesita
+  // ademas los de ayer (para comparar), los pendientes de cualquier dia
+  // (un pedido de anteayer sin despachar importa MAS que uno de hoy) y los
+  // anulados. Se lee una vez y se calcula todo en memoria, en
+  // `operativo.js`, que es puro y esta probado.
+  // ------------------------------------------------------------------
+  const [pedidosDelDia, conversaciones, todosLosPedidos, todasLasConversaciones] = await Promise.all([
     repos.pedidos.listar({ desde: elDia, hasta: elDia, limite: 1000 }),
     repos.conversaciones.listar({ limite: limiteChats }),
+    repos.pedidos.listar({ limite: 5000 }),
+    repos.conversaciones.listar({ limite: limiteOperativo }),
   ]);
 
   const chats = conversaciones.map((c) => ({
@@ -164,7 +179,42 @@ async function tablero(repos, { dia = null, ahora = Date.now(), limiteChats = 20
     porClase,
     // Para la fila de pestanas, sin que la vista tenga que recontar.
     cuentas: Object.fromEntries(Object.entries(porClase).map(([k, v]) => [k, v.length])),
+    // El tablero operativo: KPIs contra ayer, atencion por dias, cola de
+    // despacho con sus alertas, embudo y anuncios. Ver `operativo.js`.
+    operativo: operativo.tableroOperativo({
+      conversaciones: todasLasConversaciones,
+      pedidos: todosLosPedidos,
+      ahora,
+      motivosEnClaro,
+    }),
+    // Las conversaciones que se abren en la misma pantalla, de la mas
+    // reciente a la mas vieja. Solo las 60 primeras: es una pantalla de
+    // trabajo, no un archivo. Para buscar mas atras esta /panel/chats.
+    recientes: conversacionesRecientes(todasLasConversaciones, todosLosPedidos, { ahora }),
   };
+}
+
+/** Las ultimas conversaciones con lo que pinta cada una en linea. */
+function conversacionesRecientes(conversaciones, pedidos, { ahora = Date.now(), cuantas = 60, mensajes = 14 } = {}) {
+  const compraron = new Set(pedidos.filter((p) => p && p.estado !== "cancelado").map((p) => p.contactoId));
+  const cuando = (c) => {
+    const l = atencion.mensajes(c);
+    return fecha.aMilisegundos(l.length ? l[l.length - 1].ts : c.actualizadoEn) || 0;
+  };
+  return [...conversaciones]
+    .sort((a, b) => cuando(b) - cuando(a))
+    .slice(0, cuantas)
+    .map((c) => ({
+      contactoId: c.contactoId,
+      nombre: fichaDe.nombreParaMostrar(c.ficha),
+      telefono: fichaDe.leer(c.ficha, "telefono").valor || c.contactoId,
+      clase: clasificar(c, { ahora }),
+      pausado: atencion.leer(c).pausado,
+      compro: compraron.has(c.contactoId),
+      cuantosMensajes: atencion.mensajes(c).length,
+      ultimo: cuando(c),
+      mensajes: atencion.mensajes(c).slice(-mensajes),
+    }));
 }
 
 /**
@@ -479,6 +529,7 @@ module.exports = {
   totalDe,
   resumirPedidos,
   tablero,
+  conversacionesRecientes,
   buscar,
   conversacionCompleta,
   serie,

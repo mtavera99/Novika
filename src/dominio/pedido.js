@@ -380,6 +380,52 @@ function cancelar({ pedido, motivo = "", wamid = null, ahora = new Date() }) {
   return { ok: true, pedido: nuevo, yaEstaba: false };
 }
 
+/**
+ * REACTIVAR: deshacer una anulacion.
+ *
+ * Lo pidio Marco con el panel de BIKERPRO delante: la seccion «Anulados»
+ * tiene un «↩️ reactivar», porque anular se hace con un clic y a veces se
+ * anula el que no era. Sin esto, el unico arreglo era rehacer la venta a
+ * mano, con otro codigo, y el historial del pedido quedaba partido en dos.
+ *
+ * Tres reglas:
+ *
+ *   · SOLO DESDE CANCELADO. Reactivar otra cosa no significa nada.
+ *   · NUNCA SI LLEGO A SALIR. Un pedido con despacho registrado que se
+ *     cancelo es una historia que tiene que leer una persona.
+ *   · VUELVE A EN_REVISION SI TENIA DUDAS SIN CERRAR, y si no a CONFIRMADO.
+ *     No se le "limpia" nada por haberlo anulado y reactivado: es el mismo
+ *     hueco que `listoParaDespachar` ya tapa para `modificar`.
+ *
+ * Que el contacto no tenga OTRO pedido vivo lo comprueba quien llama: hace
+ * falta el almacen, y el dominio no lo conoce.
+ */
+function reactivar({ pedido, porQue = "", ahora = new Date() }) {
+  if (!pedido) return { ok: false, motivo: "no hay pedido que reactivar" };
+  if (pedido.estado !== ESTADOS_PEDIDO.CANCELADO) {
+    return { ok: false, motivo: `el pedido esta "${pedido.estado}": solo se reactiva un pedido anulado` };
+  }
+  if (pedido.despacho && pedido.despacho.guia) {
+    return { ok: false, motivo: "ese pedido llego a despacharse: lo tiene que revisar una persona" };
+  }
+
+  const nuevo = JSON.parse(JSON.stringify(pedido));
+  const pendientes = (nuevo.revisiones || []).filter(Boolean);
+  nuevo.version = pedido.version + 1;
+  nuevo.estado = pendientes.length ? ESTADOS_PEDIDO.EN_REVISION : ESTADOS_PEDIDO.CONFIRMADO;
+  nuevo.actualizadoEn = ahora.toISOString();
+  nuevo.reactivadoEn = ahora.toISOString();
+  nuevo.historial.push({
+    version: nuevo.version,
+    accion: "reactivado",
+    cuando: ahora.toISOString(),
+    porQue: porQue || null,
+    motivoDeLaAnulacion: pedido.motivoCancelacion || null,
+  });
+
+  return { ok: true, pedido: nuevo };
+}
+
 /** ¿Esta listo para despachar sin que nadie lo mire? */
 /**
  * Tipos de novedad de entrega.
@@ -761,6 +807,7 @@ module.exports = {
   construir,
   modificar,
   cancelar,
+  reactivar,
   despachar,
   entregar,
   registrarNovedad,
