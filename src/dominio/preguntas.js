@@ -147,6 +147,16 @@ const TEMAS = {
    */
   OBJECION_PRECIO: "objecion_precio",
   /**
+   * "Lo vi más barato en otro lado", "en Mercado Libre está a menos".
+   *
+   * APARTE de la objecion de precio, como lo tiene BIKERPRO y por su mismo
+   * motivo: bajar el precio contra un competidor cuyo numero no conoces es
+   * una carrera perdida, y ofrecerle la pareja a quien dice que en otro lado
+   * le sale mas barato es contestar otra cosa. Lo que si hay es lo que el
+   * otro no puede asegurar: envio incluido, pago al recibir y garantia.
+   */
+  VISTO_MAS_BARATO: "visto_mas_barato",
+  /**
    * Como se alimenta: bateria, cargador, enchufe, cuanto dura.
    *
    * Aparte de USO porque la ficha lo declara NO CONFIRMADO. Dentro de USO,
@@ -627,6 +637,10 @@ const PATRONES = [
   // como objecion hacia que el bot le rebatiera el precio a quien pregunto
   // cuando le llega- y aqui `demora` ya marca ENTREGA. Por eso `es mucho`
   // lleva el lookahead que descarta el tiempo.
+  // ---- «Lo vi más barato»: va ANTES de OBJECION_PRECIO y la sustituye ----
+  [TEMAS.VISTO_MAS_BARATO, /\b(lo|la|los|las)\s+(vi|vio|vimos|he\s+visto|encontre|consegui|venden|tienen)\s+(mas\s+)?(barat|economic|a\s+menos)/],
+  [TEMAS.VISTO_MAS_BARATO, /\b(otro\s+lado|otra\s+parte|otra\s+tienda|otro\s+lugar|otra\s+pagina|mercado\s*libre|temu|shein|falabella|internet|tiktok|facebook)\b.*\b(barat|menos|economic)/],
+  [TEMAS.VISTO_MAS_BARATO, /\b(barat|economic)\w*\b.*\b(otro\s+lado|otra\s+parte|otra\s+tienda|otro\s+lugar|otra\s+pagina|mercado\s*libre|temu|shein)\b/],
   [TEMAS.OBJECION_PRECIO, /\b(muy|tan|que|bien|super|demasiado)\s+car[oa]s?\b/],
   [TEMAS.OBJECION_PRECIO, /\bestan?\s+(muy\s+|bien\s+|algo\s+)?car[oa]s?\b/],
   [TEMAS.OBJECION_PRECIO, /\bes\s+(muy\s+|algo\s+)?car[oa]\b/],
@@ -1356,6 +1370,31 @@ function fotosRecientes(cuando, { ahora = Date.now(), minutos = MINUTOS_DE_CONTE
 // Y se responde como se merece: presentando el producto con sus condiciones
 // y dejando la puerta abierta a preguntar. Sin pedir un solo dato.
 // --------------------------------------------------------------------------
+/**
+ * "¿QUÉ VENDES?": pregunta por la TIENDA, no por un producto.
+ *
+ * Medido en produccion el 2026-11-11, con el numero nuevo: Marco escribio
+ * «qué vendes» y recibio «Te cuento lo principal: pagas al recibir, llega en
+ * 1 a 3 días hábiles. ¿Para qué ciudad sería?». El bot habia asumido el
+ * unico producto activo y contestaba condiciones de envio de algo que nunca
+ * nombro.
+ *
+ * Los patrones van ANCLADOS o con un objeto explicito ("productos",
+ * "catalogo") a proposito: «¿qué tiene de garantía?» o «¿tienes en rosado?»
+ * son preguntas sobre el producto y no pueden caer aqui.
+ */
+const PIDE_EL_CATALOGO = [
+  /^(y\s+)?((hola|buenas|buenos\s+dias|buenas\s+tardes|buenas\s+noches)\s*,?\s*)?(que|q|ke)\s+(mas\s+|otras?\s+cosas?\s+)?(vendes|venden|vende|ofreces|ofrecen|ofrece|manejas|manejan|maneja|tienes|tienen|hay)(\s+(ustedes|para\s+vender|en\s+venta|de\s+productos?|disponibles?|aqui|por\s+aqui|ahi|en\s+la\s+tienda))?\s*$/,
+  /\b(que|cuales|q)\s+(otros\s+)?productos\b/,
+  /\b(otros|mas)\s+productos\b/,
+  /\bcatalogo\b/,
+  /\b(lista|listado)\s+de\s+productos\b/,
+  /\bque\s+es\s+lo\s+que\s+(venden|vendes|ofrecen|manejan)\b/,
+  /\ba\s+que\s+se\s+dedican\b/,
+  /\bque\s+(venden|vendes|ofrecen|manejan)\s+(ustedes|aqui|en\s+novika)\b/,
+  /\bque\s+mas\s+(tienen|tienes|venden|vendes|hay|manejan)\b/,
+];
+
 const PIDE_INFORMACION = [
   /\b(quiero|quisiera|necesito|me\s+gustaria|podrias?\s+darme|me\s+das|mandame|me\s+puedes?\s+dar)\s+(mas\s+)?(informacion|info|detalles|datos)\b/,
   /\b(mas\s+)?(informacion|info)\s+(sobre|del|de\s+la|acerca)\b/,
@@ -1834,6 +1873,16 @@ function leer(texto) {
   // total- y por eso se distingue por la preposicion: "del/el envio" es el
   // envio en si, "con envio" es el producto ya sumado.
   // ----------------------------------------------------------------------
+  // «Lo vi más barato» no es la escalera de precio ni una pregunta de
+  // precio: tiene su propia respuesta. Se quitan las otras dos para que no
+  // cuente como objecion (la escalera lleva la cuenta) ni le cante la cifra.
+  if (temas.includes(TEMAS.VISTO_MAS_BARATO)) {
+    for (const t of [TEMAS.OBJECION_PRECIO, TEMAS.PRECIO]) {
+      const i = temas.indexOf(t);
+      if (i !== -1) temas.splice(i, 1);
+    }
+  }
+
   const PRECIO_DEL_ENVIO = /\b(precio|valor|cuanto|vale|cuesta|sale)\b[^?]*\b(de|del)?\s*(el\s+)?envio\b/;
   const PRECIO_CON_ENVIO = /\bcon\s+(el\s+)?envio\b/;
   if (temas.includes(TEMAS.PRECIO) && PRECIO_DEL_ENVIO.test(plano) && !PRECIO_CON_ENVIO.test(plano)) {
@@ -2076,6 +2125,9 @@ function leer(texto) {
     // ¿Pregunta por SU pedido? Es lo unico que autoriza a mencionar su
     // numero de pedido y su estado.
     porSuPedido: PREGUNTA_POR_SU_PEDIDO.some((re) => re.test(plano)),
+    // ¿Pregunta que vende la TIENDA? Se presenta el catalogo activo, sin
+    // asumir un producto y sin pedir ningun dato.
+    pideElCatalogo: PIDE_EL_CATALOGO.some((re) => re.test(plano.replace(/[?¿!.]+/g, " ").replace(/\s+/g, " ").trim())),
     // ¿Pide que le cuenten? Se presenta el producto y NO se pide un dato.
     pideInformacion: PIDE_INFORMACION.some((re) => re.test(plano)),
     // Un "hola" pelado: ni pregunta ni compra. Merece un arranque, no un
@@ -2121,6 +2173,7 @@ function esInformativo(texto) {
 }
 
 module.exports = {
+  PIDE_EL_CATALOGO,
   TEMAS,
   leer,
   esInformativo,

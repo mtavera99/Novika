@@ -259,7 +259,7 @@ describe("3 · el historial se recorta, el campo no", () => {
 // 4 · LOS TEXTOS
 // ==========================================================================
 describe("4 · qué le dice", () => {
-  const elCinturon = () => cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).productos[0];
+  const elCinturon = () => cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get("cinturon-termico-colicos");
 
   test("retoma donde se quedó y pide UNA sola cosa", () => {
     const c = conversacionCallada();

@@ -88,6 +88,13 @@ const NOMBRES = [
   "cotizacion_escalada",
   "importe_no_autorizado_bloqueado",
   "claim_prohibido_bloqueado",
+  // El modelo nombro una cifra (segundos, horas, grados) que el catalogo no
+  // tiene: una ficha tecnica inventada. Si sube, el guion necesita ajuste.
+  "cifra_no_autorizada_bloqueada",
+  // Se presento la tienda ("¿qué vendes?" o el primer «hola» sin anuncio).
+  "tienda_presentada",
+  // El modelo uso un nombre de intencion de la tabla de alias.
+  "ia_intencion_traducida",
 
   // --- datos ---
   "dato_propuesto",

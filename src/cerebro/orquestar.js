@@ -55,6 +55,45 @@ const { enSerie } = require("../almacen/mutex");
 const { PERMISOS } = require("../whatsapp/enviar");
 const atencionDeChat = require("../almacen/atencion");
 const fotos = require("../whatsapp/fotos");
+const { DESCRIPCION_DE_INTENCIONES, CAMPOS_PROPONIBLES } = require("../ia/contrato");
+const presentar = require("../catalogo/presentar");
+
+/**
+ * Cuantos mensajes recientes ve el modelo, si la configuracion no lo dice.
+ *
+ * ⚠ EL MODELO SOLO VEIA EL ULTIMO MENSAJE. `construirPrompt` le mandaba el
+ * texto del turno y tres banderas ("ya se saludo", "ya se dio el precio"),
+ * y con eso no se puede seguir una conversacion: «¿y en negro?» o «¿y si
+ * llevo dos?» no significan nada sin lo anterior. BIKERPRO manda los
+ * ultimos 8 (cuatro turnos) y lo midio: mas no mejora la venta y encarece
+ * cada charla larga.
+ */
+const MAX_HISTORIAL = 8;
+
+/**
+ * El historial reciente, en el formato que entiende el proveedor.
+ *
+ * SOLO lo que el cliente leyo de verdad: un mensaje del bot frenado por un
+ * interruptor -modo sombra, pausa- nunca le llego, y darselo al modelo como
+ * dicho le haria creer que ya se saludo o ya se dio un dato.
+ *
+ * Funcion pura del modulo para poder probarla sin montar el cerebro.
+ */
+function historialReciente(conversacion, max = MAX_HISTORIAL) {
+  const tope = Math.max(0, Math.min(Number(max) || 0, 30));
+  if (!tope) return [];
+  const lista = atencionDeChat.mensajes(conversacion).filter((m) => {
+    if (!m || typeof m.texto !== "string" || !m.texto.trim()) return false;
+    if (m.de === atencionDeChat.QUIEN.CLIENTE) return true;
+    if (m.de === atencionDeChat.QUIEN.OPERADOR) return true;
+    if (m.de === atencionDeChat.QUIEN.BOT) return !m.estado || m.estado === "enviado";
+    return false;
+  });
+  return lista.slice(-tope).map((m) => ({
+    rol: m.de === atencionDeChat.QUIEN.CLIENTE ? "cliente" : "negocio",
+    texto: m.texto,
+  }));
+}
 
 /** Datos del destinatario que se piden siempre. */
 const REQUERIDOS_BASE = ["nombre", "telefono", "ciudad", "direccion"];
@@ -81,34 +120,51 @@ const REQUERIDOS_BASE = ["nombre", "telefono", "ciudad", "direccion"];
 // el borrador no pasa-. Una instruccion al modelo no es un candado.
 // ==========================================================================
 const SISTEMA_BASE = [
-  "Eres quien atiende el WhatsApp de NOVIKA, una tienda colombiana.",
+  "Eres quien atiende el WhatsApp de NOVIKA, una tienda colombiana en linea que vende productos de varias categorias.",
   "Tu trabajo es entender al cliente y REDACTAR. NO decides precios, totales, envios ni confirmaciones: esos los calcula el sistema.",
   "",
   "TONO",
-  "- Colombiano, cercano y natural. Tutea.",
+  "- Colombiano, calido y natural, como una persona que vende por WhatsApp. Tutea.",
   "- Mensajes CORTOS: dos o tres frases, como un chat de verdad. Nunca parrafos ni listas con viñetas.",
-  "- Emojis: ninguno o uno. Nunca mas de uno.",
-  "- NO repitas el saludo. Si ya se saludo en esta conversacion, sigue desde donde quedo.",
-  "- NO vuelvas a preguntar algo que el cliente ya te dijo. Lee la conversacion antes.",
+  "- Emojis con moderacion: uno o dos por mensaje, nunca el mismo dos veces.",
+  "- NO repitas el saludo. Lee el historial: si ya se saludo, sigue desde donde quedo.",
+  "- NO vuelvas a preguntar algo que el cliente ya dijo, ni repitas un dato que ya le diste salvo que lo pida otra vez.",
   "",
   "ORDEN DE CADA RESPUESTA",
-  "1. Responde PRIMERO lo que el cliente pregunto.",
-  "2. Solo despues, si procede, propon el siguiente paso.",
-  "Contestarle con una pedida de datos a quien pregunto otra cosa es la forma mas rapida de perder la venta.",
+  "1. Responde PRIMERO lo que el cliente pregunto, con el dato autorizado y, si se puede, por que le sirve a el.",
+  "2. Despues, una sola pregunta corta que avance la venta (un microcierre suave), nunca un formulario.",
   "",
   "PREGUNTAR NO ES COMPRAR",
-  "- Si el cliente esta averiguando (garantia, medidas, material, como funciona), responde su duda y NADA MAS. No le pidas nombre, ciudad ni direccion.",
+  "- Si esta averiguando (que venden, garantia, medidas, material, como funciona), responde su duda. NO le pidas nombre, ciudad ni direccion.",
+  "- Si pregunta que venden o saluda sin decir que busca, NO supongas un producto: lee 'Productos que vende la tienda' y preguntale cual le interesa.",
   "- Pide los datos de entrega solo cuando diga que lo quiere.",
-  "- NO termines todas tus respuestas con una pregunta comercial. A veces lo correcto es responder y callarse.",
+  "",
+  "OBJECIONES",
+  "- Desconfianza: el argumento es el pago contra entrega, si el producto lo tiene. No pidas que te crean.",
+  "- 'Esta caro' o 'lo vi mas barato': no rebajes ni inventes descuentos. Reconoce, explica el valor con los datos autorizados y lo que incluye el precio.",
+  "- 'Lo voy a pensar': sin presion y sin urgencias falsas.",
+  "- Si falta un dato, admitelo con naturalidad y sigue vendiendo con lo que si sabes.",
   "",
   "LO QUE NO PUEDES ESCRIBIR",
   "- NUNCA precios, totales, importes ni cifras de dinero. Ni aproximados, ni rangos. Los pone el sistema.",
-  "- NUNCA caracteristicas, garantias, plazos de entrega ni medidas que no aparezcan en los datos autorizados de este mensaje.",
-  "- Si no tienes el dato autorizado, dilo: que queda anotado para el equipo y le responden por aqui. NUNCA prometas un plazo ('en un momento', 'enseguida'): no hay nadie de guardia. Decir que no lo sabes es mejor que una respuesta amable con un dato inventado.",
-    "- NUNCA prometas despacho, y menos hoy: no tienes horario, disponibilidad ni capacidad de despacho. Di 'preparar tu pedido'. Confirmar un pedido no significa que ya salio.",
+  "- NUNCA caracteristicas, cifras, garantias, plazos de entrega ni medidas que no aparezcan en los datos autorizados de este mensaje.",
+  "- Si no tienes el dato autorizado, dilo: que queda anotado para el equipo y le responden por aqui. NUNCA prometas un plazo ('en un momento', 'enseguida'): no hay nadie de guardia.",
+  "- NUNCA prometas despacho, y menos hoy. Di 'preparar tu pedido'. Confirmar un pedido no significa que ya salio.",
   "",
-  "Responde SIEMPRE en JSON con esta forma:",
-  '{"intencion":"...","candidatos":{},"productoSugerido":null,"borradorRespuesta":null,"preguntasDelCliente":[]}',
+  "SALIDA",
+  "Responde SIEMPRE con UN objeto JSON y nada mas, con esta forma:",
+  '{"intencion":"...","candidatos":{},"productoSugerido":null,"borradorRespuesta":"...","preguntasDelCliente":[]}',
+  "",
+  "\"intencion\" es OBLIGATORIA y tiene que ser EXACTAMENTE una de estas, escrita igual:",
+  ...Object.entries(DESCRIPCION_DE_INTENCIONES).map(([clave, que]) => `- ${clave}: ${que}`),
+  "Si dudas entre dos, elige la mas cercana de la lista. No inventes otra.",
+  "",
+  "\"candidatos\" solo puede llevar estas claves, y solo si el cliente las dijo en ESTE mensaje: " +
+    CAMPOS_PROPONIBLES.join(", ") +
+    ". \"cantidad\" es un numero entero, y solo si dice que la QUIERE (no si pregunta '¿y si llevo dos?').",
+  "\"productoSugerido\": el id del producto del que habla, de la lista de productos, o null.",
+  "\"borradorRespuesta\": el mensaje para el cliente, en texto plano.",
+  "NUNCA incluyas claves de precio, total, envio, descuento, estado ni confirmacion: la respuesta entera se descarta.",
 ].join("\n");
 
 /**
@@ -642,6 +698,52 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     }
 
     if (resolucion.productoId && !blindado) conversacion.productoId = resolucion.productoId;
+
+    // ------------------------------------------------------------------
+    // ¿PREGUNTA POR LA TIENDA, NO POR UN PRODUCTO?
+    //
+    // ⚠ EL DEFECTO DEL 2026-11-11, con el numero nuevo en produccion:
+    //
+    //   Marco · «hola»       -> precio de una unidad, color, «¿Para qué
+    //                           ciudad sería?», sin nombrar el producto
+    //   Marco · «qué vendes» -> «pagas al recibir, llega en 1 a 3 días
+    //                           hábiles. ¿Para qué ciudad sería?»
+    //
+    // `UNICO_ACTIVO` resolvia el producto -bien, con uno solo en venta- y
+    // el texto contestaba como si el cliente lo hubiera pedido. Quien
+    // pregunta que vendemos no eligio nada: se le presenta la tienda y se
+    // le pregunta cual le interesa. Sin pedir ningun dato.
+    //
+    // Y el saludo pelado del primer mensaje, si no viene de un anuncio: el
+    // anuncio SI dice que producto es (va por el referral y por la rama de
+    // `pideInformacion`, que sigue presentando ese producto).
+    //
+    // No toca `productoId`: con un solo producto activo es el correcto, y
+    // lo necesitan las fotos del primer mensaje. Lo que cambia es QUE SE
+    // DICE, no que se vende.
+    // ------------------------------------------------------------------
+    const lecturaDeTienda = preguntas.leer(evento.texto || "");
+    const nombroUnProducto = resolucion.origen === senales.ORIGENES.TEXTO_ACTUAL;
+    const soloPreguntaPorOtros = lecturaDeTienda.temas.every((t) => t === preguntas.TEMAS.OTRO_MODELO);
+    const presentaLaTienda =
+      !blindado &&
+      !nombroUnProducto &&
+      !lecturaDeTienda.compra &&
+      ((lecturaDeTienda.pideElCatalogo && soloPreguntaPorOtros) ||
+        (lecturaDeTienda.soloSaludo &&
+          // «hola, quiero información» es el mensaje que deja el anuncio:
+          // ese sigue presentando el producto, con su cierre por la ciudad.
+          !lecturaDeTienda.pideInformacion &&
+          conversacion.saludado !== true &&
+          !conversacion.huboSenalDeCompra &&
+          !evento.referral &&
+          // Sin ningun producto resuelto, la situacion es
+          // `producto_desconocido`, que ya presenta la tienda por su lado.
+          resolucion.origen === senales.ORIGENES.UNICO_ACTIVO));
+    if (presentaLaTienda) {
+      traza.presentaLaTienda = true;
+      contar("tienda_presentada");
+    }
     if (resolucion.esCambio === false && resolucion.motivo && /pregunta sobre el producto actual/.test(resolucion.motivo)) {
       contar("falsa_senal_de_cambio");
     }
@@ -723,7 +825,8 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       try {
         r = await ia.analizar({
           sistema: SISTEMA_BASE,
-          usuario: construirPrompt(evento, conversacion, producto),
+          usuario: construirPrompt(evento, conversacion, producto || candidato),
+          historial: historialReciente(conversacion, (config && config.iaHistorial) || MAX_HISTORIAL),
         });
       } catch (e) {
         contar("ia_excepcion");
@@ -744,6 +847,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
           // sigue con el camino determinista y, si hace falta, se escala.
         } else {
           contar("intencion_detectada");
+          if (analisis.intencionOriginal) contar("ia_intencion_traducida");
         }
       }
     } else {
@@ -761,8 +865,17 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // La IA propone primero y la heuristica despues, porque en combinar()
     // gana la heuristica: ella solo propone lo que reconocio contra una
     // lista o un patron, mientras el modelo propone lo que le parece.
+    const lecturaDeCantidad = preguntas.leer(evento.texto || "");
+    const pideConVerbo = /\b(quiero|quisiera|dame|deme|mandame|mandeme|enviame|envieme|necesito|regalame|me\s+(los|las)\s+(mandas|envias|llevo))\b/.test(
+      texto.aplanar(evento.texto || "")
+    );
+    const esCantidadHipotetica = Boolean(lecturaDeCantidad.cantidadPreguntada) && !pideConVerbo;
     if (analisis && analisis.candidatos) {
-      conversacion.ficha = aplicarCandidatos(conversacion.ficha, analisis.candidatos, campos.ORIGENES.IA);
+      // La cantidad de una pregunta hipotetica tampoco entra si la propone
+      // el modelo. Ver «¿Y SI LLEVO DOS?» mas abajo.
+      const deLaIA = { ...analisis.candidatos };
+      if (esCantidadHipotetica) delete deLaIA.cantidad;
+      conversacion.ficha = aplicarCandidatos(conversacion.ficha, deLaIA, campos.ORIGENES.IA);
     }
     // ¿Se le pidio el nombre y todavia no lo tenemos? Entonces un mensaje
     // que solo trae un nombre ES la respuesta a esa pregunta. Lo sabe el
@@ -805,6 +918,29 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         !campos.valorConfirmado(conversacion.ficha && conversacion.ficha.referencia),
     });
 
+    // ------------------------------------------------------------------
+    // «¿Y SI LLEVO DOS?» PREGUNTA UN PRECIO, NO PIDE DOS
+    //
+    // Defecto conocido desde el 08-oct (ESTADO-Y-PENDIENTES, seccion F): la
+    // COTIZACION de una pregunta asi ya era solo informativa, pero el
+    // extractor encontraba el «dos» y lo dejaba en la ficha. Medido el
+    // 2026-11-11:
+    //
+    //   cliente · «y si llevo dos?»          -> 2 unidades $85.000 (bien)
+    //   cliente · «cuánto cuesta el envío?»  -> «2 unidades te quedan en
+    //                                           $85.000» (¡ya pidio dos!)
+    //
+    // Si el mensaje es una pregunta de precio POR una cantidad, esa cantidad
+    // no entra en la ficha. Se queda `cantidadInformada`, que es lo que
+    // permite que un «las quiero» despues se entienda como dos.
+    //
+    // Excepcion: si ademas lo pide con un verbo de compra («quiero dos,
+    // cuánto es?»), eso no es hipotetico y la cantidad entra.
+    // ------------------------------------------------------------------
+    if (esCantidadHipotetica && heuristicos.delCliente.cantidad !== undefined) {
+      delete heuristicos.delCliente.cantidad;
+      traza.avisos.push("pregunta el precio de una cantidad: se cotiza para informar y la cantidad no entra en la ficha");
+    }
     // El perfil PRIMERO, para que lo que escriba el cliente pueda pisarlo.
     const corregidosEnEsteTurno = [];
     conversacion.ficha = aplicarCandidatos(conversacion.ficha, heuristicos.delPerfil, campos.ORIGENES.PERFIL);
@@ -1328,6 +1464,14 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         contar("escalado_a_persona");
         estadoDestino = estados.ESTADOS.ESCALADO;
       }
+    } else if (presentaLaTienda) {
+      // Lo que vende la tienda, sacado del catalogo activo. No cotiza, no
+      // pide datos y no avanza el estado de la venta: todavia no hay
+      // producto elegido.
+      situacion = "catalogo";
+      estadoDestino =
+        conversacion.estado === estados.ESTADOS.NUEVO ? estados.ESTADOS.EXPLORANDO : conversacion.estado;
+      traza.faltan = [];
     } else {
       // Flujo normal: identificar, cotizar, pedir lo que falte.
       const r = avanzarVenta({ conversacion, producto, resolucion, candidato, evento });
@@ -1502,7 +1646,15 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       //     se revisaba ninguno, y es un producto que se compra por dolor:
       //     el riesgo no es exagerar el precio, es prometer algo medico.
       producto: producto || candidato,
+      // El catalogo activo, para presentar la tienda sin asumir un producto.
+      catalogo,
+      // Las fotos del primer mensaje se mandan con el saludo (ver
+      // `esArranque` mas abajo): la presentacion lo puede anunciar.
+      conFotosDelArranque: Boolean(
+        lecturaDeTienda.soloSaludo && conversacion.saludado !== true && ((producto || candidato || {}).imagenes || []).length
+      ),
       borradorIA: analisis ? analisis.borradorRespuesta : null,
+      redaccion: (config && config.iaRedaccion) || responder.REDACCION.NATURAL,
 
       // El texto del turno y lo que ya se le dijo. Sin esto el texto no puede
       // responder lo que pregunto ni evitar repetir el saludo y la pedida de
@@ -1694,7 +1846,8 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     ) {
       const retomado = responder.retomarElPaso(
         faltanAhora,
-        campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre)
+        campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre),
+        producto || candidato
       );
       if (retomado && retomado.trim() && retomado.trim() !== String(preparada.texto || "").trim()) {
         preparada.texto = retomado;
@@ -1763,7 +1916,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       const nombre = campos.valorConfirmado(conversacion.ficha && conversacion.ficha.nombre);
 
       if (esSaludoGenerico) {
-        const retomado = responder.retomarElPaso(traza.faltan || [], nombre);
+        const retomado = responder.retomarElPaso(traza.faltan || [], nombre, producto || candidato);
         if (retomado && retomado.trim() !== ultimoTexto) {
           traza.avisos.push("el saludo salia identico al anterior: se retoma el paso del pedido");
           contar("respuesta_repetida_evitada");
@@ -1985,6 +2138,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     for (const b of preparada.bloqueos) {
       if (b.tipo === responder.BLOQUEOS.IMPORTE_NO_AUTORIZADO) contar("importe_no_autorizado_bloqueado");
       if (b.tipo === responder.BLOQUEOS.CLAIM_PROHIBIDO) contar("claim_prohibido_bloqueado");
+      if (b.tipo === responder.BLOQUEOS.CIFRA_NO_AUTORIZADA) contar("cifra_no_autorizada_bloqueada");
     }
     traza.respuesta = { texto: preparada.texto, origen: preparada.origen, situacion };
     traza.bloqueos = preparada.bloqueos;
@@ -2638,12 +2792,37 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
   function construirPrompt(evento, conversacion, producto) {
     const partes = [`Mensaje del cliente: ${evento.texto || "(sin texto)"}`, `Estado de la conversacion: ${conversacion.estado}`];
 
+    // ------------------------------------------------------------------
+    // LO QUE VENDE LA TIENDA, siempre. Sin esto el modelo solo conocia el
+    // producto "en contexto", y ante «¿qué vendes?» no podia contestar sin
+    // asumir uno. Nombre y frase aprobada; sin precios, que los pone el
+    // sistema.
+    // ------------------------------------------------------------------
+    const activos = (catalogo && catalogo.activos) || [];
+    if (activos.length) {
+      partes.push(
+        "Productos que vende la tienda: " +
+          activos
+            .map((p) => {
+              const que = presentar.enUnaFrase(p);
+              return `${p.id} = ${p.nombre || p.nombreCorto}${que ? ` (${que})` : ""}`;
+            })
+            .join("; ")
+      );
+    }
+
     if (producto) {
-      partes.push(`Producto en contexto: ${producto.nombre || producto.id}`);
+      partes.push(`Producto en contexto: ${producto.nombre || producto.id} (id ${producto.id})`);
+      if (producto.activo !== true) partes.push("Ese producto todavia NO esta a la venta: no hay precio ni condiciones publicadas.");
       if (producto.descripcionAutorizada) partes.push(`Descripcion autorizada: ${producto.descripcionAutorizada}`);
       if ((producto.caracteristicasAutorizadas || []).length) {
         partes.push(`Caracteristicas autorizadas: ${producto.caracteristicasAutorizadas.join("; ")}`);
       }
+      // Todo lo que Marco aprobo para decirle al cliente, no solo la
+      // descripcion. Antes el modelo no veia como se usa, la garantia ni el
+      // material, y ante esas dudas solo podia improvisar.
+      const datos = producto.activo === true ? presentar.textosAutorizados(producto) : [];
+      if (datos.length) partes.push(`Datos autorizados (lo UNICO que puedes afirmar):\n- ${datos.join("\n- ")}`);
       if ((producto.claimsProhibidos || []).length) {
         partes.push(`PROHIBIDO AFIRMAR: ${producto.claimsProhibidos.join("; ")}`);
       }
@@ -2651,7 +2830,11 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         partes.push(`Si el cliente pregunta por esto, di que lo confirmas: ${producto.sinDatoConfirmado.join("; ")}`);
       }
     } else {
-      partes.push("Producto en contexto: DESCONOCIDO. Pregunta cual le interesa; no supongas ninguno.");
+      partes.push("Producto en contexto: NINGUNO. Pregunta cual le interesa; no supongas ninguno.");
+    }
+
+    if (preguntas.leer(evento.texto || "").pideElCatalogo) {
+      partes.push("ESTE TURNO PREGUNTA QUE VENDE LA TIENDA: presenta los productos de la lista y pregunta cual le interesa. NO pidas datos.");
     }
 
     const faltan = campos.faltantes(conversacion.ficha, REQUERIDOS_BASE);
@@ -2698,4 +2881,4 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
   };
 }
 
-module.exports = { crearCerebro, REQUERIDOS_BASE };
+module.exports = { crearCerebro, REQUERIDOS_BASE, historialReciente, MAX_HISTORIAL };
