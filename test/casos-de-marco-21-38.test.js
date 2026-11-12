@@ -458,7 +458,7 @@ describe("11-bis · el panel puede cambiar la cantidad de un pedido", () => {
   const { cotizar } = require("../src/dominio/cotizador");
 
   const elCinturon = () =>
-    cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).productos[0];
+    cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get("cinturon-termico-colicos");
 
   test("cambia la cantidad y RECALCULA el total", async () => {
     const c = await chat({ nombrePerfil: "ANDRE" });

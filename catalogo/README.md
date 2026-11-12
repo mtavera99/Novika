@@ -24,6 +24,8 @@ Añadir un producto a NOVIKA debe ser: copiar `productos/_plantilla.json`, relle
 
 Un producto activo sin precio no es un borrador incompleto: es un cobro incorrecto esperando a pasar.
 
+Opcional pero recomendado: `enUnaFrase`, qué hace el producto en una frase aprobada. Es lo que el bot dice al presentar la tienda («¿qué vendes?») y en el primer mensaje. Sin ella usa la primera frase de `descripcionAutorizada`.
+
 **4. Lo que el bot puede afirmar está escrito, palabra por palabra.**
 
 - `datosConfirmados` → lo que el bot **sí** puede decir, con la respuesta ya redactada y aprobada.

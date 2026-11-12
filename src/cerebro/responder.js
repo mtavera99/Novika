@@ -32,6 +32,7 @@ const { aplanar } = require("../dominio/texto");
 const preguntas = require("../dominio/preguntas");
 const contestar = require("./contestar");
 const voz = require("./voz");
+const presentar = require("../catalogo/presentar");
 
 const BLOQUEOS = {
   IMPORTE_NO_AUTORIZADO: "importe_no_autorizado",
@@ -46,6 +47,8 @@ const BLOQUEOS = {
   CUBIERTO_POR_EL_CATALOGO: "cubierto_por_el_catalogo",
   /** Dice que el pedido salio y el pedido no ha salido. */
   DESPACHO_SIN_RESPALDO: "despacho_sin_respaldo",
+  /** Nombra una cifra (segundos, horas, grados…) que el catalogo no tiene. */
+  CIFRA_NO_AUTORIZADA: "cifra_no_autorizada",
   /**
    * El texto determinista salio VACIO y se sustituyo. Es un aviso, no un
    * riesgo: si aparece, hay una combinacion de reglas que da cero y el
@@ -103,11 +106,99 @@ function revisarDespacho(texto, pedido) {
 }
 
 /**
- * Interruptor de vuelta atras: con IA_REDACTA_SIEMPRE=1, el borrador del
- * modelo vuelve a tener prioridad siempre que pase los filtros. Existe para
- * poder comparar los dos comportamientos sin desplegar nada.
+ * Quien redacta cuando el catalogo tambien sabe contestar. Lo decide
+ * `config.iaRedaccion` (IA_REDACCION), y viaja desde el cerebro: este
+ * modulo ya no lee `process.env`, que solo lo lee `src/config.js`.
  */
-const PREFERIR_LA_IA = String(process.env.IA_REDACTA_SIEMPRE || "") === "1";
+const REDACCION = { NATURAL: "natural", CATALOGO: "catalogo", SIEMPRE: "siempre" };
+
+/**
+ * ¿El borrador nombra una cifra que ningun texto aprobado tiene?
+ *
+ * EL CANDADO QUE FALTABA PARA DEJAR REDACTAR AL MODELO. El filtro de
+ * importes caza el dinero y el de claims las promesas prohibidas, pero
+ * «calienta en 3 segundos» o «dura 8 horas» no son ninguna de las dos: son
+ * una ficha tecnica inventada con buen tono. Es lo que dicen las fichas de
+ * otros vendedores del mismo producto, que es justo lo que el modelo ha
+ * leido.
+ *
+ * La regla: toda cifra del borrador tiene que aparecer en lo que el
+ * catalogo autoriza decir de ESTE producto, o en el texto que el propio
+ * codigo iba a mandar. Si no, se descarta el borrador entero.
+ */
+function revisarCifras(texto, producto, determinista = "") {
+  const delBorrador = cifrasConUnidad(texto);
+  if (!delBorrador.length) return { ok: true, sospechosas: [] };
+  const fuente = [
+    ...presentar.textosAutorizados(producto),
+    ...((producto && producto.caracteristicasAutorizadas) || []),
+    determinista,
+  ].join(" ");
+  const conocidas = cifrasConUnidad(fuente);
+  const numeros = new Set(conocidas.map((c) => c.numero));
+  // «3 segundos» no se autoriza porque la ficha diga «3 niveles»: con una
+  // unidad delante, se exige la MISMA unidad. Lo comparan cifras sueltas
+  // contra cifras sueltas solo cuando el borrador no dice de que, que es
+  // el caso de una enumeracion: en «50, 55 y 60 °C» solo la ultima lleva
+  // la unidad, y las otras se comprueban como numero.
+  const pares = new Set(conocidas.filter((c) => c.unidad).map((c) => `${c.numero} ${c.unidad}`));
+  const sospechosas = delBorrador
+    .filter((c) => (c.unidad ? !pares.has(`${c.numero} ${c.unidad}`) : !numeros.has(c.numero)))
+    .map((c) => (c.unidad ? `${c.numero} ${c.unidad}` : c.numero));
+  return { ok: sospechosas.length === 0, sospechosas };
+}
+
+/** Unidades que convierten una cifra en un dato de ficha tecnica. */
+const UNIDADES = {
+  segundo: "s", segundos: "s", seg: "s", minuto: "min", minutos: "min", min: "min",
+  hora: "h", horas: "h", h: "h", dia: "dia", dias: "dia", semana: "semana", semanas: "semana",
+  mes: "mes", meses: "mes", ano: "ano", anos: "ano", grado: "c", grados: "c", c: "c",
+  cm: "cm", centimetros: "cm", mm: "mm", m: "m", metros: "m", ml: "ml", mililitros: "ml",
+  l: "l", litros: "l", g: "g", gr: "g", gramos: "g", kg: "kg", mah: "mah", w: "w", vatios: "w",
+  niveles: "nivel", nivel: "nivel", modos: "modo", modo: "modo", unidades: "u", unidad: "u",
+  aplicaciones: "aplicacion", aplicacion: "aplicacion", lavados: "lavado", usos: "uso", veces: "vez",
+};
+
+function cifrasConUnidad(texto) {
+  const plano = aplanar(String(texto || "")).replace(/°\s*/g, " ").replace(/(\d)\.(\d{3})\b/g, "$1$2");
+  const salida = [];
+  const re = /(\d+(?:[.,]\d+)?)\s*([a-z]+)?/g;
+  let m;
+  while ((m = re.exec(plano))) {
+    const numero = m[1].replace(",", ".");
+    const unidad = m[2] && UNIDADES[m[2]] ? UNIDADES[m[2]] : null;
+    salida.push({ numero, unidad, pos: m.index });
+  }
+  return salida;
+}
+
+
+/**
+ * Temas donde el texto lo pone SIEMPRE el codigo, aunque el modelo redacte
+ * bonito.
+ *
+ * Son los que tienen consecuencias: la escalera de la objecion de precio
+ * lleva la cuenta de que escalon toca y nombra la oferta de dos con su
+ * cifra; un mayorista se escala; lo medico y la seguridad tienen frases
+ * pensadas palabra por palabra para no prometer nada; y quien cita el
+ * anuncio o la prueba de 7 dias esta pidiendo que le confirmen una promesa
+ * de devolver plata.
+ */
+const TEMAS_QUE_REDACTA_EL_CODIGO = [
+  "OBJECION_PRECIO",
+  "VISTO_MAS_BARATO",
+  "MAYORISTA",
+  "CONTRAINDICACION",
+  "SEGURIDAD",
+  "PROMESA_DEL_ANUNCIO",
+  "SI_NO_FUNCIONA",
+  "GARANTIA_TRAMITE",
+  "MENOR_DE_EDAD",
+  "OTRO_DIA",
+  "PARA_DESPUES",
+]
+  .map((k) => preguntas.TEMAS[k])
+  .filter(Boolean);
 
 /**
  * ¿El texto afirma algo de la lista de prohibidos del producto?
@@ -122,6 +213,23 @@ const PREFERIR_LA_IA = String(process.env.IA_REDACTA_SIEMPRE || "") === "1";
  * la garantia, y son opuestas: la primera es honesta y la segunda es un dato
  * inventado. Sin esta distincion las dos se bloqueaban igual.
  */
+/**
+ * Situaciones con texto propio y probado: el arranque, el cuadro de
+ * confirmacion, el cierre, la tienda. Son los que NO conviene improvisar.
+ */
+const MOMENTOS_DEL_CODIGO = [
+  "resumen",
+  "confirmado",
+  "ya_confirmado",
+  "cancelado",
+  "producto_ambiguo",
+  "catalogo",
+  "escalado",
+  "corregir_que",
+  "declina",
+  "cambio_de_cantidad",
+];
+
 const ADMITE_NO_SABER = [
   /\bconfirm/, // confirmo, confirmar, te la confirmo
   /\bno\s+(tengo|se|sabria|te\s+puedo\s+decir)\b/,
@@ -465,6 +573,17 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
   // ==========================================================================
   const partes = ["¡Hola!"];
 
+  // ------------------------------------------------------------------
+  // QUE ES, ANTES DE CUANTO VALE (2026-11-11)
+  //
+  // El arranque daba el precio de "una unidad", el color y la ciudad, y en
+  // ningun momento decia QUE se vendia. Con un anuncio delante se podia
+  // adivinar; con el numero nuevo y un «hola» pelado, no. La frase sale del
+  // catalogo (`enUnaFrase`, texto aprobado): sin ella no se escribe nada.
+  // ------------------------------------------------------------------
+  const frase = producto && typeof producto.enUnaFrase === "string" ? producto.enUnaFrase.trim() : "";
+  if (frase) partes.push(`${mayuscula(voz.elProducto(producto))} ${frase.replace(/[.\s]+$/, "")}.`);
+
   if (cotizacion) partes.push(lineaComercial(cotizacion, producto, { asumida }));
 
   // La pareja, de entrada. Una sola frase y con la cifra puesta: ofrecer
@@ -482,7 +601,9 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
 
   // UNA caracteristica, no dos: el mensaje ya trae precio, condiciones y
   // oferta. Mas que eso es el muro de texto que la gente deja de leer.
-  const rasgos = ((producto && producto.caracteristicasAutorizadas) || []).slice(0, 1);
+  // Y si ya se dijo que es, ninguna: el mensaje ya trae que es, precio,
+  // condiciones y oferta.
+  const rasgos = frase ? [] : ((producto && producto.caracteristicasAutorizadas) || []).slice(0, 1);
   if (rasgos.length) partes.push(`${mayuscula(enumerar(rasgos))}.`);
 
   if (producto && (producto.imagenes || []).length) partes.push("Te mando unas fotos.");
@@ -538,14 +659,14 @@ const SIN_TEXTO = {
  * @param {string[]} faltan          para retomar el paso pendiente
  * @returns {string|null} null si este mensaje SI tiene texto que contestar
  */
-function respuestaSinTexto(tipoDeMedia, faltan = []) {
+function respuestaSinTexto(tipoDeMedia, faltan = [], producto = null) {
   if (!tipoDeMedia) return null;
   if (SIN_TEXTO[tipoDeMedia]) return SIN_TEXTO[tipoDeMedia];
 
   // Sticker, emoji o reaccion: se responde con calidez y se retoma el paso
   // donde iba el pedido. Marco lo pidio con este ejemplo exacto:
   // "😊 ¿Para qué ciudad sería tu cinturón?"
-  if (tipoDeMedia === "sticker") return `😊 ${siguientePasoCorto(faltan)}`;
+  if (tipoDeMedia === "sticker") return `😊 ${siguientePasoCorto(faltan, producto)}`;
   return null;
 }
 
@@ -560,12 +681,12 @@ function respuestaSinTexto(tipoDeMedia, faltan = []) {
  * Lo que hace falta ahi no es otra forma de saludar: es retomar el paso del
  * pedido, que es lo que la conversacion necesita para avanzar.
  */
-function retomarElPaso(faltan = [], nombreCliente = null) {
+function retomarElPaso(faltan = [], nombreCliente = null, producto = null) {
   // El nombre llega YA CONFIRMADO desde el cerebro, que es el unico que
   // sabe si lo esta. El redactor no toca la ficha: llamar a alguien por un
   // nombre que nadie valido es peor que no nombrarlo.
   const pila = voz.nombreDePila(nombreCliente);
-  return voz.unir([pila ? `¡Claro, ${pila}!` : "¡Claro!", siguientePasoCorto(faltan)]);
+  return voz.unir([pila ? `¡Claro, ${pila}!` : "¡Claro!", siguientePasoCorto(faltan, producto)]);
 }
 
 /**
@@ -576,9 +697,11 @@ function retomarElPaso(faltan = [], nombreCliente = null) {
  * falte, en vez de los cuatro: a quien manda una carita no se le contesta
  * con un formulario.
  */
-function siguientePasoCorto(faltan = []) {
+function siguientePasoCorto(faltan = [], producto = null) {
   const lista = Array.isArray(faltan) ? faltan : [];
-  if (lista.includes("ciudad")) return "¿Para qué ciudad sería tu cinturón?";
+  // El nombre sale del catalogo: era "tu cinturón" escrito a mano, y con un
+  // segundo producto a quien compra el otro le preguntaban por su cinturon.
+  if (lista.includes("ciudad")) return `¿Para qué ciudad sería ${voz.tuProducto(producto)}?`;
   if (lista.includes("direccion")) return "¿A qué dirección te lo mandamos?";
   if (lista.includes("nombre")) return "¿A nombre de quién lo dejo?";
   if (lista.includes("telefono")) return "¿Me pasas tu número de celular para la transportadora?";
@@ -878,6 +1001,12 @@ function textoDeterminista({
   // con el resumen puesto, el unico paso que queda es el "sí", y ofrecer
   // apartar algo que ya esta apartado es retroceder un paso.
   resumenMostrado = false,
+  // El catalogo cargado, para presentar la TIENDA ("¿qué vendes?") sin
+  // asumir un producto. Solo lo usa la situacion "catalogo".
+  catalogo = null,
+  // ¿Salen las fotos del primer mensaje en este turno? Solo entonces se
+  // anuncian: prometer fotos que no llegan es lo que se corrigio el 10-oct.
+  conFotosDelArranque = false,
 }) {
   // ------------------------------------------------------------------
   // UN AUDIO O UN STICKER SE CONTESTAN ANTES DE TODO LO DEMAS
@@ -887,7 +1016,7 @@ function textoDeterminista({
   // pregunto nada" y recibia el formulario de datos — o, a la segunda, el
   // "no quiero repetirme" que se llevo a dos clientes por delante.
   // ------------------------------------------------------------------
-  const sinTexto = respuestaSinTexto(tipoDeMedia, faltan);
+  const sinTexto = respuestaSinTexto(tipoDeMedia, faltan, producto);
   if (sinTexto && !String(mensajeCliente || "").trim()) return sinTexto;
 
   const { lectura, preguntoComercial, soloAveriguando } = analizarTurno(mensajeCliente);
@@ -910,7 +1039,31 @@ function textoDeterminista({
   const saludo = !memoria.saludado && (lectura.saludo || !memoria.datosPedidos) && lectura.saludo ? "¡Hola!" : "";
 
   switch (situacion) {
+    // ----------------------------------------------------------------------
+    // «¿QUÉ VENDES?» / el «hola» del primer mensaje sin anuncio.
+    //
+    // Se presenta lo que hay en el catalogo activo, con su precio de una
+    // unidad si el cotizador lo da, y se pregunta cual le interesa. No se
+    // pide ningun dato. Ver `catalogo/presentar.js`.
+    // ----------------------------------------------------------------------
+    case "catalogo": {
+      const pila = voz.nombreDePila(nombreCliente);
+      return presentar.presentarTienda(catalogo, {
+        saludar: !memoria.saludado,
+        nombre: pila || null,
+        conFotos: conFotosDelArranque,
+      }).texto;
+    }
+
+    // Sin producto y con varios en venta: se presenta la tienda en vez de
+    // pedir que adivine el nombre de algo que todavia no ha visto.
     case "producto_desconocido":
+      if (catalogo && (catalogo.activos || []).length) {
+        return presentar.presentarTienda(catalogo, {
+          saludar: Boolean(saludo),
+          nombre: voz.nombreDePila(nombreCliente) || null,
+        }).texto;
+      }
       return componer([saludo, "Cuéntame qué producto te interesa y te ayudo con el precio y el envío."]);
 
     // ----------------------------------------------------------------------
@@ -1363,7 +1516,7 @@ function textoDeterminista({
           .split(/\s+/)
           .filter(Boolean);
         if (palabras.length <= 1) {
-          partes.push("Cuéntame qué quieres saber del cinturón y te ayudo: precio, envío, garantía… lo que necesites.");
+          partes.push(`Cuéntame qué quieres saber ${voz.delProducto(producto)} y te ayudo: precio, envío, garantía… lo que necesites.`);
           return componer(partes, { emoji: "saludo" });
         }
 
@@ -2339,6 +2492,20 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
     return { texto: INSISTE_SIN_DATO, repetido: true, escalar: false };
   }
 
+  // ----------------------------------------------------------------------
+  // DOS «GRACIAS» SEGUIDOS NO SON UN BOT ATASCADO
+  //
+  // Medido el 2026-11-11: «gracias» -> «¡Con gusto! Cualquier cosa me
+  // escribes por aquí 😊», y el «muchas gracias» siguiente recibia «Perdón,
+  // creo que no te entendí bien 🙈», porque la cortesia salia identica y la
+  // guarda lo leia como un bucle. A quien se despide amable no se le dice que
+  // no se le entendio ni se le pide nada: se le devuelve la cortesia con
+  // otras palabras.
+  // ----------------------------------------------------------------------
+  if (/^¡con gusto/i.test(b)) {
+    return { texto: "¡A ti! Aquí sigo para lo que necesites 😊", repetido: true, escalar: false };
+  }
+
   if (mismaPregunta) return { texto: a, repetido: false, escalar: false };
   if (preguntaReconocida) return { texto: a, repetido: false, escalar: false };
 
@@ -2380,71 +2547,28 @@ function sinRepetir(texto, ultimoDicho, { mismaPregunta = false, preguntaReconoc
  *
  * @returns {{texto: string, origen: "determinista"|"ia", bloqueos: object[]}}
  */
-function preparar({
-  situacion,
-  tipoDeMedia = null,
-  vecesPorTema = {},
-  vezDeLaObjecion = 1,
-  motivoEscalado = null,
-  cotizacion = null,
-  cotizacionInformativa = null,
-  faltan = [],
-  opciones = [],
-  pedido = null,
-  producto = null,
-  borradorIA = null,
-  mensajeCliente = "",
-  memoria = {},
-  nombreCliente = null,
-  datosAportados = [],
-  ciudadConfirmada = null,
-  datosDeEntrega = null,
-  cantidadSinTarifa = null,
-  cambiosAplicados = [],
-  fotosYaEnviadas = false,
-  pideReenvioDeFotos = false,
-  huboSenalDeCompra = false,
-  // ⚠️ ESTOS DOS HAY QUE DECLARARLOS AQUI, Y OLVIDARLO NO ROMPE NADA.
+function preparar(entrada = {}) {
+  // ⚠ SE PASA LA ENTRADA ENTERA A `textoDeterminista`, NO UNA LISTA A MANO.
   //
-  // `preparar` enumera a mano lo que le pasa a `textoDeterminista`. Si un
-  // parametro nuevo no se añade en las DOS listas, el cerebro lo manda, el
-  // redactor usa su valor por defecto, y la funcion nueva simplemente no
-  // hace nada. Sin error, sin prueba roja: inerte.
-  //
-  // Me paso con `resumenMostrado` en el parche del "retomar" (09-oct): lo
-  // cablee en el cerebro, no lo declare aqui, y la rama del cierre que
-  // empuja al "sí" con el resumen en pantalla nunca se ejecuto en
-  // produccion. Lo encontre al cablear `faltaReferencia` y ver que tampoco
-  // llegaba.
-  faltaReferencia = false,
-  resumenMostrado = false,
-}) {
-  const determinista = textoDeterminista({
+  // Esto enumeraba a mano lo que reenviaba, y olvidarse de uno no rompia
+  // nada: el cerebro lo mandaba, el redactor usaba su valor por defecto y la
+  // rama nueva quedaba inerte. Paso DOS veces -`resumenMostrado` un dia
+  // entero en produccion, y `faltaReferencia`- y el documento del PR #66 lo
+  // dejo escrito. Con la entrada completa no hay segunda lista que olvidar.
+  const {
     situacion,
-    tipoDeMedia,
-    vecesPorTema,
-    vezDeLaObjecion,
-    motivoEscalado,
-    cotizacion,
-    cotizacionInformativa,
-    faltan,
-    opciones,
-    pedido,
-    producto,
-    mensajeCliente,
-    memoria,
-    nombreCliente,
-    datosAportados,
-    ciudadConfirmada,
-    datosDeEntrega,
-    cantidadSinTarifa,
-    cambiosAplicados,
-    fotosYaEnviadas,
-    pideReenvioDeFotos,
-    huboSenalDeCompra,
-    faltaReferencia,
-    resumenMostrado,
-  });
+    cotizacion = null,
+    cotizacionInformativa = null,
+    pedido = null,
+    producto = null,
+    borradorIA = null,
+    mensajeCliente = "",
+    nombreCliente = null,
+    memoria = {},
+    // Quien redacta cuando el catalogo cubre el tema. Ver el final.
+    redaccion = REDACCION.NATURAL,
+  } = entrada;
+  const determinista = textoDeterminista(entrada);
   const bloqueos = [];
 
   // --------------------------------------------------------------------------
@@ -2519,6 +2643,15 @@ function preparar({
   const claims = revisarClaims(borradorIA, producto);
   if (!claims.ok) {
     bloqueos.push({ tipo: BLOQUEOS.CLAIM_PROHIBIDO, detalle: claims.encontrados });
+  }
+
+  // Cifras que no salen del catalogo: una ficha tecnica inventada. Los
+  // importes ya los reviso `revisarImportes`; se quitan aqui para no
+  // contarlos dos veces.
+  const sinImportes = String(borradorIA).replace(/\$\s?\d[\d.,]*/g, " ");
+  const cifras = revisarCifras(sinImportes, producto, determinista);
+  if (!cifras.ok) {
+    bloqueos.push({ tipo: BLOQUEOS.CIFRA_NO_AUTORIZADA, detalle: cifras.sospechosas });
   }
 
   // Afirmar que el pedido salio se comprueba CONTRA EL ESTADO, no contra una
@@ -2605,9 +2738,48 @@ function preparar({
     // Momentos de la venta con texto propio y probado: el arranque, el
     // cuadro de confirmacion, el cierre. Son los que NO conviene improvisar.
     loQuePregunto.soloSaludo ||
-    ["resumen", "confirmado", "ya_confirmado", "cancelado", "producto_ambiguo"].includes(situacion);
+    MOMENTOS_DEL_CODIGO.includes(situacion);
 
-  if (elCatalogoLoCubre && !PREFERIR_LA_IA) {
+  // ==========================================================================
+  // EL REPARTO NUEVO (2026-11-11): EL MODELO REDACTA LAS DUDAS
+  //
+  // Marco pidio que el bot converse con la fluidez de BIKERPRO, y el reparto
+  // de arriba dejaba al modelo casi sin nada que decir: toda duda con tema
+  // reconocido la contestaba el texto fijo. Con el historial y los datos
+  // autorizados en el guion, el modelo ya tiene con que contestar bien.
+  //
+  // Lo que redacta: las DUDAS INFORMATIVAS sobre el producto -como
+  // funciona, material, para que sirve, garantia, cuidado-, con cuatro
+  // condiciones juntas:
+  //
+  //   1. pasa los cuatro candados de arriba: importes, claims, despacho y
+  //      cifras (ninguna cifra que el catalogo no tenga);
+  //   2. no es un momento de la venta (precio, compra, resumen, catalogo…);
+  //   3. el tema no es de los que redacta el codigo (objecion de precio,
+  //      medico, seguridad, la promesa de devolver plata…);
+  //   4. el catalogo SI tiene el dato: si el texto del codigo admite que no
+  //      lo sabe, el modelo no puede saberlo mejor — lo estaria inventando.
+  //
+  // Lo demas sigue saliendo del codigo. `catalogo` deja el reparto de antes.
+  // ==========================================================================
+  const temaDelCodigo = loQuePregunto.temas.some((t) => TEMAS_QUE_REDACTA_EL_CODIGO.includes(t));
+  const elCatalogoNoLoSabe = PROMESA_REPETIDA.test(determinista) || ADMITE_NO_SABER.some((re) => re.test(aplanar(determinista)));
+  const momentoDeVenta =
+    esComercial ||
+    loQuePregunto.compra ||
+    loQuePregunto.quiereOtro ||
+    loQuePregunto.soloSaludo ||
+    loQuePregunto.soloAgradece ||
+    MOMENTOS_DEL_CODIGO.includes(situacion);
+  const redactaElModelo =
+    redaccion === REDACCION.SIEMPRE ||
+    (redaccion === REDACCION.NATURAL &&
+      !momentoDeVenta &&
+      !temaDelCodigo &&
+      !elCatalogoNoLoSabe &&
+      (loQuePregunto.temas.length > 0 || loQuePregunto.pregunta));
+
+  if (elCatalogoLoCubre && !redactaElModelo) {
     return {
       texto: determinista,
       origen: "determinista",
@@ -2620,6 +2792,10 @@ function preparar({
 
 module.exports = {
   preparar,
+  REDACCION,
+  revisarCifras,
+  siguientePasoCorto,
+  MOMENTOS_DEL_CODIGO,
   textoDeterminista,
   analizarTurno,
   arranque,

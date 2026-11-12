@@ -34,7 +34,7 @@ function crearProveedorOpenAI({
 } = {}) {
   if (!apiKey) throw new Error("crearProveedorOpenAI necesita una apiKey");
 
-  async function completar({ sistema, usuario, timeoutMs = TIEMPO_POR_DEFECTO_MS }) {
+  async function completar({ sistema, usuario, historial = [], timeoutMs = TIEMPO_POR_DEFECTO_MS }) {
     // AbortController da el timeout real. Sin el, una llamada colgada deja
     // al cliente esperando indefinidamente.
     const control = new AbortController();
@@ -56,6 +56,7 @@ function crearProveedorOpenAI({
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: sistema },
+            ...mensajesDelHistorial(historial),
             { role: "user", content: usuario },
           ],
         }),
@@ -94,4 +95,19 @@ function crearProveedorOpenAI({
   return { completar, modelo };
 }
 
-module.exports = { crearProveedorOpenAI, TIEMPO_POR_DEFECTO_MS };
+/**
+ * El historial reciente como turnos de chat.
+ *
+ * Solo dos papeles, y nada mas: lo que dijo el cliente es "user" y lo que
+ * dijo el negocio -bot u operador- es "assistant". Cualquier otra cosa se
+ * descarta: un papel "system" colado en el historial seria un mensaje del
+ * cliente con permisos de instruccion.
+ */
+function mensajesDelHistorial(historial) {
+  if (!Array.isArray(historial)) return [];
+  return historial
+    .filter((m) => m && (m.rol === "cliente" || m.rol === "negocio") && typeof m.texto === "string" && m.texto.trim())
+    .map((m) => ({ role: m.rol === "cliente" ? "user" : "assistant", content: m.texto.slice(0, 1200) }));
+}
+
+module.exports = { crearProveedorOpenAI, TIEMPO_POR_DEFECTO_MS, mensajesDelHistorial };

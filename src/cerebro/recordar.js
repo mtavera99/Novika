@@ -162,7 +162,7 @@ function texto({ conversacion, producto, orden }) {
     const prueba = producto && producto.pruebaDeSieteDias;
     const gancho =
       prueba && prueba.activa
-        ? " Y lo pruebas 7 días: si no te sirve, te devolvemos tu dinero."
+        ? ` Y lo pruebas ${prueba.dias || 7} días: si no te sirve, te devolvemos tu dinero.`
         : "";
     return `${hola}Te dejo el pedido apartado por si lo quieres. Pagas cuando te llegue, no por adelantado.${gancho} ¿Me pasas ${COMO_SE_LLAMA[falta]}?`;
   }
@@ -175,7 +175,7 @@ function texto({ conversacion, producto, orden }) {
   // primer mensaje y lo mas facil de contestar.
   // --------------------------------------------------------------------
   if (orden === 1) {
-    return `${hola}¿Te quedó alguna duda del cinturón? Aquí estoy 🙌`;
+    return `${hola}¿Te quedó alguna duda ${voz.delProducto(producto)}? Aquí estoy 🙌`;
   }
 
   const prueba = producto && producto.pruebaDeSieteDias;
@@ -188,7 +188,7 @@ function texto({ conversacion, producto, orden }) {
   }
   // Si el catalogo no respalda ninguno de los dos ganchos, no se rellena con
   // adjetivos: se deja el recordatorio corto del primer toque.
-  if (partes.length === 1) return `${hola}¿Te animas con el cinturón? Aquí sigo 🙌`;
+  if (partes.length === 1) return `${hola}¿Te animas con ${voz.elProducto(producto)}? Aquí sigo 🙌`;
   partes.push("¿Para qué ciudad sería?");
   return partes.join(" ");
 }

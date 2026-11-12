@@ -29,6 +29,7 @@ function crearProveedorFalso(respuestas = []) {
     llamadas.push({
       sistema: entrada.sistema,
       usuario: entrada.usuario,
+      historial: entrada.historial || [],
       timeoutMs: entrada.timeoutMs,
       cuando: Date.now(),
     });

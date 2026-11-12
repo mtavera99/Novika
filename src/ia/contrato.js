@@ -39,6 +39,100 @@ const INTENCIONES = {
 };
 
 /**
+ * Que significa cada intencion, para decirselo al modelo.
+ *
+ * ⚠ EL GUION NO LAS ENUMERABA, Y ESO TIRABA TODOS LOS TURNOS CON IA.
+ *
+ * Medido en produccion el 2026-11-11 con el numero nuevo: el guion pedia
+ * `{"intencion":"..."}` sin decir cuales existen, el modelo contestaba
+ * "informacion_producto" o "explicacion_producto", el contrato lo rechazaba
+ * dos veces seguidas (`ia_contrato_incumplido` -> `ia_agotada`) y el turno
+ * caia al respaldo determinista. Pedirle una lista cerrada sin darle la
+ * lista es pedirle que adivine.
+ *
+ * Vive aqui, junto al vocabulario, para que el guion se construya desde la
+ * misma lista que valida: si alguien añade una intencion, el modelo la ve.
+ */
+const DESCRIPCION_DE_INTENCIONES = {
+  [INTENCIONES.SALUDO]: "solo saluda o abre la conversacion",
+  [INTENCIONES.PREGUNTA_PRODUCTO]:
+    "pregunta que venden, como es un producto, para que sirve, como funciona, material, medidas, garantia o pide fotos",
+  [INTENCIONES.PREGUNTA_PRECIO]: "pregunta cuanto vale, el precio de una o varias unidades, o si hay descuento",
+  [INTENCIONES.PREGUNTA_ENVIO]: "pregunta por el envio, cuanto tarda, a que ciudades llega o como se paga",
+  [INTENCIONES.PREGUNTA_ESTADO]: "pregunta por un pedido que ya hizo: si salio, la guia, cuando le llega",
+  [INTENCIONES.INTENCION_COMPRA]: "dice que lo quiere, pide que se lo manden o pregunta como pedirlo",
+  [INTENCIONES.DA_DATOS]: "da su nombre, celular, ciudad, direccion, cantidad o una referencia",
+  [INTENCIONES.CONFIRMA]: "dice que si a un resumen o a una pregunta de cierre",
+  [INTENCIONES.RECHAZA]: "dice que no le interesa o que ya no",
+  [INTENCIONES.MODIFICA]: "corrige un dato o cambia la cantidad de su pedido",
+  [INTENCIONES.CANCELA]: "pide cancelar o anular un pedido",
+  [INTENCIONES.OBJECION]: "duda o se queja: esta caro, lo vio mas barato, no confia, lo va a pensar",
+  [INTENCIONES.FUERA_DE_TEMA]: "habla de algo que no tiene que ver con la tienda",
+  [INTENCIONES.NO_SE_ENTIENDE]: "no se entiende lo que quiere",
+};
+
+/**
+ * Nombres que los modelos usan de verdad para una intencion que SI existe.
+ *
+ * Es una traduccion explicita y cerrada, no un "acepta lo que se parezca":
+ * cada entrada se escribio a mano y apunta a UNA intencion del vocabulario.
+ * Lo que no esta aqui sigue rechazandose entero, igual que antes.
+ *
+ * Por que no rompe el contrato: la intencion es una CLASIFICACION, no un
+ * hecho. No fija precio, ni pedido, ni confirmacion -la confirmacion se
+ * decide en codigo antes de llamar al modelo-. Descartar un turno completo
+ * porque el modelo escribio "informacion_producto" en vez de
+ * "pregunta_producto" no protegia nada: tiraba un borrador bueno y dejaba al
+ * cliente con el texto rigido.
+ *
+ * Las dos primeras son las que se vieron en produccion el 2026-11-11.
+ */
+const ALIAS_DE_INTENCION = {
+  informacion_producto: INTENCIONES.PREGUNTA_PRODUCTO,
+  explicacion_producto: INTENCIONES.PREGUNTA_PRODUCTO,
+  consulta_producto: INTENCIONES.PREGUNTA_PRODUCTO,
+  pregunta_catalogo: INTENCIONES.PREGUNTA_PRODUCTO,
+  consulta_catalogo: INTENCIONES.PREGUNTA_PRODUCTO,
+  pide_informacion: INTENCIONES.PREGUNTA_PRODUCTO,
+  pide_fotos: INTENCIONES.PREGUNTA_PRODUCTO,
+  consulta_precio: INTENCIONES.PREGUNTA_PRECIO,
+  pregunta_precios: INTENCIONES.PREGUNTA_PRECIO,
+  consulta_envio: INTENCIONES.PREGUNTA_ENVIO,
+  pregunta_pago: INTENCIONES.PREGUNTA_ENVIO,
+  consulta_estado: INTENCIONES.PREGUNTA_ESTADO,
+  compra: INTENCIONES.INTENCION_COMPRA,
+  quiere_comprar: INTENCIONES.INTENCION_COMPRA,
+  datos: INTENCIONES.DA_DATOS,
+  datos_envio: INTENCIONES.DA_DATOS,
+  confirmacion: INTENCIONES.CONFIRMA,
+  rechazo: INTENCIONES.RECHAZA,
+  modificacion: INTENCIONES.MODIFICA,
+  cancelacion: INTENCIONES.CANCELA,
+  agradecimiento: INTENCIONES.SALUDO,
+  despedida: INTENCIONES.SALUDO,
+  queja: INTENCIONES.OBJECION,
+  otro: INTENCIONES.FUERA_DE_TEMA,
+};
+
+/**
+ * La intencion del modelo llevada al vocabulario cerrado, o null.
+ *
+ * Normaliza la forma -mayusculas, espacios, guiones- antes de buscar: "Pregunta
+ * Producto" y "pregunta-producto" son la misma palabra mal escrita.
+ */
+function normalizarIntencion(valor) {
+  if (typeof valor !== "string") return null;
+  const limpia = valor
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\s-]+/g, "_");
+  if (Object.values(INTENCIONES).includes(limpia)) return limpia;
+  return ALIAS_DE_INTENCION[limpia] || null;
+}
+
+/**
  * Campos que el modelo PUEDE proponer. Lista cerrada.
  *
  * Fijate en lo que no esta: precio, total, envio, descuento, pedidoId,
@@ -99,8 +193,10 @@ function validarAnalisis(crudo) {
     return { ok: false, motivo: `la salida intenta fijar un hecho critico: "${encontrado}"` };
   }
 
-  // 2. Intencion
-  if (!Object.values(INTENCIONES).includes(crudo.intencion)) {
+  // 2. Intencion. Se traduce SOLO por la tabla cerrada de alias; lo que no
+  //    este en el vocabulario ni en la tabla se rechaza como siempre.
+  const intencion = normalizarIntencion(crudo.intencion);
+  if (!intencion) {
     return { ok: false, motivo: `intencion "${crudo.intencion}" no esta en el vocabulario` };
   }
 
@@ -168,7 +264,10 @@ function validarAnalisis(crudo) {
   return {
     ok: true,
     analisis: {
-      intencion: crudo.intencion,
+      intencion,
+      // Lo que escribio el modelo, si hubo que traducirlo. Sirve para ver en
+      // el diario que alias se usan y decidir si el guion necesita ajuste.
+      intencionOriginal: intencion !== crudo.intencion ? String(crudo.intencion) : null,
       candidatos,
       productoSugerido,
       borradorRespuesta: borrador,
@@ -210,6 +309,9 @@ function analisisDeRespaldo(motivo) {
 
 module.exports = {
   INTENCIONES,
+  DESCRIPCION_DE_INTENCIONES,
+  ALIAS_DE_INTENCION,
+  normalizarIntencion,
   CAMPOS_PROPONIBLES,
   CAMPOS_PROHIBIDOS,
   validarAnalisis,
