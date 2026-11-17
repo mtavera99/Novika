@@ -218,6 +218,8 @@ const TEMAS = {
   UBICACION: "ubicacion",
   /** "¿y si no me funciona?". No es garantia a secas: es miedo a perder la plata. */
   SI_NO_FUNCIONA: "si_no_funciona",
+  /** "¿Cuánto dura el efecto?", "¿cuánto dura el color?". Duración del cubrimiento de canas. */
+  DURACION_EFECTO: "duracion_efecto",
 
   // ======================================================================
   // LOS CUATRO DE ABAJO SON DEL 2026-10-09 Y LOS ABRE LA FICHA TECNICA.
@@ -412,6 +414,12 @@ const PATRONES = [
   [TEMAS.TEMPERATURA, /\bcalienta\s+(rapido|mucho|bien|harto)\b/],
   [TEMAS.TEMPERATURA, /\bque\s+(tan|tanto)\s+(caliente|calienta)\b/],
   [TEMAS.TEMPERATURA, /\bniveles?\s+de\s+(calor|temperatura)\b/],
+
+  // ---- Duración del efecto (Champú / canas) ----
+  [TEMAS.DURACION_EFECTO, /\bcuanto\s+(dura|le\s+dura|tarda)\s+(el\s+)?(efecto|color|tinte|negro|cubrimiento|cubierta)\b/],
+  [TEMAS.DURACION_EFECTO, /\bcuanto\s+dura\s+(el\s+)?champu\b/],
+  [TEMAS.DURACION_EFECTO, /\bduracion\s+(del\s+)?(efecto|color|tinte|champu)\b/],
+  [TEMAS.DURACION_EFECTO, /\bcuanto\s+tiempo\s+dura\s+(el\s+)?(color|efecto)\b/],
 
   // ---- Seguridad de uso: va ANTES de USO ----
   //

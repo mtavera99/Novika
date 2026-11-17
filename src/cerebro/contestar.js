@@ -910,6 +910,10 @@ function deTema(
       return "lo ideal son ratos de 15 a 20 minutos y luego descansas un poco. Lo puedes repetir varias veces al día.";
     }
 
+    case TEMAS.DURACION_EFECTO: {
+      return "el tono negro dura entre 3 y 4 semanas según el crecimiento natural de tu cabello o barba. Se lava como un champú normal y no mancha la piel. Aprovecha que hoy tenemos el combo de 2 cajas por $89.000 o 3 cajas por $119.000 con envío gratis y pago contraentrega. ¿Para qué ciudad sería tu pedido? 🙌";
+    }
+
     // "¿Por qué transportadora?", "¿me mandan la guía?"
     //
     // NO SE NOMBRA LA TRANSPORTADORA: cual va cada pedido lo decide el

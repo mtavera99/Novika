@@ -112,6 +112,7 @@ const APERTURAS = {
   [TEMAS.UBICACION]: "Con gusto:",
   // "¿y si no me funciona?" es miedo, no curiosidad.
   [TEMAS.SI_NO_FUNCIONA]: "Te entiendo, y tranquila:",
+  [TEMAS.DURACION_EFECTO]: "¡Excelente pregunta!",
   // Quien cita el anuncio no esta discutiendo: esta pidiendo que le
   // confirmen lo que leyo. Se reconoce, sin ponerse a la defensiva.
   [TEMAS.PROMESA_DEL_ANUNCIO]: "Te cuento con franqueza:",

@@ -139,4 +139,21 @@ describe("Champú Cubre Canas Dexe - Respuestas autorizadas y cero fugas", () =>
     assert.match(r.texto, /guantes/i);
     assert.equal(/60\s*°C|nivel de calor/i.test(r.texto), false, `Fuga de temperatura: ${r.texto}`);
   });
+
+  test("¿cuánto dura el efecto del champú? responde con 3-4 semanas y puente a combos", async () => {
+    const { dice } = await chatChampu();
+    const r = await dice("¿Cuánto dura el efecto del champú?");
+    assert.match(r.texto, /3 y 4 semanas|semanas/i);
+    assert.match(r.texto, /89\.000/);
+    assert.match(r.texto, /119\.000/);
+    assert.match(r.texto, /ciudad/i);
+  });
+
+  test("con cinturón inactivo, un pedido genérico ('¿Cómo puedo realizar mi pedido?') no pregunta qué producto", async () => {
+    const { dice } = await chatChampu();
+    const r = await dice("¿Cómo puedo realizar mi pedido por WhatsApp?");
+    assert.equal(/qu[eé] producto te interesa/i.test(r.texto), false, `Preguntó qué producto quería: ${r.texto}`);
+    assert.equal(/cintur[oó]n|c[oó]lico/i.test(r.texto), false, `Fuga de cinturón: ${r.texto}`);
+  });
 });
+
