@@ -286,6 +286,7 @@ function crearRutasDelPanel({ obtenerCerebro }) {
   // Entrar y salir
   // ----------------------------------------------------------------------
   router.post("/entrar", (req, res) => {
+    if (config.panelSinClave) return res.redirect("/panel");
     const recibido = (req.body && req.body.token) || "";
     if (!auth.tokenCorrecto(recibido, config.panelToken)) {
       // No se distingue "token vacio" de "token equivocado": decirlo
@@ -299,6 +300,7 @@ function crearRutasDelPanel({ obtenerCerebro }) {
   });
 
   router.post("/salir", (req, res) => {
+    if (config.panelSinClave) return res.redirect("/panel");
     auth.quitarCookie(res);
     html(res, auth.pantallaDeEntrada("Sesion cerrada."));
   });

@@ -115,6 +115,7 @@ function cookies(req) {
 
 /** ¿Esta autenticada esta peticion? */
 function autenticada(req, config) {
+  if (config && config.panelSinClave) return true;
   return sesionValida(cookies(req)[COOKIE], config.panelToken);
 }
 
@@ -144,6 +145,7 @@ function quitarCookie(res) {
  *   - a una pagina, la pantalla de entrada.
  */
 function exigirSesion(req, res, config, { comoJson = false } = {}) {
+  if (config && config.panelSinClave) return true;
   if (autenticada(req, config)) return true;
   if (comoJson) {
     res.status(401).json({ ok: false, error: "La sesion caduco. Vuelve a entrar al panel." });

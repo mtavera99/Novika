@@ -28,6 +28,7 @@ function entornoDePrueba(extra = {}) {
     META_APP_SECRET: "clave_secreta_de_prueba",
     WHATSAPP_PHONE_NUMBER_ID: "111111111111111",
     PANEL_TOKEN: "token_del_panel_de_prueba",
+    PANEL_SIN_CLAVE: "0",
     LOG_NIVEL: "error",
     LOG_PII: "0",
     RESPUESTA_AUTOMATICA: "0",

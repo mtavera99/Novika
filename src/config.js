@@ -74,6 +74,7 @@ const config = {
   // --- Operacion ---
   dirDatos: texto("DATA_DIR") || path.join(__dirname, "..", "data"),
   panelToken: texto("PANEL_TOKEN"),
+  panelSinClave: bandera("PANEL_SIN_CLAVE", true),
   nivelLog: texto("LOG_NIVEL", "info"),
   logPii: bandera("LOG_PII", false),
   respuestaAutomatica: bandera("RESPUESTA_AUTOMATICA", false),
