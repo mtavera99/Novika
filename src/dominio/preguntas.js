@@ -252,7 +252,8 @@ const TEMAS = {
    * anuncio lo diga -lo dice-. Sin este tema caia en el camino generico y
    * recibia la respuesta de garantia a secas, que suena a que le estamos
    * cambiando las condiciones.
-   */
+  /** "qué combos manejan?", "promociones", "si llevo más", "ofertas". */
+  COMBOS: "combos",
   PROMESA_DEL_ANUNCIO: "promesa_del_anuncio",
 };
 
@@ -637,6 +638,16 @@ const PATRONES = [
   // como objecion hacia que el bot le rebatiera el precio a quien pregunto
   // cuando le llega- y aqui `demora` ya marca ENTREGA. Por eso `es mucho`
   // lleva el lookahead que descarta el tiempo.
+  // ---- Combos y promociones por cantidad ----
+  [TEMAS.COMBOS, /\b(combo|combos)\b/],
+  [TEMAS.COMBOS, /\b(que|cuales)\s+(combos|promociones|promos|ofertas)\b/],
+  [TEMAS.COMBOS, /\b(combo\s+(2|3|dos|tres))\b/],
+  [TEMAS.COMBOS, /\b(si\s+llevo|por\s+llevar)\s+(mas|varias?)\b/],
+  [TEMAS.COMBOS, /\bdescuento\s+por\s+(cantidad|llevar\s+mas|varias?)\b/],
+  [TEMAS.COMBOS, /\bpaquetes?\s+(de\s+promocion|promocionales?)\b/],
+  [TEMAS.COMBOS, /\bcuanto\s+(vale|cuesta|quedan?)\s+si\s+llevo\s+mas\b/],
+  [TEMAS.COMBOS, /\bdescuento\s+por\s+mas\b/],
+
   // ---- «Lo vi más barato»: va ANTES de OBJECION_PRECIO y la sustituye ----
   [TEMAS.VISTO_MAS_BARATO, /\b(lo|la|los|las)\s+(vi|vio|vimos|he\s+visto|encontre|consegui|venden|tienen)\s+(mas\s+)?(barat|economic|a\s+menos)/],
   [TEMAS.VISTO_MAS_BARATO, /\b(otro\s+lado|otra\s+parte|otra\s+tienda|otro\s+lugar|otra\s+pagina|mercado\s*libre|temu|shein|falabella|internet|tiktok|facebook)\b.*\b(barat|menos|economic)/],
@@ -1765,6 +1776,10 @@ function normalizarParaTemas(plano) {
 // separan, que es la unica forma de que una copia a mano no se podrezca.
 // ==========================================================================
 const NOMBRE_DEL_PRODUCTO = [
+  /\b(champu|shampoo|shampu|champoo|xampu)s?\s+(para|de|contra)\s+(las\s+)?canas\b/g,
+  /\b(champu|shampoo|shampu|dexe)\b/g,
+  /\b(cubrir|tapar|oscurecer|disimular|quitar)\s+(las\s+)?canas\b/g,
+  /\bcanas?\b/g,
   /\bcinturon(es)?\s+termic[oa]s?\b/g,
   /\bfaja\s+termic[oa]s?\b/g,
   /\b(para|contra|de)\s+(los\s+)?colicos\s+menstruales\b/g,
@@ -1781,6 +1796,9 @@ function sinElNombreDelProducto(plano) {
 }
 
 const PALABRAS_DE_PRODUCTO = [
+  [/\b(canas?|cana|barba|patillas?|tinte|tenir|coloracion|tapar\s+canas)\b/, TEMAS.USO],
+  [/\b(sachet|sachets|guantes?|en\s+sobres?|cuantos\s+sobres?)\b/, TEMAS.EMPAQUE],
+  [/\b(combo|combos)\b/, TEMAS.COMBOS],
   [/\b(colico|colicos|regla|periodo|menstruacion|menstrual)\b/, TEMAS.USO],
   [/\b(cargador|cable|usb|power\s*bank)\b/, TEMAS.ENERGIA],
   [/\b(bateria|pila|carga|cargar|recargable|enchuf)\b/, TEMAS.ENERGIA],

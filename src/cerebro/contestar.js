@@ -368,6 +368,39 @@ function deTema(
 
   switch (tema) {
     // ----------------------------------------------------------------------
+    // COMBOS Y PROMOCIONES.
+    // ----------------------------------------------------------------------
+    case TEMAS.COMBOS: {
+      if (!producto) return null;
+      const c1 = cotizador.cotizar({ producto, cantidad: 1 });
+      const c2 = cotizador.cotizar({ producto, cantidad: 2 });
+      const c3 = cotizador.cotizar({ producto, cantidad: 3 });
+
+      const p1 = c1.ok ? pesos(c1.cotizacion.total) : null;
+      const p2 = c2.ok ? pesos(c2.cotizacion.total) : null;
+      const p3 = c3.ok ? pesos(c3.cotizacion.total) : null;
+
+      if (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas") {
+        const lineas = [
+          "Manejamos estos combos con envío gratis y pago contraentrega:",
+          p1 ? `• 1 caja (10 sobres): ${p1}` : null,
+          p2 ? `• Combo 2 cajas (20 sobres): ${p2} (ahorras $30.800)` : null,
+          p3 ? `• Combo 3 cajas (30 sobres): ${p3} (ahorras $60.700 — ¡la opción más pedida!)` : null,
+          "¿Cuál de los combos te gustaría pedir?"
+        ].filter(Boolean);
+        return lineas.join("\n");
+      }
+
+      if (p1 && p2) {
+        return (
+          `Manejamos 1 unidad en ${p1} o la promoción de 2 unidades en ${p2}, ` +
+          "con envío gratis y pago contraentrega. ¿Cuál prefieres?"
+        );
+      }
+      return loConfirmo("Las promociones disponibles", "las", producto, cotizacion);
+    }
+
+    // ----------------------------------------------------------------------
     // PRECIO. La cifra SIEMPRE viene de la cotizacion.
     // ----------------------------------------------------------------------
     case TEMAS.PRECIO: {
@@ -447,6 +480,9 @@ function deTema(
     }
 
     case TEMAS.TALLA: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "este producto no maneja tallas: viene en caja con 10 sobres individuales de 25 ml cada uno e incluye guantes.";
+      }
       const dato = caracteristica(producto, /talla/);
       if (dato) return `${dato}.`;
       return loConfirmo("Las tallas", "las", producto, cotizacion);
@@ -465,6 +501,15 @@ function deTema(
     // contorno exacto no lo tenemos.
     // ----------------------------------------------------------------------
     case TEMAS.MEDIDAS: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas" || !producto.ajuste)) {
+        if (producto && producto.presentaciones && producto.presentaciones.length) {
+          return `viene en ${producto.presentaciones[0]} (250 ml en total) con sus respectivos guantes de aplicación.`;
+        }
+        if (producto && producto.contenidoDelPaquete && producto.contenidoDelPaquete.length) {
+          return "viene en caja con 10 sobres individuales de 25 ml y sus guantes de aplicación.";
+        }
+        return "viene en caja con 10 sobres individuales de 25 ml cada uno (250 ml en total) e incluye guantes.";
+      }
       const partes = [];
 
       // Lo que SI se sabe y es verificable: la correa es graduable. Marco lo
@@ -649,6 +694,9 @@ function deTema(
     }
 
     case TEMAS.MATERIAL: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "es una fórmula herbal enriquecida con extractos naturales que cubren las canas y cuidan la fibra capilar sin amoníaco agresivo.";
+      }
       // Autorizado por Marco el 2026-10-08. Era una de las preguntas que
       // mas llegan y el bot no la podia contestar.
       if (producto && producto.material && producto.material.texto) return producto.material.texto;
@@ -706,13 +754,10 @@ function deTema(
     case TEMAS.NOMBRE_DEL_PRODUCTO: {
       const n = (producto && (producto.nombre || producto.nombreCorto)) || null;
       if (!n) return loConfirmo("Cómo se llama", "lo", producto, cotizacion);
-      const paraQue = producto && producto.paraQueSirve && producto.paraQueSirve.texto;
-      // Y detras PARA QUE SIRVE, porque quien pregunta el nombre lo que
-      // quiere es saber que es. El nombre solo no le dice nada.
-      const resumen = paraQue
-        ? " Da calor y masaje en la parte baja del abdomen."
-        : "";
-      return `es el ${n} 💗${resumen}`;
+      const paraQue = producto && producto.enUnaFrase
+        ? `: ${producto.enUnaFrase}.`
+        : (producto && producto.paraQueSirve && producto.paraQueSirve.texto ? `: ${producto.paraQueSirve.texto}` : "");
+      return `es el ${n} 💗${paraQue}`;
     }
 
     // ----------------------------------------------------------------------
@@ -723,6 +768,9 @@ function deTema(
     // creyendo que a lo mejor sí, y es una devolucion esperando.
     // ----------------------------------------------------------------------
     case TEMAS.FRIO: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "se aplica directamente en la ducha con agua a temperatura normal; no necesita frío ni calor especial.";
+      }
       const t = producto && producto.temperatura;
       const niveles = t && Array.isArray(t.niveles) && t.niveles.length ? ` (${t.niveles.length} niveles)` : "";
       const m = producto && producto.masaje;
@@ -783,6 +831,9 @@ function deTema(
     // LOS TEMAS DEL PARCHE 4. Cada uno con el dato que confirmo Marco.
     // ----------------------------------------------------------------------
     case TEMAS.RELAJA: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "deja el cabello suave, limpio y con un tono oscuro uniforme y natural.";
+      }
       const m = producto && producto.masaje;
       const conMasaje = m && m.modos ? " y el masaje" : "";
       return `sí: el calor${conMasaje} relajan la zona donde lo pones y dan una sensación de descanso muy rica.`;
@@ -794,6 +845,9 @@ function deTema(
     //    contradice: dice lo contrario. Antes caia en SEGURIDAD -que habla de
     //    quemaduras- y la clienta se quedaba sin saber si podia o no.
     case TEMAS.DORMIR: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no es para dormir: se aplica, se deja actuar de 10 a 15 minutos en la ducha y se enjuaga con abundante agua.";
+      }
       const d = producto && producto.dormir;
       if (d && d.texto) return d.texto;
       return "mejor no: te recomiendo quitártelo antes de dormir, por seguridad.";
@@ -804,6 +858,9 @@ function deTema(
     // Si el cliente cree que se apaga solo, se duerme con el puesto, que es
     // justo lo que la ficha pide no hacer. Confirmado por Marco el 09-oct.
     case TEMAS.APAGADO_AUTO: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no es un aparato eléctrico: lo dejas actuar entre 10 y 15 minutos en el cabello o barba y lo retiras con agua.";
+      }
       const sg = producto && producto.seguridad;
       if (sg && sg.textoApagado) return sg.textoApagado;
       return "lo apagas tú con el botón cuando termines. Lo ideal son ratos de 15 a 20 minutos.";
@@ -824,13 +881,23 @@ function deTema(
     }
 
     case TEMAS.FACIL_USO: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "¡facilísimo! Te pones los guantes, aplicas el sobre como un champú normal, masajeas 5 minutos, dejas actuar 10 a 15 minutos y enjuagas.";
+      }
       const pa = producto && producto.pantalla;
       const conPantalla = pa && pa.texto ? ", y la pantalla te muestra todo" : "";
       return `¡facilísimo! Un botón para prender, uno para el calor y otro para el masaje${conPantalla}.`;
     }
 
-    case TEMAS.TIEMPO_DE_USO:
+    case TEMAS.TIEMPO_DE_USO: {
+      if (producto && producto.tiempoDeUso && producto.tiempoDeUso.texto) {
+        return producto.tiempoDeUso.texto;
+      }
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "se deja actuar de 10 a 15 minutos sobre el cabello o barba y luego se enjuaga con abundante agua.";
+      }
       return "lo ideal son ratos de 15 a 20 minutos y luego descansas un poco. Lo puedes repetir varias veces al día.";
+    }
 
     // "¿Por qué transportadora?", "¿me mandan la guía?"
     //
@@ -1165,18 +1232,9 @@ function deTema(
     // 04: es lo unico verificable que se puede dar ahora mismo.
     // ----------------------------------------------------------------------
     case TEMAS.ENERGIA: {
-      // ⚠️ ESTA RESPUESTA DEJO DE SER UN "NO LO SE" EL 2026-10-09.
-      //
-      // Era la pregunta que mas veces quedaba sin contestar: de las cinco que
-      // seguian fallando, TRES eran de energia ("Trae cargador", "Con cables
-      // para cargar", "es recargable o de pilas?"). Y una clienta la
-      // pregunto DOS VECES SEGUIDAS porque la primera respuesta -que era
-      // admitir el hueco- no le servia de nada.
-      //
-      // Marco autorizo la ficha del fabricante, asi que ahora hay dato. Lo
-      // que mas vende de aqui no es el mAh: es "mientras lo usas no va
-      // conectado a nada", porque la duda de fondo de quien pregunta por el
-      // cable es si va a quedar amarrada a un enchufe.
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no usa batería ni cargador: es un champú cosmético en sobres para usar directamente en la ducha.";
+      }
       const e = producto && producto.energia;
       if (e && e.texto) return e.texto;
       return loConfirmo("Si funciona con batería o enchufado", "lo", producto, cotizacion);
@@ -1184,21 +1242,11 @@ function deTema(
 
     // ----------------------------------------------------------------------
     // USARLO MIENTRAS SE CARGA. Dato confirmado por Marco el 2026-10-09.
-    //
-    // ⚠️ ESTO ERA UN DEFECTO DE MI PROPIO PARCHE, y de la peor clase: el
-    //    dato estaba escrito en la ficha (`energia.usarMientrasCarga`) y
-    //    NO estaba conectado a ninguna respuesta. O sea que el bot lo tenia
-    //    y seguia contestando lo contrario.
-    //
-    // A "¿se puede usar mientras se carga?" respondia el texto de ENERGIA,
-    // que termina en "mientras lo usas no va conectado a nada". Para quien
-    // pregunta eso, es un NO. Y la respuesta es SI.
-    //
-    // Es exactamente la trampa que el catalogo documenta tres veces: un
-    // dato confirmado hay que escribirlo Y usarlo, y olvidar lo segundo no
-    // rompe ninguna prueba.
     // ----------------------------------------------------------------------
     case TEMAS.USAR_CARGANDO: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no es un aparato eléctrico, no necesita carga.";
+      }
       const e = producto && producto.energia;
       if (e && e.usarMientrasCarga === true && e.textoUsarCargando) return `sí, ${e.textoUsarCargando}`;
       if (e && e.usarMientrasCarga === false) return "no se usa mientras se carga: primero lo cargas y después lo usas sin cables.";
@@ -1210,6 +1258,9 @@ function deTema(
     // MASAJE. Es lo que convierte "una almohadilla mas" en un aparato.
     // ----------------------------------------------------------------------
     case TEMAS.MASAJE: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "lo masajeas tú con las manos usando los guantes incluidos durante 5 minutos para distribuir bien el champú.";
+      }
       const m = producto && producto.masaje;
       if (m && m.texto) return m.texto;
       return loConfirmo("Si tiene masaje", "lo", producto, cotizacion);
@@ -1217,11 +1268,11 @@ function deTema(
 
     // ----------------------------------------------------------------------
     // ESPALDA / LUMBAR. Amplia el producto sin inventar nada.
-    //
-    // "¿sirve para la espalda?" casaba con `sirve para` y recibia la frase de
-    // los colicos, que no contesta la pregunta. Y la respuesta es si.
     // ----------------------------------------------------------------------
     case TEMAS.ESPALDA: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "este producto es exclusivamente para cubrir canas en cabello, barba y patillas; no es para la espalda ni dolores corporales.";
+      }
       const z = producto && producto.zonasDeUso;
       if (z && z.texto) return `¡sí! ${z.texto}`;
       return loConfirmo("Si sirve para la espalda", "lo", producto, cotizacion);
@@ -1231,6 +1282,9 @@ function deTema(
     // RUIDO. La duda de quien lo quiere usar en la oficina.
     // ----------------------------------------------------------------------
     case TEMAS.RUIDO: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no hace ningún ruido, es un champú para el baño.";
+      }
       const m = producto && producto.masaje;
       if (m && m.ruido) return m.ruido.charAt(0).toLowerCase() + m.ruido.slice(1);
       return loConfirmo("Si hace ruido", "lo", producto, cotizacion);
@@ -1240,6 +1294,9 @@ function deTema(
     // DISCRECION. Lo puede llevar puesto trabajando, y eso vende.
     // ----------------------------------------------------------------------
     case TEMAS.DISCRECION: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "el acabado es totalmente natural y discreto, nadie nota que te aplicaste un cubre canas.";
+      }
       const z = producto && producto.zonasDeUso;
       if (z && z.discrecion) return z.discrecion.charAt(0).toLowerCase() + z.discrecion.slice(1);
       return loConfirmo("Si se nota debajo de la ropa", "lo", producto, cotizacion);
@@ -1286,12 +1343,12 @@ function deTema(
     // que cuando reclame.
     // ----------------------------------------------------------------------
     case TEMAS.CUIDADO: {
-      // El dato propio de la ficha (2026-10-09) manda sobre la deduccion que
-      // se hacia desde `garantiaNoCubre`. La deduccion era correcta -si
-      // mojarlo no lo cubre la garantia, no se moja- pero decia menos: no
-      // explicaba COMO se limpia, que es lo que preguntan.
       const c = producto && producto.cuidado;
       if (c && c.texto) return c.texto;
+
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "lo guardas en un lugar fresco y seco, lejos del sol directo. Cada sobre viene sellado para que uses solo el que necesitas.";
+      }
 
       const noCubre = (producto && producto.garantiaNoCubre) || [];
       if (noCubre.some((x) => /moj/i.test(String(x)))) {
@@ -1315,13 +1372,11 @@ function deTema(
     // pasar algo?"- sin inventar una especificacion.
     // ----------------------------------------------------------------------
     case TEMAS.SEGURIDAD: {
-      // ⚠️ "¿me lo puedo poner dormida toda la noche?" ERA EL EJEMPLO QUE
-      //    ESTE REPOSITORIO LLEVABA ANOTADO COMO "la peor respuesta del bot",
-      //    y hasta el 09-oct seguia contestandose admitiendo el hueco.
-      //
-      // Ahora hay dato y es un NO claro, autorizado por Marco en la seccion
-      // de SEGURIDAD de su guia. Y un "no" concreto vende MAS que un "lo
-      // confirmo": la clienta ve que sabemos de lo que hablamos.
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        const s = producto && producto.seguridad;
+        if (s && s.texto) return s.texto;
+        return "es una fórmula herbal suave sin amoníaco agresivo. Solo debes usar los guantes incluidos y evitar el contacto directo con los ojos.";
+      }
       const d = producto && producto.dormir;
       const avisos = (producto && producto.seguridad && producto.seguridad.avisos) || [];
       const partes = [];
@@ -1352,6 +1407,9 @@ function deTema(
     //    ni "para quistes sirve". Eso lo decide un medico, no un catalogo.
     // ----------------------------------------------------------------------
     case TEMAS.CONTRAINDICACION: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "es para uso externo en cabello y barba. Si tienes cuero cabelludo muy sensible, alergia previa a tintes o estás en embarazo, te recomendamos consultarlo primero con tu médico.";
+      }
       const partes = [
         "con el embarazo o cualquier condición médica no me quiero adelantar: eso sí te lo recomiendo " +
           "preguntarlo con tu médico, que es quien te conoce.",
@@ -1371,15 +1429,9 @@ function deTema(
     // ese calor, que es el motivo por el que lo esta comprando.
     // ----------------------------------------------------------------------
     case TEMAS.TEMPERATURA: {
-      // ⚠️ DEJO DE SER UN "NO LO SE" EL 2026-10-09: Marco autorizo los tres
-      //    niveles (50, 55 y 60 °C) y los 10 segundos de calentamiento.
-      //
-      // LA RECOMENDACION DEL NIVEL BAJO VA SIEMPRE PEGADA AL DATO, y no es
-      // relleno: son 60 °C sobre el abdomen. Decir la cifra sin decir por
-      // donde empezar es dar media informacion de la peligrosa.
-      //
-      // Por aqui entra tambien "¿quema?", que es la misma pregunta hecha con
-      // miedo. La respuesta correcta es la misma: los niveles y el consejo.
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no requiere calor ni temperatura especial: se usa con agua normal en la ducha o lavamanos.";
+      }
       const t = producto && producto.temperatura;
       if (t && t.texto) {
         const partes = [t.texto];
@@ -1404,6 +1456,9 @@ function deTema(
     // por eso se empieza por el nivel bajo.
     // ----------------------------------------------------------------------
     case TEMAS.QUEMA: {
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "no quema: es una fórmula herbal suave para el cuero cabelludo. Solo debes usar los guantes incluidos durante la aplicación y evitar el contacto con los ojos.";
+      }
       const t = producto && producto.temperatura;
       const partes = ["si lo usas bien, no 😊"];
       if (t && t.texto) partes.push(`${t.texto.charAt(0).toUpperCase()}${t.texto.slice(1)}`);
@@ -1563,6 +1618,12 @@ function deTema(
     // control- y con la consecuencia obvia de llevarlo puesto.
     // ----------------------------------------------------------------------
     case TEMAS.COMPARATIVA: {
+      if (producto && producto.comparativa && producto.comparativa.texto) {
+        return producto.comparativa.texto;
+      }
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+        return "a diferencia de los tintes tradicionales que resecan y usan amoníaco agresivo, este champú cubre las canas en 10-15 minutos en la ducha con extractos herbales, de forma rápida, práctica y sin maltratar tu cabello.";
+      }
       const graduable = producto && producto.ajuste && producto.ajuste.graduable === true;
       const tienePanel = caracteristica(producto, /panel\s+de\s+control/i);
       const partes = ["la diferencia es que este te lo dejas puesto y sigues con tus cosas."];

@@ -189,6 +189,25 @@
   "paraQueSirve": {
     "texto": "Sí, es justo para eso: cubre las canas de forma natural y rápida mientras te lavas, devolviendo un tono oscuro uniforme sin maltratar el cabello con tintes tradicionales ni amoníaco agresivo."
   },
+  "cuidado": {
+    "texto": "lo guardas en un lugar fresco y seco, lejos del sol directo. Cada sobre viene sellado individualmente para que uses solo el que necesitas."
+  },
+  "tiempoDeUso": {
+    "texto": "se deja actuar de 10 a 15 minutos sobre el cabello o barba y luego se enjuaga con abundante agua."
+  },
+  "duracion": {
+    "texto": "el color dura entre 3 y 4 semanas según el crecimiento natural de tu cabello o barba."
+  },
+  "comparativa": {
+    "texto": "a diferencia de los tintes tradicionales que resecan y usan amoníaco agresivo, este champú cubre las canas en 10-15 minutos en la ducha con extractos herbales, de forma rápida, práctica y sin maltratar tu cabello."
+  },
+  "seguridad": {
+    "texto": "es una fórmula herbal suave sin amoníaco agresivo. Solo debes usar los guantes incluidos durante la aplicación y evitar el contacto directo con los ojos.",
+    "avisos": [
+      "usar siempre los guantes incluidos",
+      "evitar el contacto con los ojos"
+    ]
+  },
   "restricciones": [],
   "pendientes": []
 }

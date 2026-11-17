@@ -96,7 +96,10 @@ async function conversacion() {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: (() => {
+      const c = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+      return { ...c, activos: [c.porId.get("cinturon-termico-colicos")] };
+    })(),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });

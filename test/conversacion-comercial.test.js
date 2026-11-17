@@ -58,6 +58,10 @@ function catalogoReal() {
 }
 
 const elCinturon = () => catalogoReal().porId.get("cinturon-termico-colicos");
+const catalogoSoloCinturon = () => {
+  const c = catalogoReal();
+  return { ...c, activos: [c.porId.get("cinturon-termico-colicos")] };
+};
 
 // --------------------------------------------------------------------------
 // UN WAMID QUE NO PUEDE COLISIONAR
@@ -101,7 +105,7 @@ async function conversacion({ respuestaAutomatica = true } = {}) {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: catalogoReal(),
+    catalogo: catalogoSoloCinturon(),
     // Sin IA: se prueba EL CAMINO DETERMINISTA a proposito. Es el que atiende
     // cuando el modelo falla, tarda, o dice algo que no pasa los filtros, y
     // es el que no podia depender de Gemini.

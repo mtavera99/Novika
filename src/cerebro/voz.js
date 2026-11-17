@@ -67,6 +67,7 @@ const APERTURAS = {
   [TEMAS.OBJECION_PRECIO]: "Te entiendo, y te explico:",
   // Comparar es lo normal. No se discute ni se defiende: se reconoce.
   [TEMAS.VISTO_MAS_BARATO]: "Te entiendo, es normal comparar.",
+  [TEMAS.COMBOS]: "¡Claro que sí! Te cuento las promociones:",
 
   // ======================================================================
   // APERTURAS DE LOS TEMAS DEL 2026-10-09
@@ -156,6 +157,9 @@ function temasQueSeContestan(temas) {
   if (lista.includes(TEMAS.OBJECION_PRECIO)) {
     lista = lista.filter((t) => t !== TEMAS.ENVIO && t !== TEMAS.PAGO);
   }
+  if (lista.includes(TEMAS.COMBOS)) {
+    lista = lista.filter((t) => t !== TEMAS.OBJECION_PRECIO && t !== TEMAS.PRECIO);
+  }
   return lista;
 }
 
@@ -189,6 +193,7 @@ const EMOJIS = {
   [TEMAS.MEDIDAS]: "🙌",
   [TEMAS.CONFIANZA]: "🙌",
   [TEMAS.OBJECION_PRECIO]: "💡",
+  [TEMAS.COMBOS]: "🔥",
 
   // ---- Temas del 2026-10-09 ----
   //

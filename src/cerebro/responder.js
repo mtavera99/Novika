@@ -862,7 +862,7 @@ function pedirLoQueFalta(faltan, { cantidadInformada = null, comoProceso = false
 // los contesta `lineaComercial`. Se agrupan para no decir tres veces lo
 // mismo en el mismo mensaje.
 // --------------------------------------------------------------------------
-const TEMAS_COMERCIALES = [preguntas.TEMAS.PRECIO, preguntas.TEMAS.ENVIO, preguntas.TEMAS.PAGO];
+const TEMAS_COMERCIALES = [preguntas.TEMAS.PRECIO, preguntas.TEMAS.ENVIO, preguntas.TEMAS.PAGO, preguntas.TEMAS.COMBOS];
 
 // --------------------------------------------------------------------------
 // EL CIERRE QUE INVITA SIN PRESIONAR
@@ -2599,10 +2599,14 @@ function preparar(entrada = {}) {
   // esa cifra sale del cotizador: sin autorizarla aqui, el candado
   // bloquearia al modelo por repetir un precio que el propio bot acaba de
   // decir.
+  const preciosTabla = (producto && producto.precios && Object.values(producto.precios)) || [];
+  const cantidadesTabla = (producto && producto.precios && Object.keys(producto.precios).map(Number)) || [];
   const autorizados = [
     ...((cotizacion && cotizacion.importesAutorizados) || []),
     ...((cotizacionInformativa && cotizacionInformativa.importesAutorizados) || []),
     ...importesDeLaOfertaDeDos(producto),
+    ...preciosTabla,
+    ...cantidadesTabla,
   ];
   const importes = revisarImportes(borradorIA, autorizados);
   if (!importes.ok) {

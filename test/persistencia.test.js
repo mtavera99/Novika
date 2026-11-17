@@ -56,7 +56,7 @@ test("en Render, una carpeta en otro sistema de archivos es un disco persistente
   const r = persistencia.revisar(carpetaNueva("con-disco"), {
     enRender: true,
     // Simula que el codigo vive en otro dispositivo, como pasa con un Disk montado.
-    dirCodigo: "/proc", // procfs: siempre otro dispositivo
+    dirCodigo: process.platform === "darwin" ? "/dev" : "/proc",
   });
 
   assert.equal(r.modo, persistencia.MODOS.DISCO);
