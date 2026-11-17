@@ -143,6 +143,15 @@ function ofertaDeDos(producto) {
   return dos.cotizacion;
 }
 
+function ofertaDeTres(producto) {
+  if (!producto) return null;
+  const una = cotizador.cotizar({ producto, cantidad: 1 });
+  const tres = cotizador.cotizar({ producto, cantidad: 3 });
+  if (!una.cotizacion || !tres.cotizacion) return null;
+  if (tres.cotizacion.total >= una.cotizacion.total * 3) return null;
+  return tres.cotizacion;
+}
+
 /**
  * ¿Se paga al recibir? ¿Va incluido el envio?
  *
@@ -407,11 +416,13 @@ function deTema(
       if (!cotizacion) return null;
       const varias = cotizacion.cantidad > 1;
       const sujeto = varias ? `${cotizacion.cantidad} unidades` : nombre;
-      // Mayuscula: esta frase empieza el mensaje. Salia "el cinturón térmico
-      // te queda en $49.900", en minuscula, que se lee como un fragmento.
-      // En minuscula: estas frases ahora van detras de una apertura
-      // ("Claro que sí, el cinturón te queda en..."). Quien compone el
-      // mensaje se encarga de la mayuscula inicial.
+      if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas") && !varias) {
+        const dos = ofertaDeDos(producto);
+        const tres = ofertaDeTres(producto);
+        if (dos && tres) {
+          return `una unidad te queda en ${pesos(cotizacion.total)}. También manejamos los combos de los anuncios: 2 cajas por ${pesos(dos.total)} o 3 cajas por ${pesos(tres.total)} (la más pedida), con envío gratis y pago contraentrega.`;
+        }
+      }
       return `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}.`;
     }
 
@@ -1944,6 +1955,7 @@ module.exports = {
   prometeConfirmar,
   PROMETE_CONFIRMAR,
   ofertaDeDos,
+  ofertaDeTres,
   // Los dos hechos comerciales que mas veces hay que consultar desde fuera
   // (la rama "declina" los usa para recordar que no se arriesga plata).
   // Salen del catalogo, nunca de un texto escrito a mano.

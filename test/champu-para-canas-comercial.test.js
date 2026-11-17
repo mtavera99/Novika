@@ -80,6 +80,8 @@ describe("Champú Cubre Canas Dexe - Respuestas autorizadas y cero fugas", () =>
     const r = await dice("Hola, quiero información del champú para canas");
     assert.equal(r.traza.producto.productoId, "champu-para-canas");
     assert.match(r.texto, /cubre las canas/i);
+    assert.match(r.texto, /89\.000/);
+    assert.match(r.texto, /119\.000/);
     assert.match(r.texto, /59\.900/);
     assert.equal(/cintur[oó]n|c[oó]lico|abdomen/i.test(r.texto), false, `Fuga del cinturón: ${r.texto}`);
   });

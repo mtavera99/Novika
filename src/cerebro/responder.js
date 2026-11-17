@@ -584,20 +584,21 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
   const frase = producto && typeof producto.enUnaFrase === "string" ? producto.enUnaFrase.trim() : "";
   if (frase) partes.push(`${mayuscula(voz.elProducto(producto))} ${frase.replace(/[.\s]+$/, "")}.`);
 
-  if (cotizacion) partes.push(lineaComercial(cotizacion, producto, { asumida }));
-
-  // La pareja, de entrada. Una sola frase y con la cifra puesta: ofrecer
-  // "te paso el precio de dos" obliga a un turno mas.
-  //
-  // ⚠️ SOLO SI HAY COTIZACION, Y NO ES UNA FORMALIDAD.
-  //
-  // Sin cotizacion -producto en borrador, o antes de poder cotizar- NO puede
-  // aparecer NINGUNA cifra: no hay ningun importe autorizado en ese turno, y
-  // una cifra suelta ahi es justo lo que `revisarImportes` existe para
-  // cazar. Lo destapo la prueba "SIN cotización, ningún texto nombra una
-  // cifra", que es de las que protegen de cobrar mal.
-  const dos = cotizacion ? ofertaDeDosAutorizada(producto) : null;
-  if (dos) partes.push(`Si llevas dos, te quedan en ${contestar.pesos(dos.total)} las dos juntas.`);
+  if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
+    const dos = cotizacion ? ofertaDeDosAutorizada(producto) : null;
+    const tres = cotizacion ? ofertaDeTresAutorizada(producto) : null;
+    if (tres && dos) {
+      partes.push(`Manejamos los combos de los anuncios: Combo 2 cajas por ${contestar.pesos(dos.total)} y Combo 3 cajas por ${contestar.pesos(tres.total)} (la más pedida). Si deseas solo 1 caja para probar, te queda en ${contestar.pesos(cotizacion.total)}, con envío incluido y pagas al recibir.`);
+    } else if (dos) {
+      partes.push(`Una unidad te queda en ${contestar.pesos(cotizacion.total)}, con envío incluido y pagas al recibir. Si llevas dos, te quedan en ${contestar.pesos(dos.total)} las dos juntas.`);
+    } else if (cotizacion) {
+      partes.push(lineaComercial(cotizacion, producto, { asumida }));
+    }
+  } else {
+    if (cotizacion) partes.push(lineaComercial(cotizacion, producto, { asumida }));
+    const dos = cotizacion ? ofertaDeDosAutorizada(producto) : null;
+    if (dos) partes.push(`Si llevas dos, te quedan en ${contestar.pesos(dos.total)} las dos juntas.`);
+  }
 
   // UNA caracteristica, no dos: el mensaje ya trae precio, condiciones y
   // oferta. Mas que eso es el muro de texto que la gente deja de leer.
@@ -624,6 +625,14 @@ function arranque(cotizacion, producto, { asumida = false } = {}) {
 function ofertaDeDosAutorizada(producto) {
   try {
     return contestar.ofertaDeDos(producto);
+  } catch {
+    return null;
+  }
+}
+
+function ofertaDeTresAutorizada(producto) {
+  try {
+    return contestar.ofertaDeTres(producto);
   } catch {
     return null;
   }
