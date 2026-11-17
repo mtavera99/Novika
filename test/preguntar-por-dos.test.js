@@ -88,10 +88,16 @@ async function conversacion() {
     },
   });
 
+  const cat = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  const catalogoCinturon = {
+    ...cat,
+    activos: [cat.porId.get("cinturon-termico-colicos")],
+  };
+
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: catalogoCinturon,
     ia: crearCliente({ proveedor: null }),
     emisor,
   });

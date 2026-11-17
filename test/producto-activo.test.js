@@ -90,10 +90,8 @@ describe("1 · la ficha que confirmo Marco", () => {
     assert.deepEqual(r.avisos, [], `avisos: ${JSON.stringify(r.avisos)}`);
 
     const c = catalogoReal();
-    assert.equal(c.activos.length, 1);
-    // Activar UN producto no crea un producto por defecto. Con un solo
-    // producto la tentacion es asumirlo siempre, y eso es exactamente como
-    // se despacha el equivocado el dia que haya dos.
+    assert.equal(c.activos.length, 2);
+    // Activar productos no crea un producto por defecto.
     assert.equal(c.productoPorDefecto, null);
   });
 
@@ -538,7 +536,7 @@ describe("5 · la conversacion completa", () => {
     // guarda anti-eco cortaba la conversacion.
     const { hablar, repos } = await montar();
 
-    await hablar("¿cuánto me salen dos?");
+    await hablar("¿cuánto me salen dos cinturones?");
     await hablar("las quiero");
     const resumen = await hablar("Ana Pérez, Medellín, Calle 45 # 23-10");
 
@@ -560,7 +558,7 @@ describe("5 · la conversacion completa", () => {
     // Lo que diga el cliente en ESTE turno manda siempre.
     const { hablar, repos } = await montar();
 
-    await hablar("¿cuánto me salen dos?");
+    await hablar("¿cuánto me salen dos cinturones?");
     await hablar("mejor quiero 1");
     const resumen = await hablar("Ana Pérez, Medellín, Calle 45 # 23-10");
 

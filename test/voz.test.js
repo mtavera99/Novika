@@ -550,7 +550,7 @@ describe("5 · dar un dato dispara el cierre", () => {
   // ------------------------------------------------------------------------
   test("EL CASO DE PALMIRA: acusa recibo con la ciudad y pide lo que falta", async () => {
     const v = await ventaReal();
-    await v.dice("hola");
+    await v.dice("hola, vi el cinturón");
     await v.dice("¿cuánto vale?");
     await v.dice("lo quiero");
     const r = await v.dice("Palmira");
@@ -573,7 +573,7 @@ describe("5 · dar un dato dispara el cierre", () => {
     // mensaje que los datos de despacho. "Sumás una línea, no cambiás la
     // pedida."
     const v = await ventaReal();
-    await v.dice("hola");
+    await v.dice("hola, vi el cinturón");
     // "me interesa" es señal de compra y NO fija la cantidad: es lo que hace
     // falta para comprobar que la cantidad se pide DENTRO de la pedida.
     // Con "lo quiero" la heuristica ya propone 1 y no habria nada que pedir.
@@ -652,7 +652,7 @@ describe("5 · dar un dato dispara el cierre", () => {
     // Lo que se protege sigue siendo lo mismo: que el resumen llegue con la
     // cantidad y el importe correctos sin un turno extra de por medio.
     const v = await ventaReal();
-    await v.dice("hola");
+    await v.dice("hola, quiero el cinturón");
     await v.dice("Palmira");
     const r = await v.dice("Calle 20 # 15-30, soy Luz Marina");
 
@@ -667,7 +667,7 @@ describe("5 · dar un dato dispara el cierre", () => {
     // pedir el si. Lo que NO puede hacer es repetir el cuadro entero ni
     // pedirle que concrete.
     const v = await ventaReal();
-    await v.dice("hola");
+    await v.dice("hola, quiero el cinturón");
     await v.dice("Palmira");
     await v.dice("Calle 20 # 15-30, soy Luz Marina");
     const r = await v.dice("uno");
@@ -678,7 +678,7 @@ describe("5 · dar un dato dispara el cierre", () => {
 
   test("y la venta se confirma, con un solo pedido", async () => {
     const v = await ventaReal();
-    await v.dice("hola");
+    await v.dice("hola, quiero el cinturón");
     await v.dice("Palmira");
     await v.dice("Calle 20 # 15-30, soy Luz Marina");
     await v.dice("uno");

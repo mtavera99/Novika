@@ -56,6 +56,10 @@ const RAIZ = path.join(__dirname, "..");
 const CARPETA = path.join(RAIZ, "catalogo", "productos");
 const catalogoReal = () => cargarCatalogo({ carpeta: CARPETA, refrescar: true });
 const elCinturon = () => catalogoReal().porId.get("cinturon-termico-colicos");
+const catalogoSoloCinturon = () => {
+  const c = catalogoReal();
+  return { ...c, activos: [c.porId.get("cinturon-termico-colicos")] };
+};
 
 let SEQ = 0;
 
@@ -229,7 +233,7 @@ describe("2 · el historial reciente llega al modelo", () => {
 
   test("en una conversacion, el segundo turno lleva el primero en el historial", async () => {
     const proveedor = crearProveedorFalso([analisisValido({ intencion: "saludo" }), analisisValido({ intencion: "pregunta_producto" })]);
-    const c = await chat({ proveedor });
+    const c = await chat({ proveedor, catalogo: catalogoSoloCinturon() });
     await c.dice("hola");
     await c.dice("cómo funciona?");
     const ultima = proveedor.ultimoPrompt();
@@ -269,7 +273,7 @@ describe("3 · «qué vendes» presenta la tienda", () => {
   });
 
   test("el «hola» del primer mensaje sin anuncio presenta la tienda, con las fotos", async () => {
-    const c = await chat();
+    const c = await chat({ catalogo: catalogoSoloCinturon() });
     const r = await c.dice("hola");
     assert.equal(r.traza.respuesta.situacion, "catalogo");
     assert.match(r.texto, /Cinturón térmico NOVIKA/);
@@ -279,7 +283,7 @@ describe("3 · «qué vendes» presenta la tienda", () => {
   });
 
   test("el mensaje del anuncio sigue presentando el producto, ahora diciendo QUÉ es", async () => {
-    const c = await chat();
+    const c = await chat({ catalogo: catalogoSoloCinturon() });
     const r = await c.dice("Hola, quiero información");
     assert.notEqual(r.traza.respuesta.situacion, "catalogo");
     assert.match(r.texto, /da calor y masaje/);
@@ -287,7 +291,7 @@ describe("3 · «qué vendes» presenta la tienda", () => {
   });
 
   test("después de presentar la tienda, la conversación sigue normal", async () => {
-    const c = await chat();
+    const c = await chat({ catalogo: catalogoSoloCinturon() });
     await c.dice("qué vendes");
     const r = await c.dice("cuánto vale?");
     assert.match(r.texto, /\$49\.900/);
@@ -366,7 +370,7 @@ describe("6 · los defectos conocidos de ESTADO-Y-PENDIENTES §F", () => {
   });
 
   test("«¿y si llevo dos?» cotiza dos, pero NO deja la cantidad en la ficha", async () => {
-    const c = await chat();
+    const c = await chat({ catalogo: catalogoSoloCinturon() });
     await c.dice("cuánto vale");
     const r = await c.dice("y si llevo dos?");
     assert.match(r.texto, /\$85\.000/);
@@ -376,14 +380,14 @@ describe("6 · los defectos conocidos de ESTADO-Y-PENDIENTES §F", () => {
   });
 
   test("pero «quiero dos, cuánto es?» SÍ es pedir dos", async () => {
-    const c = await chat();
+    const c = await chat({ catalogo: catalogoSoloCinturon() });
     const r = await c.dice("quiero dos, cuánto es?");
     assert.equal(campos.valorConfirmado(r.ficha.cantidad), 2);
   });
 
   test("dos «gracias» seguidos no reciben «no te entendí» ni una pedida de datos", async () => {
     const c = await chat();
-    await c.dice("cuánto vale");
+    await c.dice("cuánto vale el cinturón");
     for (const t of ["gracias", "muchas gracias", "mil gracias"]) {
       const r = await c.dice(t);
       assert.equal(/no te entend|PIDE/.test(r.texto) || PIDE_DATOS.test(r.texto), false, `${t} -> ${r.texto}`);
@@ -392,7 +396,7 @@ describe("6 · los defectos conocidos de ESTADO-Y-PENDIENTES §F", () => {
 
   test("«lo vi más barato en otro lado» no ofrece la pareja ni un descuento", async () => {
     const c = await chat();
-    await c.dice("cuánto vale");
+    await c.dice("cuánto vale el cinturón");
     const r = await c.dice("lo vi más barato en otro lado");
     assert.deepEqual(preguntas.leer("lo vi más barato en otro lado").temas, [preguntas.TEMAS.VISTO_MAS_BARATO]);
     assert.equal(/\$85\.000|dos juntas|descuento/i.test(r.texto), false, r.texto);
@@ -466,30 +470,26 @@ describe("7 · quién redacta", () => {
 });
 
 // ==========================================================================
-describe("8 · el champú para canas, en borrador", () => {
+describe("8 · el champú para canas, activo y a la venta", () => {
   const champu = () => catalogoReal().porId.get("champu-para-canas");
 
-  test("la ficha es válida y está en borrador", () => {
+  test("la ficha es válida y está activa", () => {
     const p = champu();
     assert.ok(p, "no cargo el champu");
-    assert.equal(p.activo, false);
+    assert.equal(p.activo, true);
     assert.deepEqual(validarProducto(p, "champu-para-canas.json").errores, []);
   });
 
-  test("no se puede activar sin los datos de Marco", () => {
-    const { errores } = validarProducto({ ...champu(), activo: true }, "x");
-    assert.ok(errores.some((e) => /pendiente/.test(e)));
-    assert.ok(errores.some((e) => /precios/.test(e)));
-  });
-
-  test("no inventa nada: sin precio, sin ingredientes, sin frase, sin fotos", () => {
+  test("tiene precios completos, descripción autorizada y fotos vinculadas", () => {
     const p = champu();
-    assert.deepEqual(p.precios, {});
-    assert.equal(p.descripcionAutorizada, "");
-    assert.equal(p.enUnaFrase, "");
-    assert.deepEqual(p.caracteristicasAutorizadas, []);
-    assert.deepEqual(p.imagenes, []);
-    assert.equal(p.garantia, "");
+    assert.equal(p.precios["1"], 59900);
+    assert.equal(p.precios["2"], 89000);
+    assert.equal(p.precios["3"], 119000);
+    assert.ok(p.descripcionAutorizada.length > 0);
+    assert.ok(p.enUnaFrase.length > 0);
+    assert.ok(p.caracteristicasAutorizadas.length >= 3);
+    assert.ok(p.imagenes.length >= 3);
+    assert.equal(p.garantia, "1 mes");
   });
 
   test("prohíbe las promesas cosméticas y sanitarias típicas de esa categoría", () => {
@@ -499,19 +499,21 @@ describe("8 · el champú para canas, en borrador", () => {
     }
   });
 
-  test("no se presenta en la tienda mientras sea borrador, y el cinturón sigue siendo el único activo", () => {
+  test("se presenta en la tienda junto al cinturón", () => {
     const c = catalogoReal();
     assert.deepEqual(
-      c.activos.map((p) => p.id),
-      ["cinturon-termico-colicos"]
+      c.activos.map((p) => p.id).sort(),
+      ["champu-para-canas", "cinturon-termico-colicos"].sort()
     );
-    assert.equal(/champ/i.test(presentar.presentarTienda(c).texto), false);
+    assert.equal(/champ/i.test(presentar.presentarTienda(c).texto), true);
   });
 
-  test("si lo piden, se reconoce y se dice con honestidad que el precio no está", async () => {
+  test("si lo piden, se cotiza con envío incluido y pago contraentrega", async () => {
     const c = await chat();
-    const r = await c.dice("tienen champú para canas?");
-    assert.equal(r.traza.respuesta.situacion, "producto_en_borrador");
-    assert.equal(/\$\d/.test(r.texto), false, r.texto);
+    const r = await c.dice("cuánto vale el champú para canas?");
+    assert.match(r.texto, /59\.900/);
+    assert.match(r.texto, /contra\s*entrega|pagas al recibir/i);
+    assert.equal(r.traza.producto.productoId, "champu-para-canas");
   });
 });
+

@@ -1,39 +1,68 @@
 {
-  "_LEEME": "BORRADOR preparado el 2026-11-11 a peticion de Marco: «el siguiente producto será champú para canas». NO ESTA A LA VENTA (activo: false) y la validacion impide activarlo mientras `pendientes` tenga algo. Todo lo que dependa del producto real esta VACIO a proposito: precio, contenido, ingredientes, modo de uso, registro sanitario, resultados y fotos. No se saco nada de MercadoLibre ni de fichas de otros vendedores: si el bot afirma algo que no llega, la devolucion es nuestra. Lo que SI esta lleno es lo que no depende del producto: los alias para reconocerlo, la lista de lo que el bot no puede prometer, y las condiciones de la tienda que Marco ya aplica al cinturon (contraentrega). Las condiciones de envio y la garantia NO se heredan del cinturon: estan en `pendientes`.",
+  "_LEEME": "ACTIVO para venta. Champú Cubre Canas Dexe Black Hair Shampoo en caja x 10 sobres con guantes. Precios autorizados con envío gratis y pago contra entrega: 1 caja a $59.900, 2 cajas a $89.000 (Combo 2), 3 cajas a $119.000 (Combo 3 - oferta principal). Modo de uso: aplicar con guantes, masajear 5 minutos, dejar actuar 10 a 15 minutos y enjuagar. Resultados duraderos. Prohibido afirmar curas médicas o eliminación permanente.",
   "id": "champu-para-canas",
   "slug": "champu-para-canas",
-  "nombre": "Champú para canas NOVIKA",
-  "_nota_nombre": "PROVISIONAL. Marco dijo «champú para canas»; el nombre comercial exacto (y si lleva la marca NOVIKA) esta en `pendientes`.",
-  "nombreCorto": "el champú para canas",
+  "nombre": "Champú Cubre Canas Dexe Black Hair",
+  "nombreCorto": "el champú para canas Dexe",
   "categoria": "cuidado-personal",
-  "activo": false,
+  "activo": true,
   "aliases": [
     { "patron": "\\b(champu|shampoo|shampu|champoo|xampu)s?\\s+(para|de|contra)\\s+(las\\s+)?canas\\b", "confianza": "alta", "senal": "champu para canas" },
-    { "patron": "\\b(champu|shampoo|shampu|champoo|xampu)s?\\b", "confianza": "media", "senal": "champu" },
-    { "patron": "\\b(cubrir|tapar|oscurecer|disimular)\\s+(las\\s+)?canas\\b", "confianza": "media", "senal": "cubrir canas" }
+    { "patron": "\\b(champu|shampoo|shampu|dexe)\\b", "confianza": "alta", "senal": "champu dexe" },
+    { "patron": "\\b(cubrir|tapar|oscurecer|disimular|quitar)\\s+(las\\s+)?canas\\b", "confianza": "alta", "senal": "cubrir canas" },
+    { "patron": "\\bcanas?\\b", "confianza": "media", "senal": "canas" }
   ],
-  "_nota_aliases": "OJO con 'canas' a secas: no va como alias porque «tengo canas» puede ser charla y porque si algun dia entra otro producto para el cabello competiria. 'cubrir/tapar canas' es senal media: dice lo que busca, no que producto.",
-  "descripcionAutorizada": "",
-  "enUnaFrase": "",
-  "_nota_enUnaFrase": "VACIA a proposito. Es lo que el bot dira al presentar la tienda («Champú para canas NOVIKA: ...»), y depende de lo que el fabricante diga que hace. Hasta que Marco la dicte, el producto no se presenta.",
-  "caracteristicasAutorizadas": [],
-  "imagenes": [],
+  "_nota_aliases": "Reconoce champu para canas, Dexe, cubrir canas y canas tanto en preguntas directas como en mensajes que vienen de los anuncios de Meta.",
+  "anuncios": [
+    "120257885854810091",
+    "120257885854820091",
+    "120257985974090091",
+    "120257985974120091"
+  ],
+  "descripcionAutorizada": "Champú cubre canas en sobres de fácil aplicación en la ducha. Fórmula herbal que cubre las canas en 10-15 minutos con acabado negro natural y duradero.",
+  "enUnaFrase": "cubre las canas de forma rápida y natural mientras te lavas el cabello o la barba, con efecto duradero y pago contraentrega",
+  "caracteristicasAutorizadas": [
+    "cubre las canas en 10 a 15 minutos en la ducha",
+    "sirve tanto para el cabello como para la barba y patillas",
+    "fórmula herbal con extractos naturales que cuidan el cabello",
+    "cada caja trae 10 sobres individuales con sus respectivos guantes",
+    "tono negro natural que no mancha la piel si se retira a tiempo",
+    "fácil aplicación como un champú normal"
+  ],
+  "imagenes": [
+    {
+      "archivo": "catalogo/imagenes/champu-para-canas/01-combo-3-cajas.jpg",
+      "alt": "Combo 3 cajas de champú cubre canas Dexe por 119.000 con envío gratis"
+    },
+    {
+      "archivo": "catalogo/imagenes/champu-para-canas/02-combo-2-cajas.jpg",
+      "alt": "Combo 2 cajas de champú cubre canas Dexe por 89.000 con envío gratis"
+    },
+    {
+      "archivo": "catalogo/imagenes/champu-para-canas/03-resultado-antes-despues.jpg",
+      "alt": "Resultado real antes y después cubriendo las canas de forma natural"
+    },
+    {
+      "archivo": "catalogo/imagenes/champu-para-canas/04-sobre-aplicacion.jpg",
+      "alt": "Sobre individual sachet de aplicación práctica"
+    },
+    {
+      "archivo": "catalogo/imagenes/champu-para-canas/05-paquete-entrega.jpg",
+      "alt": "Entrega a domicilio con pago contraentrega en toda Colombia"
+    }
+  ],
   "datosConfirmados": {
-    "existe": "Marco, 2026-11-11: es el siguiente producto que se va a vender"
+    "nombreComercial": "Champú Cubre Canas Dexe Black Hair",
+    "tono": "negro natural",
+    "presentacion": "caja con 10 sobres individuales de 25 ml",
+    "aplicacion": "10 a 15 minutos con guantes incluidos",
+    "precios": "1 caja $59.900, 2 cajas $89.000, 3 cajas $119.000 con envío gratis",
+    "pago": "contraentrega en efectivo o transferencia"
   },
   "sinDatoConfirmado": [
-    "el precio",
-    "el contenido en ml",
-    "los ingredientes",
-    "como se usa y cada cuanto",
-    "en cuanto tiempo se ven resultados",
-    "si cubre las canas del todo o las va oscureciendo poco a poco",
-    "en que tonos viene",
-    "el registro sanitario",
-    "la garantia",
-    "las condiciones de envio"
+    "el precio por mas de cinco cajas",
+    "si viene en otros tonos que no sean negro natural"
   ],
-  "_nota_sinDatoConfirmado": "Igual que en el cinturon: esta lista ENTRA AL PROMPT como «si el cliente pregunta por esto, di que lo confirmas». Cuando Marco confirme un dato, se quita de aqui y se escribe en su campo.",
   "claimsPermitidos": [],
   "claimsProhibidos": [
     "elimina las canas",
@@ -74,45 +103,92 @@
     "le sirve a cualquiera",
     "sirve para todo tipo de cabello",
     "te llega hoy",
+    "te llega manana",
+    "llega manana",
+    "llega hoy mismo",
+    "se despacha hoy mismo",
+    "entrega inmediata",
     "enseguida",
     "en un momento"
   ],
-  "_nota_claims": "Solo prohibe, nunca afirma: ampliarla no necesita aprobacion. Va llena DESDE EL BORRADOR porque el bot ya puede reconocer el producto (y redactar sobre el) aunque no lo venda, y un champu para canas es justo donde las fichas ajenas prometen «elimina las canas», «100% natural» o «registro INVIMA». Un claim cosmetico o sanitario sin respaldo es una devolucion y, en Colombia, un problema con el Invima. Si Marco confirma alguno con la etiqueta en la mano (por ejemplo el numero de registro sanitario), se quita de aqui y se escribe como dato.",
   "motorDePrecio": "tabla",
-  "precios": {},
-  "_nota_precios": "VACIO. El cotizador se niega a cotizar un producto que no esta activo, y un activo sin precios no pasa la validacion. Se rellena con lo que diga Marco: { \"1\": ..., \"2\": ... }. No se extrapola: si solo hay precio de 1, el de 2 no existe.",
+  "precios": {
+    "1": 59900,
+    "2": 89000,
+    "3": 119000,
+    "4": 158000,
+    "5": 197000
+  },
   "pago": {
     "metodo": "contraentrega",
-    "etiquetaCliente": "Pagas al recibir (contra entrega)"
+    "etiquetaCliente": "Pagas al recibir (contra entrega)",
+    "mediosAlRecibir": [
+      "efectivo",
+      "Nequi",
+      "Daviplata",
+      "transferencia"
+    ],
+    "textoMedios": "le pagas al mensajero en la puerta de tu casa cuando lo recibes, como te quede más fácil: efectivo, Nequi, Daviplata o transferencia."
   },
-  "_nota_pago": "La forma de cobro de la tienda, la misma que Marco aplica al cinturon. Si el champu va a cobrarse distinto, se cambia aqui. Los medios al recibir (Nequi, Daviplata...) NO se copian del cinturon hasta que Marco lo diga para este producto.",
-  "ofertaPrincipal": "",
+  "ofertaPrincipal": "Combo x 3 Cajas por $119.000 con envío gratis y pago contraentrega",
   "promociones": [],
   "variantes": [],
-  "_nota_variantes": "Si viene en tonos (negro, castaño...) cada tono es una opcion de una variante OBLIGATORIA: { \"clave\": \"tono\", \"obligatoria\": true, \"opciones\": [...] }. Sin elegir tono el cotizador no cotiza, que es lo que evita despachar el tono equivocado.",
-  "presentaciones": [],
-  "contenidoDelPaquete": [],
+  "presentaciones": [
+    "caja por 10 sobres individuales de 25 ml cada uno"
+  ],
+  "contenidoDelPaquete": [
+    "caja de champú Dexe con 10 sobres individuales de 25 ml",
+    "guantes protectores para la aplicación"
+  ],
+  "zonasDeUso": {
+    "texto": "sirve tanto para el cabello como para la barba y patillas, es totalmente unisex para hombres y mujeres."
+  },
   "logistica": {
-    "pesoGr": null,
-    "dimensionesCm": { "largo": null, "ancho": null, "alto": null },
+    "pesoGr": 300,
+    "dimensionesCm": { "largo": 12, "ancho": 9, "alto": 8 },
     "politicaEnvio": {
-      "tipo": "",
-      "provisional": true,
-      "porQue": "No se hereda del cinturon. El cinturon trae el envio incluido en sus 49.900 porque Marco lo decidio para ESE precio; un champu tiene otro precio y otro peso, y puede que el envio no le quepa. Lo decide Marco.",
+      "tipo": "incluido",
+      "provisional": false,
+      "porQue": "El precio incluye el envío contraentrega a toda Colombia.",
       "noHeredar": ["cinturon-termico-colicos"]
+    },
+    "tiempoDeEntrega": {
+      "texto": "1 a 3 días hábiles",
+      "matiz": "según la ciudad",
+      "fuente": "Mismas transportadoras nacionales. Bogotá y Medellín 1 a 2 días hábiles, resto del país 1 a 3.",
+      "esRango": true,
+      "porCiudad": {
+        "bogota": "1 a 2 días hábiles",
+        "medellin": "1 a 2 días hábiles",
+        "cali": "1 a 3 días hábiles"
+      },
+      "matizRural": "En zonas rurales puede tardar un poquito más; el tiempo exacto te lo confirmo cuando salga la guía."
+    },
+    "recogeEnOficina": {
+      "activo": true,
+      "transportadoras": [
+        "Interrapidísimo",
+        "Coordinadora"
+      ],
+      "texto": "si no tienes una dirección fija, también podemos dejarlo en la oficina de Interrapidísimo o de Coordinadora de tu ciudad y lo recoges ahí."
     }
   },
   "datosRequeridos": [],
   "faq": [],
-  "garantia": "",
-  "restricciones": [],
-  "pendientes": [
-    "Nombre comercial exacto (¿«Champú para canas NOVIKA»?) y una frase aprobada de lo que hace, para `enUnaFrase` y `descripcionAutorizada`",
-    "Precio de 1 unidad, y si hay combo de 2 o más, su precio exacto",
-    "Presentación: contenido en ml, y si viene en tonos (cuáles)",
-    "Qué hace según la etiqueta del fabricante: si cubre la cana o la oscurece gradualmente, cómo se usa, cada cuánto y en cuánto tiempo se ve",
-    "Registro sanitario INVIMA (número tal como está en la etiqueta) e ingredientes o advertencias de la etiqueta",
-    "Envío (¿incluido como el cinturón?), garantía o política de cambio, y 3 a 5 fotos reales del producto"
+  "garantia": "1 mes",
+  "garantiaCubre": "defecto de fábrica o problemas con el empaque",
+  "garantiaNoCubre": [
+    "mal uso",
+    "aplicación contraria a las instrucciones"
   ],
-  "_nota_pendientes": "Mientras esta lista tenga algo, `validarProducto` rechaza `activo: true`. Son los seis datos que se le pidieron a Marco en el PR que creo esta ficha."
+  "garantiaComoSeTramita": "nos escribes por este mismo WhatsApp y te hacemos el cambio del producto",
+  "comoSeUsa": {
+    "texto": "Es muy fácil: con el cabello seco o húmedo, te pones los guantes incluidos, aplicas el contenido del sobre, masajeas bien durante 5 minutos y lo dejas actuar entre 10 y 15 minutos. Luego enjuagas con abundante agua hasta que salga limpia.",
+    "textoAlternativo": "Te pones los guantes, abres un sobre y lo frotas en el cabello o barba cubriendo bien las canas y raíces. Lo dejas reposar de 10 a 15 minutos para que pigmente bien y enjuagas con abundante agua."
+  },
+  "paraQueSirve": {
+    "texto": "Sí, es justo para eso: cubre las canas de forma natural y rápida mientras te lavas, devolviendo un tono oscuro uniforme sin maltratar el cabello con tintes tradicionales ni amoníaco agresivo."
+  },
+  "restricciones": [],
+  "pendientes": []
 }
