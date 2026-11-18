@@ -44,8 +44,23 @@ function carpetaNueva() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "novika-recup-"));
 }
 
-function puertoLibre() {
-  return 20000 + Math.floor(Math.random() * 20000);
+/**
+ * Un puerto que el sistema dice libre.
+ *
+ * Era un numero al azar entre 20000 y 40000, y en CI chocaba de vez en
+ * cuando (EADDRINUSE). Mientras `npm test | tee` escondia el codigo de
+ * salida no se notaba; con `pipefail` ese azar pone CI en rojo.
+ */
+async function puertoLibre() {
+  const net = require("node:net");
+  return new Promise((listo, fallo) => {
+    const s = net.createServer();
+    s.once("error", fallo);
+    s.listen(0, "127.0.0.1", () => {
+      const { port } = s.address();
+      s.close(() => listo(port));
+    });
+  });
 }
 
 function cuerpoDeMensaje(wamid, texto = "quiero comprar", idNumero = ID_NUMERO) {
@@ -151,7 +166,7 @@ test(
   { timeout: 60000 },
   async () => {
     const dir = carpetaNueva();
-    const puerto = puertoLibre();
+    const puerto = await puertoLibre();
     const wamid = "wamid.CRASH_E2E";
     const cuerpo = cuerpoDeMensaje(wamid);
 
@@ -176,7 +191,7 @@ test(
     const seTerminoAntes = trasElCrash.includes("turno_procesado");
 
     // --- 5: reinicio, como haria Render ---
-    const segundo = await arrancarServidor({ dir, puerto: puertoLibre() });
+    const segundo = await arrancarServidor({ dir, puerto: await puertoLibre() });
     // La recuperacion arranca despues de escuchar; se le da margen.
     await new Promise((r) => setTimeout(r, 1500));
     await matarDeGolpe(segundo);
@@ -213,7 +228,7 @@ test(
   { timeout: 60000 },
   async () => {
     const dir = carpetaNueva();
-    const puerto = puertoLibre();
+    const puerto = await puertoLibre();
     const wamid = "wamid.REPLAY_E2E";
     const cuerpo = cuerpoDeMensaje(wamid);
 
@@ -249,7 +264,7 @@ test(
   { timeout: 60000 },
   async () => {
     const dir = carpetaNueva();
-    const puerto = puertoLibre();
+    const puerto = await puertoLibre();
     const wamid = "wamid.LIMPIO";
     const cuerpo = cuerpoDeMensaje(wamid);
 
@@ -265,7 +280,7 @@ test(
     const antes = leerDiario(dir).filter((e) => e.tipo === "turno_procesado").length;
     assert.equal(antes, 1);
 
-    const segundo = await arrancarServidor({ dir, puerto: puertoLibre() });
+    const segundo = await arrancarServidor({ dir, puerto: await puertoLibre() });
     await new Promise((r) => setTimeout(r, 1500));
     await matarDeGolpe(segundo);
 
@@ -382,7 +397,7 @@ test(
   { timeout: 60000 },
   async () => {
     const dir = carpetaNueva();
-    const puerto = puertoLibre();
+    const puerto = await puertoLibre();
     const cuerpo = cuerpoDeMensaje("wamid.SINSOMBRA");
 
     const servidor = await arrancarServidor({ dir, puerto, extra: { MODO_SOMBRA: "0" } });

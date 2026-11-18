@@ -108,7 +108,7 @@ async function sembrar() {
   // defecto que vino a cazar.
   const repos = await crearReposDeArchivos({ dir: path.join(dir, "transaccional") });
   const producto = cargarCatalogo({
-    carpeta: path.join(RAIZ, "catalogo", "productos"),
+    carpeta: require("./ayuda").carpetaDelCinturon(),
     refrescar: true,
   }).porId.get("cinturon-termico-colicos");
 
