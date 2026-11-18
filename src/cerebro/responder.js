@@ -489,9 +489,11 @@ function lineaComercial(cotizacion, producto, { asumida = false } = {}) {
   if (c.pagoMetodo === "contraentrega") condiciones.push("pagas al recibir");
 
   const cola = condiciones.length ? `, con ${enumerar(condiciones)}` : "";
-  // Sin mayuscula: esta frase puede ir detras de una apertura ("Claro que
-  // sí, el cinturón te queda en..."). La decide `componer`.
-  return `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}${cola}.`;
+  let base = `${sujeto} te ${varias ? "quedan" : "queda"} en ${pesos(cotizacion.total)}${cola}.`;
+  if (producto && producto.id === "champu-para-canas" && !varias) {
+    base += " Cada caja trae 10 sobres con sus guantes, así que cada aplicación te sale a menos de $6.000 pesos y el color te dura de 3 a 4 semanas.";
+  }
+  return base;
 }
 
 // --------------------------------------------------------------------------

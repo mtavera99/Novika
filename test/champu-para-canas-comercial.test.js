@@ -155,5 +155,16 @@ describe("Champú Cubre Canas Dexe - Respuestas autorizadas y cero fugas", () =>
     assert.equal(/qu[eé] producto te interesa/i.test(r.texto), false, `Preguntó qué producto quería: ${r.texto}`);
     assert.equal(/cintur[oó]n|c[oó]lico/i.test(r.texto), false, `Fuga de cinturón: ${r.texto}`);
   });
+
+  test("precio de una sola caja incluye desglose de 10 sobres y menos de $6.000 por aplicación", async () => {
+    const { dice } = await chatChampu();
+    await dice("Hola, del champú para canas");
+    const r = await dice("¿Qué precio tiene?");
+    assert.match(r.texto, /59\.900/);
+    assert.match(r.texto, /10 sobres/i);
+    assert.match(r.texto, /6\.000/);
+    assert.match(r.texto, /pagas al recibir|contraentrega/i);
+  });
 });
+
 

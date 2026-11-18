@@ -1227,8 +1227,10 @@ const UNIDADES_CONSULTADAS = [
   // "y las dos", "los dos", "el par"
   /\b(?:las|los)\s+(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/,
   /\bel\s+(par)\b/,
-  // "dos unidades", "2 cinturones"
-  /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?)\b/,
+  // "dos unidades", "2 cinturones", "1 caja", "2 cajas"
+  /\b(\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|par|docena)\s+(?:unidades?|cinturones|cinturon|fajas?|cajas?|sobres?)\b/,
+  /\b(?:solo|solamente|nada\s+mas)\s+(?:una?|1)\s+(?:caja|cajita|unidad)\b/,
+  /\buna?\s+(?:sola\s+)?cajita?\b/,
   // LA CANTIDAD DE LA PREGUNTA CONDICIONAL: "y si llevo dos?", "llevando
   // tres". El patron que la reconoce como pregunta de precio vive en
   // `texto.js`; aqui hay que sacarle el numero, o se cotizaria por la

@@ -1238,11 +1238,14 @@ function deTema(
         // segunda es LO UNICO que se dice, asi que se encabeza -y se
         // enmarca como lo que es: lo mejor que hay-, porque soltar la misma
         // frase subordinada dos veces se lee como un disco rayado.
+        const fraseSegunda =
+          producto && producto.id === "champu-para-canas"
+            ? `lo mejor que te puedo hacer es la pareja: dos te quedan en ${pesos(dos.total)}, que te rinde 20 aplicaciones para varios meses y sale mucho más económica que llevarlas por separado.`
+            : `lo mejor que te puedo hacer es la pareja: dos te quedan en ${pesos(dos.total)}, que te sale bastante mejor que dos sueltas. Y si te sobra una, es el regalo perfecto para una amiga.`;
         partes.push(
           vezDeLaObjecion === 1
             ? `si llevas dos, te quedan en ${pesos(dos.total)} las dos juntas, que sale mejor que dos por separado.`
-            : `lo mejor que te puedo hacer es la pareja: dos te quedan en ${pesos(dos.total)}, ` +
-              `que te sale bastante mejor que dos sueltas. Y si te sobra una, es el regalo perfecto para una amiga.`
+            : fraseSegunda
         );
       }
 
