@@ -39,7 +39,7 @@ const RAIZ = path.join(__dirname, "..");
 const ID = "cinturon-termico-colicos";
 
 function catalogoReal() {
-  return cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  return cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
 }
 
 function elCinturon() {

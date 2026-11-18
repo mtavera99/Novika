@@ -131,6 +131,9 @@ const NOMBRES = [
   "panel_entregado",
   // El tablero operativo (2026-11-11).
   "panel_pedido_reactivado",
+  // Remarketing por plantilla fuera de la ventana de 24 h (2026-11-17).
+  "remarketing_enviado",
+  "remarketing_no_enviado",
   "panel_cierre_enviado",
   "panel_cierre_no_enviado",
 

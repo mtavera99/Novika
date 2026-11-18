@@ -78,7 +78,7 @@ async function chat({ nombrePerfil = null } = {}) {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });
@@ -114,7 +114,7 @@ async function chat({ nombrePerfil = null } = {}) {
 }
 
 const elCinturon = () =>
-  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get("cinturon-termico-colicos");
+  cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get("cinturon-termico-colicos");
 
 // ==========================================================================
 // 1 · EL "SI" DESPUES DE LA PREGUNTA DE CIERRE

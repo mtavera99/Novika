@@ -177,6 +177,36 @@ const config = {
   // necesitan plantilla aprobada. Ver src/dominio/recordatorios.js.
   // ----------------------------------------------------------------------
   recordatorios: bandera("RECORDATORIOS", false),
+
+  // --------------------------------------------------------------------------
+  // REMARKETING FUERA DE LA VENTANA DE 24 H (2026-11-17)
+  //
+  // Un toque, por plantilla aprobada, a quien se quedo callado mas de 24 h.
+  // APAGADO mientras REMARKETING_PLANTILLA este vacia, y ademas exige
+  // RECORDATORIOS=1: es el mismo barrido.
+  //
+  // REMARKETING_PRECIOS dice que importes trae IMPRESOS la plantilla
+  // ("59900,89000,119000") o "ninguno". Es obligatoria: el codigo comprueba
+  // que coincidan con el cotizador antes de mandar nada. Una plantilla con
+  // un precio viejo no sale.
+  //
+  // REMARKETING_RETIRADAS: plantillas que no se pueden usar aunque alguien
+  // las configure. Por defecto `promo_canas`, que el 17-nov tenia en Meta el
+  // precio viejo de $120.000.
+  // --------------------------------------------------------------------------
+  remarketingPlantilla: texto("REMARKETING_PLANTILLA"),
+  remarketingIdioma: texto("REMARKETING_IDIOMA") || texto("PLANTILLA_IDIOMA", "es_CO"),
+  remarketingDesdeHoras: entero("REMARKETING_DESDE_HORAS", 24),
+  remarketingHastaHoras: entero("REMARKETING_HASTA_HORAS", 72),
+  remarketingVariables: texto("REMARKETING_VARIABLES")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean),
+  remarketingPrecios: texto("REMARKETING_PRECIOS"),
+  remarketingRetiradas: texto("REMARKETING_RETIRADAS", "promo_canas")
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean),
   recordatorioMinutos: minutos("RECORDATORIO_MINUTOS", [30, 180]),
   // Hora de BOGOTA, no del servidor (Render va en UTC). Un recordatorio a
   // las 3 de la mañana no vende: hace que te bloqueen.
@@ -399,6 +429,25 @@ function revisar(c = config) {
         "mandar la guia a quien haya escrito en las ultimas 24 horas."
     );
   }
+  if (c.remarketingPlantilla) {
+    const nombre = String(c.remarketingPlantilla).trim().toLowerCase();
+    if ((c.remarketingRetiradas || []).includes(nombre)) {
+      avisos.push(
+        `REMARKETING_PLANTILLA=${c.remarketingPlantilla} esta RETIRADA (REMARKETING_RETIRADAS): no se va a ` +
+          "mandar. promo_canas tenia en Meta el precio viejo de $120.000."
+      );
+    }
+    if (!String(c.remarketingPrecios || "").trim()) {
+      avisos.push(
+        "REMARKETING_PLANTILLA esta puesta pero falta REMARKETING_PRECIOS (los importes impresos en la " +
+          'plantilla, o "ninguno"). Sin eso el remarketing no manda nada.'
+      );
+    }
+    if (!c.recordatorios) {
+      avisos.push("REMARKETING_PLANTILLA esta puesta pero RECORDATORIOS=0: el remarketing va en ese barrido y no corre.");
+    }
+  }
+
   // `revisar` se llama tambien con configuraciones PARCIALES -las pruebas
   // pasan solo los campos que les interesan-, asi que ningun campo nuevo se
   // puede dar por presente. Leerlo a pelo tumbaba la validacion entera, que

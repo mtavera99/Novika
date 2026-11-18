@@ -47,6 +47,12 @@ const BLOQUEOS = {
   CUBIERTO_POR_EL_CATALOGO: "cubierto_por_el_catalogo",
   /** Dice que el pedido salio y el pedido no ha salido. */
   DESPACHO_SIN_RESPALDO: "despacho_sin_respaldo",
+  /**
+   * Pregunta «¿qué producto te interesa?» teniendo ya el producto. 17-nov:
+   * a un cliente que llego por el anuncio del champu -el unico producto
+   * activo- el modelo le pregunto «¿qué producto te gustaría conocer?».
+   */
+  PREGUNTA_EL_PRODUCTO: "pregunta_el_producto_conocido",
   /** Nombra una cifra (segundos, horas, grados…) que el catalogo no tiene. */
   CIFRA_NO_AUTORIZADA: "cifra_no_autorizada",
   /**
@@ -185,6 +191,20 @@ function cifrasConUnidad(texto) {
  * de devolver plata.
  */
 const TEMAS_QUE_REDACTA_EL_CODIGO = [
+  // ---- 2026-11-17: los que el modelo estaba pisando en produccion ----
+  //
+  // «¿Cuánto dura el efecto del champú?» tiene una respuesta CON PUENTE
+  // COMERCIAL (combos + ciudad) escrita en codigo desde a842933, pero en
+  // modo natural la redactaba el modelo con el texto pasivo de
+  // `duracion.texto` y la oferta no salia nunca. Y «¿puede producir
+  // alergia?» lo redacto el modelo con «fórmula herbal suave sin amoníaco
+  // agresivo». Un tema cuya respuesta lleva una oferta o una advertencia no
+  // se improvisa.
+  "DURACION_EFECTO",
+  "ALERGIA",
+  "COMBOS",
+  "COLOR",
+  "MARCA",
   "OBJECION_PRECIO",
   "VISTO_MAS_BARATO",
   "MAYORISTA",
@@ -217,6 +237,10 @@ const TEMAS_QUE_REDACTA_EL_CODIGO = [
  * Situaciones con texto propio y probado: el arranque, el cuadro de
  * confirmacion, el cierre, la tienda. Son los que NO conviene improvisar.
  */
+/** «¿qué producto te interesa / te gustaría conocer / buscas?», «¿cuál producto…?». */
+const PREGUNTA_CUAL_PRODUCTO =
+  /\b(que|cual|cuales)\s+(de\s+nuestros\s+)?productos?\s+(te|le|les)?\s*(interesa|gustaria|buscas|busca|quieres|quiere|necesitas)|\bque\s+estas\s+buscando\b|\ben\s+que\s+producto\b/;
+
 const MOMENTOS_DEL_CODIGO = [
   "resumen",
   "confirmado",
@@ -1016,6 +1040,9 @@ function textoDeterminista({
   // ¿Salen las fotos del primer mensaje en este turno? Solo entonces se
   // anuncian: prometer fotos que no llegan es lo que se corrigio el 10-oct.
   conFotosDelArranque = false,
+  // ¿Hay quien le escriba despues? Lo decide el cerebro con
+  // `config.recordatorios`. Solo con eso se le puede decir «te escribo».
+  seguimientoProgramado = false,
 }) {
   // ------------------------------------------------------------------
   // UN AUDIO O UN STICKER SE CONTESTAN ANTES DE TODO LO DEMAS
@@ -1042,6 +1069,32 @@ function textoDeterminista({
   // aqui reventaba con ReferenceError y rompia el turno entero. Lo cazo una
   // prueba de esta misma tanda.
   const noEmpujar = lectura.temas.some((t) => TEMAS_SIN_CIERRE.includes(t));
+
+  // ------------------------------------------------------------------
+  // «MAÑANA HACEMOS EL PEDIDO»: SE RECONOCE Y SE DEJA PROGRAMADO
+  //
+  // 17-nov, del panel: el cliente aplazo con fecha y el bot le repitio el
+  // precio. Va ANTES del switch porque no depende de la situacion de la
+  // venta: en «faltan datos» o en «cotizado» la respuesta es la misma, y si
+  // cada rama la decide por su cuenta, alguna se olvida (es lo que paso).
+  //
+  // No se le repite el precio, no se le pide nada y no se promete hora. Si
+  // hay recordatorios encendidos, se le dice que se le escribira; si no,
+  // decirlo seria una promesa que nadie cumple.
+  // ------------------------------------------------------------------
+  const EN_LA_VENTA = ["faltan_datos", "cotizacion", "producto_desconocido", "catalogo", "producto_en_borrador"];
+  if (lectura.temas.includes(preguntas.TEMAS.OTRO_DIA) && !lectura.compra && EN_LA_VENTA.includes(situacion)) {
+    const quien = voz.nombreDePila(nombreCliente);
+    const partes = [quien ? `¡Listo, ${quien}, sin afán!` : "¡Listo, sin afán!"];
+    partes.push(
+      seguimientoProgramado
+        ? "Te escribo por aquí para retomarlo, y si se te adelanta, me escribes y te lo dejo listo."
+        : "Cuando quieras me escribes y te lo dejo listo."
+    );
+    const cot = cotizacion || cotizacionInformativa;
+    if (contestar.pagaAlRecibir(producto, cot)) partes.push("Recuerda que pagas solo cuando te llegue.");
+    return componer(partes, { emoji: "atencion" });
+  }
 
   // El saludo va UNA vez por conversacion. Repetir "¡Hola!" en cada mensaje
   // es la marca mas reconocible de un bot.
@@ -2656,6 +2709,13 @@ function preparar(entrada = {}) {
   const claims = revisarClaims(borradorIA, producto);
   if (!claims.ok) {
     bloqueos.push({ tipo: BLOQUEOS.CLAIM_PROHIBIDO, detalle: claims.encontrados });
+  }
+
+  // ¿Pregunta cual producto quiere, cuando ya se sabe? Con un producto
+  // ACTIVO en el turno eso no tiene excusa: el cliente lo dijo, vino de su
+  // anuncio, o es lo unico que se vende.
+  if (producto && producto.activo === true && PREGUNTA_CUAL_PRODUCTO.test(aplanar(borradorIA))) {
+    bloqueos.push({ tipo: BLOQUEOS.PREGUNTA_EL_PRODUCTO });
   }
 
   // Cifras que no salen del catalogo: una ficha tecnica inventada. Los

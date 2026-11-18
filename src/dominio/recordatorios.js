@@ -235,6 +235,33 @@ function decidir({
   if (!umbrales.length) return no(MOTIVOS.APAGADO, silencioMin);
   if (enviados >= umbrales.length) return no(MOTIVOS.COMPLETOS, silencioMin);
 
+  // ----------------------------------------------------------------------
+  // EL «MAÑANA» QUE CAE DE NOCHE (17-nov)
+  //
+  // A quien dice «mañana hacemos el pedido» ahora se le contesta «te
+  // escribo por aquí para retomarlo», y eso tiene que pasar. Con 20 h fijas
+  // habia un hueco: quien escribe a las 7:00 llega a las 20 h a las 3:00,
+  // fuera de horario, y la siguiente apertura (8:00) ya es la hora 25,
+  // fuera de la ventana de 24 h. La promesa se perdia en silencio.
+  //
+  // Asi que si el plazo de 20 h va a caer fuera de horario Y la siguiente
+  // apertura ya queda fuera de la ventana, se manda en la ultima
+  // oportunidad dentro de horario, siempre que hayan pasado al menos 12 h.
+  // ----------------------------------------------------------------------
+  if (esAplazado && silencioMin < umbrales[enviados] && silencioMin >= 12 * 60) {
+    const horaAhora = Number.parseInt(String(fecha.horaBogota(ahora)).slice(0, 2), 10);
+    const enHorario = Number.isFinite(horaAhora) && horaAhora >= desdeHora && horaAhora < hastaHora;
+    if (enHorario) {
+      const minHastaCierre = (hastaHora - horaAhora) * 60;
+      const minHastaApertura = (24 - horaAhora + desdeHora) * 60;
+      const llegaAlPlazoEnHorario = silencioMin + minHastaCierre >= umbrales[enviados];
+      const laSiguienteYaNoCabe = silencioMin + minHastaApertura >= 23.5 * 60;
+      if (!llegaAlPlazoEnHorario && laSiguienteYaNoCabe) {
+        return { debe: true, orden: enviados + 1, motivo: `aplazado: ultima oportunidad dentro de la ventana`, silencioMin };
+      }
+    }
+  }
+
   if (silencioMin < umbrales[enviados]) return no(MOTIVOS.PRONTO, silencioMin);
 
   // ----------------------------------------------------------------------

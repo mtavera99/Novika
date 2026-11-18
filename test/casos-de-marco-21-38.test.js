@@ -73,7 +73,7 @@ async function chat({ nombrePerfil = null, telefono = "573116391876" } = {}) {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });
@@ -458,7 +458,7 @@ describe("11-bis · el panel puede cambiar la cantidad de un pedido", () => {
   const { cotizar } = require("../src/dominio/cotizador");
 
   const elCinturon = () =>
-    cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get("cinturon-termico-colicos");
+    cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get("cinturon-termico-colicos");
 
   test("cambia la cantidad y RECALCULA el total", async () => {
     const c = await chat({ nombrePerfil: "ANDRE" });

@@ -60,8 +60,14 @@ jobs:
           fi
           echo "Sin archivos .env en el repositorio."
 
+      # ⚠ `set -o pipefail`: sin el, el codigo de salida era el de `tee`
+      # (siempre 0) y CI salia VERDE con pruebas en rojo. Paso desde el
+      # 2026-11-17: main llego a tener 171 pruebas fallando con el check en
+      # verde, porque desactivar el cinturon rompio las que lo usaban.
       - name: Pruebas
-        run: npm test | tee /tmp/salida-pruebas.txt
+        run: |
+          set -o pipefail
+          npm test | tee /tmp/salida-pruebas.txt
 
       - name: Comprobar que las pruebas de PostgreSQL NO se saltaron
         run: |

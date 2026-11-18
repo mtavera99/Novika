@@ -51,7 +51,10 @@ const RAIZ = path.join(__dirname, "..");
 const ID = "cinturon-termico-colicos";
 
 function catalogoReal() {
-  const c = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  // Desde el 17-nov el cinturon esta INACTIVO en produccion (a842933). Esta
+  // bateria prueba como se vende con su ficha, asi que usa la copia del
+  // catalogo con el cinturon activo. La ficha es la misma, palabra por palabra.
+  const c = cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
   assert.deepEqual(c.problemas, [], "el catalogo real tiene que cargar limpio");
   return c;
 }
@@ -90,7 +93,8 @@ describe("1 · la ficha que confirmo Marco", () => {
     assert.deepEqual(r.avisos, [], `avisos: ${JSON.stringify(r.avisos)}`);
 
     const c = catalogoReal();
-    assert.equal(c.activos.length, 2);
+    // En la copia de prueba, solo el cinturon esta activo.
+    assert.equal(c.activos.length, 1);
     // Activar productos no crea un producto por defecto.
     assert.equal(c.productoPorDefecto, null);
   });

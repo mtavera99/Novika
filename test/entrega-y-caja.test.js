@@ -423,7 +423,7 @@ describe("5 · nunca un pedido sin número de celular", () => {
     const path = require("node:path");
     const { cargarCatalogo } = require("../src/catalogo");
     const producto = cargarCatalogo({
-      carpeta: path.join(__dirname, "..", "catalogo", "productos"),
+      carpeta: require("./ayuda").carpetaDelCinturon(),
       refrescar: true,
     }).porId.get("cinturon-termico-colicos");
 

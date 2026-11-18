@@ -7,10 +7,26 @@
   "categoria": "cuidado-personal",
   "activo": true,
   "aliases": [
-    { "patron": "\\b(champu|shampoo|shampu|champoo|xampu)s?\\s+(para|de|contra)\\s+(las\\s+)?canas\\b", "confianza": "alta", "senal": "champu para canas" },
-    { "patron": "\\b(champu|shampoo|shampu|dexe)\\b", "confianza": "alta", "senal": "champu dexe" },
-    { "patron": "\\b(cubrir|tapar|oscurecer|disimular|quitar)\\s+(las\\s+)?canas\\b", "confianza": "alta", "senal": "cubrir canas" },
-    { "patron": "\\bcanas?\\b", "confianza": "media", "senal": "canas" }
+    {
+      "patron": "\\b(champu|shampoo|shampu|champoo|xampu)s?\\s+(para|de|contra)\\s+(las\\s+)?canas\\b",
+      "confianza": "alta",
+      "senal": "champu para canas"
+    },
+    {
+      "patron": "\\b(champu|shampoo|shampu|dexe)\\b",
+      "confianza": "alta",
+      "senal": "champu dexe"
+    },
+    {
+      "patron": "\\b(cubrir|tapar|oscurecer|disimular|quitar)\\s+(las\\s+)?canas\\b",
+      "confianza": "alta",
+      "senal": "cubrir canas"
+    },
+    {
+      "patron": "\\bcanas?\\b",
+      "confianza": "media",
+      "senal": "canas"
+    }
   ],
   "_nota_aliases": "Reconoce champu para canas, Dexe, cubrir canas y canas tanto en preguntas directas como en mensajes que vienen de los anuncios de Meta.",
   "anuncios": [
@@ -110,7 +126,18 @@
     "se despacha hoy mismo",
     "entrega inmediata",
     "enseguida",
-    "en un momento"
+    "en un momento",
+    "no da alergia",
+    "no produce alergia",
+    "no causa irritacion",
+    "no irrita",
+    "apto para piel sensible",
+    "seguro para piel sensible",
+    "seguro para todo tipo de piel",
+    "sin riesgo de alergia",
+    "cero alergias",
+    "nunca da alergia",
+    "libre de alergenos"
   ],
   "motorDePrecio": "tabla",
   "precios": {
@@ -146,12 +173,18 @@
   },
   "logistica": {
     "pesoGr": 300,
-    "dimensionesCm": { "largo": 12, "ancho": 9, "alto": 8 },
+    "dimensionesCm": {
+      "largo": 12,
+      "ancho": 9,
+      "alto": 8
+    },
     "politicaEnvio": {
       "tipo": "incluido",
       "provisional": false,
       "porQue": "El precio incluye el envío contraentrega a toda Colombia.",
-      "noHeredar": ["cinturon-termico-colicos"]
+      "noHeredar": [
+        "cinturon-termico-colicos"
+      ]
     },
     "tiempoDeEntrega": {
       "texto": "1 a 3 días hábiles",
@@ -203,11 +236,24 @@
     "texto": "a diferencia de los tintes tradicionales que resecan y usan amoníaco agresivo, este champú cubre las canas en 10-15 minutos en la ducha con extractos herbales, de forma rápida, práctica y sin maltratar tu cabello."
   },
   "seguridad": {
-    "texto": "es una fórmula herbal suave sin amoníaco agresivo. Solo debes usar los guantes incluidos durante la aplicación y evitar el contacto directo con los ojos.",
+    "texto": "usa siempre los guantes incluidos y evita el contacto con los ojos. Antes de la primera aplicación haz una prueba de parche: un poquito detrás de la oreja o en el antebrazo, y espera 24 horas. Si te pica, arde o se enrojece, no lo uses.",
     "avisos": [
       "usar siempre los guantes incluidos",
       "evitar el contacto con los ojos"
-    ]
+    ],
+    "_porQue_2026_11_17": "ANTES DECIA «es una fórmula herbal suave sin amoníaco agresivo», y el 17-nov el modelo le contesto eso a una clienta que pregunto si podia producir alergia: se lee como una promesa de que no da alergia, y nadie puede hacerla sobre algo que se pone en la piel. Se reemplazo por la recomendacion prudente: prueba de parche, guantes, ojos."
+  },
+  "alergias": {
+    "texto": "no te puedo asegurar que no te dé alergia: cada piel reacciona distinto. Lo prudente es que antes de la primera aplicación hagas una prueba de parche (un poquito detrás de la oreja o en el antebrazo, y esperas 24 horas) y revises los ingredientes que vienen en la caja. Si te pica, arde o se enrojece, enjuaga con abundante agua y no lo sigas usando. Y si ya te han dado alergia los tintes, consúltalo antes con tu médico.",
+    "_porQue": "Regla de Marco del 2026-11-17: en alergias NO se promete seguridad. Se recomienda prueba de parche, revisar ingredientes y suspender si irrita. Este texto lo usa SOLO el codigo (tema ALERGIA): el modelo no redacta esta respuesta."
+  },
+  "marca": {
+    "texto": "es el champú Dexe Black Hair y te lo vendemos nosotros, NOVIKA, por este mismo WhatsApp.",
+    "_porQue": "La marca del producto es Dexe (nombre comercial confirmado). El texto generico decia «es de NOVIKA, es nuestra marca», que era verdad para el cinturon y falso aqui. No se dice «original»: no hay forma de que el bot lo compruebe."
+  },
+  "color": {
+    "texto": "el tono que manejamos es negro natural, que no mancha la piel si se retira a tiempo.",
+    "_porQue": "«¿viene en castaño?» recibia «Sí, tono negro natural…»: un SÍ a un tono que no se vende. El tono confirmado es negro natural (datosConfirmados.tono)."
   },
   "restricciones": [],
   "pendientes": []

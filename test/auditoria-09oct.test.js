@@ -96,7 +96,7 @@ const CLIENTE = "573001112233";
 const ANUNCIO = "Hola, quiero información sobre el cinturón térmico de $49.900.";
 
 const elCinturon = () =>
-  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+  cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get(
     "cinturon-termico-colicos"
   );
 
@@ -138,7 +138,7 @@ async function conversacion({ nombrePerfil = null } = {}) {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });

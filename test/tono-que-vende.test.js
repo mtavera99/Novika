@@ -40,7 +40,7 @@ const { cargarCatalogo } = require("../src/catalogo");
 
 const RAIZ = path.join(__dirname, "..");
 const elCinturon = () =>
-  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+  cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get(
     "cinturon-termico-colicos"
   );
 const cotizacionDe = (cantidad = 1) =>

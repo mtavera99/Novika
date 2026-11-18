@@ -73,7 +73,7 @@ const PROMESA_MEDICA = /\bcura\b|\bcuran\b|elimina el dolor|quita el dolor al 10
 let SEQ = 0;
 
 function elCinturon() {
-  const cat = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  const cat = cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
   return [...cat.porId.values()].find((p) => /cinturon/i.test(p.id) || /cinturón/i.test(p.nombre));
 }
 
@@ -102,7 +102,7 @@ async function chat({ nombrePerfil = null, telefono = "573116391876" } = {}) {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });

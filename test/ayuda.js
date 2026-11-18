@@ -43,6 +43,36 @@ function entornoDePrueba(extra = {}) {
   return dir;
 }
 
+/**
+ * Carpeta de catalogo con el CINTURON ACTIVO y el resto como esta.
+ *
+ * POR QUE EXISTE (2026-11-17). El cinturon se desactivo en produccion
+ * (a842933) y ~170 pruebas que verifican el MOTOR de conversacion con el
+ * cinturon como sujeto quedaron en rojo. CI no lo vio: `npm test | tee`
+ * se comia el codigo de salida (ver .github/workflows/pruebas.yml).
+ *
+ * Esas pruebas no afirman que el cinturon este a la venta: afirman como
+ * vende el bot un producto con esa ficha. Que el catalogo real cambie de
+ * producto activo no las invalida, pero si cambia su sujeto. Aqui se les
+ * devuelve: una copia de `catalogo/productos/` con el cinturon activo y
+ * los demas productos INACTIVOS, que es el catalogo para el que se
+ * escribieron. La ficha es la real, palabra por palabra: solo cambia
+ * `activo`.
+ */
+function carpetaDelCinturon() {
+  const origen = path.join(__dirname, "..", "catalogo", "productos");
+  const destino = fs.mkdtempSync(path.join(os.tmpdir(), "novika-catalogo-cinturon-"));
+  for (const nombre of fs.readdirSync(origen)) {
+    if (!nombre.endsWith(".json")) continue;
+    const crudo = JSON.parse(fs.readFileSync(path.join(origen, nombre), "utf8"));
+    if (!nombre.startsWith("_") && crudo && typeof crudo === "object") {
+      crudo.activo = crudo.id === "cinturon-termico-colicos";
+    }
+    fs.writeFileSync(path.join(destino, nombre), JSON.stringify(crudo));
+  }
+  return destino;
+}
+
 /** Levanta la app en un puerto libre y devuelve { url, cerrar }. */
 async function levantar(app) {
   const servidor = await new Promise((listo) => {
@@ -124,4 +154,4 @@ function leerDiario(dir) {
     );
 }
 
-module.exports = { entornoDePrueba, levantar, payloadDeTexto, payloadDeEstado, leerDiario };
+module.exports = { entornoDePrueba, carpetaDelCinturon, levantar, payloadDeTexto, payloadDeEstado, leerDiario };

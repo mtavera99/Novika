@@ -117,10 +117,20 @@ describe("crash y recuperacion CON Postgres como almacen", { skip: ayudaPg.sinBa
   }
 
   const firmar = (cuerpo) => `sha256=${crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex")}`;
-  const puertoLibre = () => 20000 + Math.floor(Math.random() * 20000);
+  // El sistema da el puerto: un numero al azar chocaba (EADDRINUSE).
+  const puertoLibre = () =>
+    new Promise((listo, fallo) => {
+      const s = require("node:net").createServer();
+      s.once("error", fallo);
+      s.listen(0, "127.0.0.1", () => {
+        const { port } = s.address();
+        s.close(() => listo(port));
+      });
+    });
 
   /** Devuelve { hijo, puerto } para no perder la pista del puerto usado. */
-  async function arrancarServidor({ dir, dsn, puerto = puertoLibre() }) {
+  async function arrancarServidor({ dir, dsn, puerto = null }) {
+    if (!puerto) puerto = await puertoLibre();
     const hijo = spawn(process.execPath, [path.join(RAIZ, "src", "server.js")], {
       cwd: RAIZ,
       env: {
@@ -260,7 +270,7 @@ describe("crash y recuperacion CON Postgres como almacen", { skip: ayudaPg.sinBa
         env: {
           ...process.env,
           DATA_DIR: dir,
-          PORT: String(puertoLibre()),
+          PORT: String(await puertoLibre()),
           DATABASE_URL: "postgres://nadie:nada@127.0.0.1:1/novika_inexistente",
           WHATSAPP_VERIFY_TOKEN: "token_de_verificacion_de_prueba_0123456789",
           META_APP_SECRET: SECRETO,

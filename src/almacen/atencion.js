@@ -87,6 +87,13 @@ const MOTIVOS_PENDIENTE = {
    * el bot NO le puede responder por la API. Hay que atenderlo a mano.
    */
   SIN_TELEFONO: "cliente_sin_telefono",
+  /**
+   * Pidio una persona, esta molesto o reclama. Antes salia como «el bot no
+   * supo resolverlo», que manda a buscar un fallo del bot donde no lo hay.
+   */
+  PIDE_PERSONA: "necesita_una_persona",
+  /** Aplazo la compra para una fecha: hay que retomarlo, no contestarle nada. */
+  SEGUIMIENTO: "retomar_mas_adelante",
 };
 
 /**

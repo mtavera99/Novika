@@ -414,7 +414,7 @@ describe("7 · el anuncio queda guardado en la conversación y llega al pedido",
     const cerebro = crearCerebro({
       config: cfg,
       repos,
-      catalogo: cargarCatalogo({ carpeta: path.join(__dirname, "..", "catalogo", "productos"), refrescar: true }),
+      catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
       ia: crearCliente({ proveedor: null }),
       emisor,
     });

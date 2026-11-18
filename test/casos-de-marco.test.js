@@ -81,7 +81,7 @@ async function chat({ nombrePerfil = null, telefono = CLIENTE, idCliente = null 
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });
@@ -523,7 +523,7 @@ describe("Los 20 casos de Marco", () => {
 
     test("la garantía del catálogo sigue siendo la que confirmó Marco", () => {
       const producto = cargarCatalogo({
-        carpeta: path.join(RAIZ, "catalogo", "productos"),
+        carpeta: require("./ayuda").carpetaDelCinturon(),
         refrescar: true,
       }).porId.get("cinturon-termico-colicos");
 
@@ -538,7 +538,7 @@ describe("Los 20 casos de Marco", () => {
       // Esta prueba vigila que no se llevara por delante las demás.
       const responder = require("../src/cerebro/responder");
       const producto = cargarCatalogo({
-        carpeta: path.join(RAIZ, "catalogo", "productos"),
+        carpeta: require("./ayuda").carpetaDelCinturon(),
         refrescar: true,
       }).porId.get("cinturon-termico-colicos");
 
