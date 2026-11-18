@@ -54,7 +54,7 @@ const cotizador = require("../src/dominio/cotizador");
 const RAIZ = path.join(__dirname, "..");
 
 function catalogoReal() {
-  return cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  return cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
 }
 
 const elCinturon = () => catalogoReal().porId.get("cinturon-termico-colicos");

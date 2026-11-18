@@ -52,7 +52,7 @@ const RAIZ = path.join(__dirname, "..");
 const CLIENTE = "573001234567";
 
 const elCinturon = () =>
-  cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+  cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get(
     "cinturon-termico-colicos"
   );
 
@@ -97,7 +97,7 @@ async function conversacion() {
     config: cfg,
     repos,
     catalogo: (() => {
-      const c = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+      const c = cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
       return { ...c, activos: [c.porId.get("cinturon-termico-colicos")] };
     })(),
     ia: crearCliente({ proveedor: null }),
@@ -248,7 +248,7 @@ describe("2 · «¿cuánto vale otro?»", () => {
     await c.conPedidoConfirmado();
     const cotizador = require("../src/dominio/cotizador");
     const producto = cargarCatalogo({
-      carpeta: path.join(RAIZ, "catalogo", "productos"),
+      carpeta: require("./ayuda").carpetaDelCinturon(),
       refrescar: true,
     }).porId.get("cinturon-termico-colicos");
     const autorizados = cotizador.cotizar({ producto, cantidad: 1 }).cotizacion.importesAutorizados;

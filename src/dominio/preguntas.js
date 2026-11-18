@@ -220,6 +220,17 @@ const TEMAS = {
   SI_NO_FUNCIONA: "si_no_funciona",
   /** "¿Cuánto dura el efecto?", "¿cuánto dura el color?". Duración del cubrimiento de canas. */
   DURACION_EFECTO: "duracion_efecto",
+  /**
+   * "¿Puede producir alergia?", "tengo la piel sensible", "¿tiene amoníaco?".
+   *
+   * TEMA PROPIO desde el 2026-11-17. En produccion esta pregunta no tenia
+   * tema: la redacto el modelo con el texto de `seguridad` del catalogo y le
+   * dijo a la clienta «fórmula herbal suave sin amoníaco agresivo», que se
+   * lee como «no te va a dar alergia». Nadie puede prometer eso sobre un
+   * producto que se pone en la piel. La respuesta la escribe el codigo:
+   * prueba de parche, revisar ingredientes, suspender si irrita.
+   */
+  ALERGIA: "alergia",
 
   // ======================================================================
   // LOS CUATRO DE ABAJO SON DEL 2026-10-09 Y LOS ABRE LA FICHA TECNICA.
@@ -415,11 +426,27 @@ const PATRONES = [
   [TEMAS.TEMPERATURA, /\bque\s+(tan|tanto)\s+(caliente|calienta)\b/],
   [TEMAS.TEMPERATURA, /\bniveles?\s+de\s+(calor|temperatura)\b/],
 
+  // ---- Alergia y piel sensible: va ANTES de SEGURIDAD y CONFIANZA ----
+  //
+  // "es seguro para piel sensible?" casaba con CONFIANZA («es seguro») y
+  // recibia el argumento del contraentrega. Ver `leer`: ALERGIA se queda y
+  // los otros dos se quitan.
+  [TEMAS.ALERGIA, /\b(alergi\w*|alergic\w*|hipoalergenic\w*)\b/],
+  [TEMAS.ALERGIA, /\b(irrita\w*|irritacion|ardor|arde|pica|picazon|piquiña|piquina|roncha\w*|enrojec\w*|reaccion(es)?)\b/],
+  [TEMAS.ALERGIA, /\b(piel|cuero\s+cabelludo)\s+(muy\s+)?(sensible|delicad[ao]|reactiva)\b/],
+  [TEMAS.ALERGIA, /\b(amoniaco|amoniaco|quimicos?|ppd|parafenilen\w*|ingredientes?|componentes?)\b/],
+  [TEMAS.ALERGIA, /\b(es|sera)\s+seguro\s+para\s+(la\s+|el\s+|mi\s+)?(piel|cuero|cabello|pelo|barba)\b/],
+
   // ---- Duración del efecto (Champú / canas) ----
   [TEMAS.DURACION_EFECTO, /\bcuanto\s+(dura|le\s+dura|tarda)\s+(el\s+)?(efecto|color|tinte|negro|cubrimiento|cubierta)\b/],
   [TEMAS.DURACION_EFECTO, /\bcuanto\s+dura\s+(el\s+)?champu\b/],
   [TEMAS.DURACION_EFECTO, /\bduracion\s+(del\s+)?(efecto|color|tinte|champu)\b/],
   [TEMAS.DURACION_EFECTO, /\bcuanto\s+tiempo\s+dura\s+(el\s+)?(color|efecto)\b/],
+  // 17-nov: las formas de preguntar lo mismo que no casaban.
+  [TEMAS.DURACION_EFECTO, /\b(se\s+(cae|quita|va|sale|borra|lava)|destine|destiñe|se\s+destine|se\s+destiñe)\b.*\b(agua|lavar|lavarse|lavo|bano|ducha|champu)\b/],
+  [TEMAS.DURACION_EFECTO, /\b(cada\s+cuanto)\s+(se\s+|lo\s+|la\s+|me\s+)?(aplica|aplico|usa|uso|echa|echo|repite|pone|pongo)\b/],
+  [TEMAS.DURACION_EFECTO, /\b(es\s+)?(permanente|temporal)\b/],
+  [TEMAS.DURACION_EFECTO, /\bcuanto\s+(me\s+|le\s+)?dura\s*$/],
 
   // ---- Seguridad de uso: va ANTES de USO ----
   //
@@ -531,6 +558,12 @@ const PATRONES = [
   [TEMAS.OTRO_DIA, /\botro\s+dia\s+(sera|lo\s+(pido|compro))\b/],
   [TEMAS.OTRO_DIA, /\b(mas\s+adelante|despuesito|luego\s+te\s+(escribo|aviso)|despues\s+te\s+(escribo|aviso))\b/],
   [TEMAS.OTRO_DIA, /\blo\s+(pienso|dejo)\s+para\s+(despues|luego|otro\s+dia)\b/],
+  // 17-nov, del panel: «mañana hacemos el pedido» recibio el precio otra
+  // vez. Es un aplazamiento con fecha, y el mas caliente que hay.
+  [TEMAS.OTRO_DIA, /\bmanana\s+(te\s+|le\s+|les\s+)?(hacemos|hago|haria|realizo|realizamos|pido|pedimos|lo\s+pido|lo\s+pedimos|confirmo|confirmamos|escribo|escribimos|aviso|compro|compramos|cuadramos|separo|aparto|mando|envio)\b/],
+  [TEMAS.OTRO_DIA, /\b(hacemos|hago|realizo|pido|confirmo|le\s+confirmo|te\s+confirmo|te\s+escribo|le\s+escribo|cuadramos)\s+(el\s+pedido\s+)?(manana|mas\s+tarde|en\s+la\s+tarde|en\s+la\s+noche|el\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo))\b/],
+  [TEMAS.OTRO_DIA, /\b(hablarlo|consultarlo|comentarlo|preguntarle)\s+(con\s+)?(a\s+)?(mi\s+)?(espos[oa]|marido|pareja|novi[oa]|mama|papa|hij[oa])\b/],
+  [TEMAS.OTRO_DIA, /\b(mas\s+tarde|ahorita\s+no|en\s+un\s+rato)\s+(te\s+|le\s+)?(escribo|aviso|confirmo|hago|pido)\b/],
 
   // ---- Como funciona / que funciones trae: va ANTES de EMPAQUE y de USO ----
   //
@@ -557,6 +590,7 @@ const PATRONES = [
   // (para|contra)` de USO en frases como "como funciona, sirve para
   // colicos?", y la mecanica es la respuesta mas util de las dos.
   [TEMAS.COMO_SE_USA, /\bcomo\s+(funciona|se\s+usa|se\s+pone|lo\s+uso|lo\s+pongo|se\s+utiliza|se\s+aplica)\b/],
+  [TEMAS.COMO_SE_USA, /\b(cabello|pelo)\s+(mojado|humedo|seco)\b/],
   // "que funciones trae", "que funciones tiene", "cuales funciones".
   [TEMAS.COMO_SE_USA, /\bfunciones\b/],
   // "que hace" a secas. RUIDO va antes, asi que "¿hace ruido?" sigue siendo
@@ -887,6 +921,10 @@ const PATRONES = [
 
   // ---- Cuanto tiempo usarlo ----
   [TEMAS.TIEMPO_DE_USO, /\bcuanto\s+tiempo\s+(lo\s+)?(puedo\s+)?(usar|tener|dejar)\b/],
+  // "¿en cuánto tiempo se ve el resultado?" salia con el PRECIO por el
+  // "cuanto". Ver la poda de PRECIO en `leer`.
+  [TEMAS.TIEMPO_DE_USO, /\ben\s+cuanto\s+(tiempo\s+)?(se\s+ve|se\s+notan?|hace\s+efecto|cubre|pinta|tine|tiñe)\b/],
+  [TEMAS.TIEMPO_DE_USO, /\bcuanto\s+(tiempo\s+)?(se\s+)?(deja|dejo|demora\s+en\s+(hacer\s+efecto|cubrir|pintar))\b/],
   [TEMAS.TIEMPO_DE_USO, /\bcuantas\s+veces\s+al\s+dia\b/],
   [TEMAS.TIEMPO_DE_USO, /\blo\s+puedo\s+tener\s+todo\s+el\s+dia\b/],
 
@@ -1908,6 +1946,31 @@ function leer(texto) {
       if (i !== -1) temas.splice(i, 1);
     }
   }
+
+  // ----------------------------------------------------------------------
+  // LAS PODAS DEL CHAMPU (2026-11-17)
+  //
+  // · «¿cuánto dura el efecto?» marcaba ENERGIA («cuánto dura» es la
+  //   pregunta de la bateria) y COLOR; el bot acababa diciendo «no usa
+  //   batería ni cargador» a quien preguntaba por el tinte.
+  // · «¿puede producir alergia?» con «es seguro» marcaba CONFIANZA.
+  // · «¿en cuánto tiempo se ve el resultado?» marcaba PRECIO por el
+  //   «cuanto». Sin palabra de dinero, no es una pregunta de precio.
+  // ----------------------------------------------------------------------
+  const podar = (...ts) => {
+    for (const t of ts) {
+      const i = temas.indexOf(t);
+      if (i !== -1) temas.splice(i, 1);
+    }
+  };
+  if (temas.includes(TEMAS.DURACION_EFECTO)) podar(TEMAS.ENERGIA, TEMAS.COLOR, TEMAS.SEGURIDAD);
+  if (temas.includes(TEMAS.ALERGIA)) podar(TEMAS.CONFIANZA, TEMAS.SEGURIDAD, TEMAS.MATERIAL);
+  const HABLA_DE_PLATA = /\b(vale|valen|cuesta|cuestan|precio|valor|plata|pesos|cobran|sale\s+en|me\s+sale)\b|\$/;
+  if ((temas.includes(TEMAS.TIEMPO_DE_USO) || temas.includes(TEMAS.DURACION_EFECTO)) && !HABLA_DE_PLATA.test(plano)) {
+    podar(TEMAS.PRECIO);
+  }
+  // «mañana hacemos el pedido» no pregunta si llega mañana.
+  if (temas.includes(TEMAS.OTRO_DIA)) podar(TEMAS.LLEGA_HOY, TEMAS.ENTREGA);
 
   const PRECIO_DEL_ENVIO = /\b(precio|valor|cuanto|vale|cuesta|sale)\b[^?]*\b(de|del)?\s*(el\s+)?envio\b/;
   const PRECIO_CON_ENVIO = /\bcon\s+(el\s+)?envio\b/;

@@ -55,16 +55,21 @@ const mutex = require("../src/almacen/mutex");
 const RAIZ = path.join(__dirname, "..");
 const CARPETA = path.join(RAIZ, "catalogo", "productos");
 const catalogoReal = () => cargarCatalogo({ carpeta: CARPETA, refrescar: true });
-const elCinturon = () => catalogoReal().porId.get("cinturon-termico-colicos");
-const catalogoSoloCinturon = () => {
-  const c = catalogoReal();
-  return { ...c, activos: [c.porId.get("cinturon-termico-colicos")] };
-};
+// Las secciones 1 a 7 prueban el MOTOR con el catalogo para el que se
+// escribieron (cinturon activo). Desde el 17-nov el cinturon esta inactivo
+// en produccion; la seccion 8 es la que mira el catalogo real.
+const CARPETA_CINTURON = ayuda.carpetaDelCinturon();
+const catalogoCinturon = () => cargarCatalogo({ carpeta: CARPETA_CINTURON, refrescar: true });
+const elCinturon = () => catalogoCinturon().porId.get("cinturon-termico-colicos");
+// Antes tomaba el catalogo real y forzaba la lista de activos: el
+// cinturon seguia con `activo: false` dentro y el cerebro lo trataba como
+// borrador. Ahora es la copia de prueba con el cinturon activo de verdad.
+const catalogoSoloCinturon = () => catalogoCinturon();
 
 let SEQ = 0;
 
 /** Un chat contra el cerebro de verdad, sin red. */
-async function chat({ catalogo = catalogoReal(), proveedor = null, extraConfig = {} } = {}) {
+async function chat({ catalogo = catalogoCinturon(), proveedor = null, extraConfig = {} } = {}) {
   mutex._reiniciar();
   const repos = await crearReposDeArchivos({ dir: fs.mkdtempSync(path.join(os.tmpdir(), "novika-tienda-")) });
   const cfg = {
@@ -190,7 +195,7 @@ describe("1 · el contrato de la IA", () => {
   });
 
   test("el guion enumera LAS 14 intenciones, escritas igual que en el contrato", () => {
-    const { SISTEMA_BASE } = crearCerebro({ config, repos: {}, catalogo: catalogoReal() });
+    const { SISTEMA_BASE } = crearCerebro({ config, repos: {}, catalogo: catalogoCinturon() });
     for (const i of Object.values(contrato.INTENCIONES)) {
       assert.ok(SISTEMA_BASE.includes(`- ${i}:`), `falta "${i}" en el guion`);
     }
@@ -499,17 +504,15 @@ describe("8 · el champú para canas, activo y a la venta", () => {
     }
   });
 
-  test("se presenta en la tienda junto al cinturón", () => {
+  test("es el único producto activo desde el 17-nov, y la tienda lo presenta solo", () => {
     const c = catalogoReal();
-    assert.deepEqual(
-      c.activos.map((p) => p.id).sort(),
-      ["champu-para-canas", "cinturon-termico-colicos"].sort()
-    );
+    assert.deepEqual(c.activos.map((p) => p.id), ["champu-para-canas"]);
     assert.equal(/champ/i.test(presentar.presentarTienda(c).texto), true);
+    assert.equal(/cintur/i.test(presentar.presentarTienda(c).texto), false);
   });
 
   test("si lo piden, se cotiza con envío incluido y pago contraentrega", async () => {
-    const c = await chat();
+    const c = await chat({ catalogo: catalogoReal() });
     const r = await c.dice("cuánto vale el champú para canas?");
     assert.match(r.texto, /59\.900/);
     assert.match(r.texto, /contra\s*entrega|pagas al recibir/i);

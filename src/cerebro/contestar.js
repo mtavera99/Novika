@@ -90,6 +90,13 @@ function mayusculaInicial(t) {
   return x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
 }
 
+/** " (ahorras $X)" si de verdad se ahorra frente a N sueltas. */
+function ahorro(una, varias, n, cola = "") {
+  if (!una || !una.ok || !varias || !varias.ok) return cola ? ` (${cola.replace(/^\s*—\s*/, "")})` : "";
+  const diferencia = una.cotizacion.total * n - varias.cotizacion.total;
+  return diferencia > 0 ? ` (ahorras ${pesos(diferencia)}${cola})` : "";
+}
+
 /** "a, b y c". */
 function enumerar(lista) {
   const xs = (lista || []).filter(Boolean);
@@ -393,8 +400,10 @@ function deTema(
         const lineas = [
           "Manejamos estos combos con envío gratis y pago contraentrega:",
           p1 ? `• 1 caja (10 sobres): ${p1}` : null,
-          p2 ? `• Combo 2 cajas (20 sobres): ${p2} (ahorras $30.800)` : null,
-          p3 ? `• Combo 3 cajas (30 sobres): ${p3} (ahorras $60.700 — ¡la opción más pedida!)` : null,
+          // El ahorro se CALCULA. Iba escrito a mano ("ahorras $30.800"), y
+          // con la tabla de mañana diria un ahorro que no existe.
+          p2 ? `• Combo 2 cajas (20 sobres): ${p2}${ahorro(c1, c2, 2)}` : null,
+          p3 ? `• Combo 3 cajas (30 sobres): ${p3}${ahorro(c1, c3, 3, " — ¡la opción más pedida!")}` : null,
           "¿Cuál de los combos te gustaría pedir?"
         ].filter(Boolean);
         return lineas.join("\n");
@@ -485,6 +494,9 @@ function deTema(
       // SIN capitalizar: esta frase puede ir detras de una apertura ("Sí,
       // viene únicamente en color rosado"). Capitalizarla aqui producia
       // "Sí, Viene únicamente...", con mayuscula en medio de la frase.
+      // El texto propio del catalogo manda: «¿viene en castaño?» recibia
+      // «Sí, tono negro natural…», un SÍ a un tono que no se vende.
+      if (producto && producto.color && producto.color.texto) return producto.color.texto;
       const dato = caracteristica(producto, /color|rosad|negr|blanc|azul/);
       if (dato) return `${dato}.`;
       return loConfirmo("Los colores disponibles", "los", producto, cotizacion);
@@ -910,8 +922,54 @@ function deTema(
       return "lo ideal son ratos de 15 a 20 minutos y luego descansas un poco. Lo puedes repetir varias veces al día.";
     }
 
+    // ----------------------------------------------------------------------
+    // ¿CUANTO DURA EL EFECTO? El dato y el puente a los combos.
+    //
+    // 17-nov. La version de a842933 tenia el texto entero escrito a mano, con
+    // dos defectos:
+    //
+    //   · Las CIFRAS iban escritas en la frase ("$89.000", "$119.000"). El
+    //     dia que cambie la tabla, el bot cobra una cosa y dice otra. Ahora
+    //     salen del cotizador, como en el resto de la casa.
+    //   · Terminaba con su propia pregunta de ciudad, y el cierre normal
+    //     ponia OTRA detras: «¿Para qué ciudad sería tu pedido? … ¿tú en qué
+    //     ciudad estás?». La pregunta la pone ahora el cierre, una vez.
+    //
+    // Y no decia "no mancha la piel" a secas: el catalogo dice "si se retira
+    // a tiempo". Se usa el texto del catalogo y nada mas.
+    // ----------------------------------------------------------------------
     case TEMAS.DURACION_EFECTO: {
-      return "el tono negro dura entre 3 y 4 semanas según el crecimiento natural de tu cabello o barba. Se lava como un champú normal y no mancha la piel. Aprovecha que hoy tenemos el combo de 2 cajas por $89.000 o 3 cajas por $119.000 con envío gratis y pago contraentrega. ¿Para qué ciudad sería tu pedido? 🙌";
+      const d = producto && producto.duracion && producto.duracion.texto;
+      if (!d) return loConfirmo("Cuánto dura el efecto", "lo", producto, cotizacion);
+      const partes = [d];
+      const dos = ofertaDeDos(producto);
+      const tres = ofertaDeTres(producto);
+      const combos = [dos ? `2 cajas por ${pesos(dos.total)}` : null, tres ? `3 cajas por ${pesos(tres.total)}` : null].filter(Boolean);
+      if (combos.length) {
+        const condiciones = [envioVaIncluido(producto, cotizacion) ? "envío gratis" : null, pagaAlRecibir(producto, cotizacion) ? "pago contraentrega" : null].filter(Boolean);
+        partes.push(
+          `Por eso conviene el combo: ${combos.join(" o ")}${condiciones.length ? `, con ${enumerar(condiciones)}` : ""}.`
+        );
+      }
+      return partes.join(" ");
+    }
+
+    // ----------------------------------------------------------------------
+    // ALERGIA. NUNCA SE PROMETE SEGURIDAD.
+    //
+    // Regla de Marco del 17-nov, tras ver en produccion «fórmula herbal suave
+    // sin amoníaco agresivo» como respuesta a «¿puede producir alergia?»:
+    // prueba de parche, revisar ingredientes, suspender si irrita. El texto
+    // vive en el catalogo (`alergias.texto`); si un producto no lo trae, se
+    // dice la version generica, que tampoco promete nada.
+    // ----------------------------------------------------------------------
+    case TEMAS.ALERGIA: {
+      const a = producto && producto.alergias && producto.alergias.texto;
+      if (a) return a;
+      return (
+        "no te puedo asegurar que no te dé alergia: cada piel reacciona distinto. Antes de usarlo, revisa los " +
+        "ingredientes y haz una prueba en una zona pequeña; si te irrita, no lo sigas usando y consúltalo con tu médico."
+      );
     }
 
     // "¿Por qué transportadora?", "¿me mandan la guía?"
@@ -1390,7 +1448,8 @@ function deTema(
       if (producto && (producto.categoria === "cuidado-personal" || producto.id === "champu-para-canas")) {
         const s = producto && producto.seguridad;
         if (s && s.texto) return s.texto;
-        return "es una fórmula herbal suave sin amoníaco agresivo. Solo debes usar los guantes incluidos y evitar el contacto directo con los ojos.";
+        // Sin texto aprobado, lo prudente; nunca «suave» ni «sin amoníaco».
+        return "usa siempre los guantes incluidos, evita el contacto con los ojos y haz una prueba de parche antes de la primera aplicación.";
       }
       const d = producto && producto.dormir;
       const avisos = (producto && producto.seguridad && producto.seguridad.avisos) || [];
@@ -1491,7 +1550,10 @@ function deTema(
     // verdad quita el miedo.
     // ----------------------------------------------------------------------
     case TEMAS.MARCA: {
-      const partes = ["es de NOVIKA, es nuestra marca y te responde este mismo WhatsApp."];
+      // La marca la dice el catalogo. «es de NOVIKA, es nuestra marca» era
+      // verdad para el cinturon y FALSO para el champu Dexe.
+      const m = producto && producto.marca && producto.marca.texto;
+      const partes = [m || "es de NOVIKA, es nuestra marca y te responde este mismo WhatsApp."];
       const plazo = producto && producto.garantia;
       if (plazo) partes.push(`Te va con ${plazo} de garantía.`);
       if (pagaAlRecibir(producto, cotizacion) && !yaDijoLasCondiciones) {

@@ -34,6 +34,8 @@
 // ==========================================================================
 
 const recordatorios = require("../dominio/recordatorios");
+const remarketing = require("../dominio/remarketing");
+const fechaPanel = require("../panel/fecha");
 const atencionDeChat = require("../almacen/atencion");
 const campos = require("../dominio/campos");
 const estados = require("../dominio/estados");
@@ -109,6 +111,23 @@ function texto({ conversacion, producto, orden }) {
   const hola = pila ? `Hola, ${pila} 😊 ` : "";
 
   const esperandoElSi = conversacion && conversacion.resumenMostrado === true;
+
+  // ------------------------------------------------------------------
+  // QUIEN DIJO «MAÑANA HACEMOS EL PEDIDO» (17-nov)
+  //
+  // Con recordatorios encendidos se le contesto «te escribo por aquí para
+  // retomarlo», y este es ese mensaje. Retoma lo que el dijo, no un «¿te
+  // quedó alguna duda?» generico que suena a que nadie leyo el chat. Sin
+  // precio: ya lo tiene.
+  // ------------------------------------------------------------------
+  const aplazo = conversacion && conversacion.aplazadoEn && Date.parse(conversacion.aplazadoEn);
+  const ultimo = recordatorios.ultimoDelClienteMs(conversacion);
+  if (Number.isFinite(aplazo) && ultimo !== null && aplazo >= ultimo - 60000) {
+    const loQueSigue = esperandoElSi
+      ? 'Con un "sí" al resumen de aquí arriba lo dejo listo.'
+      : `¿Te ayudo a hacer el pedido ${voz.delProducto(producto)}?`;
+    return `${hola}Como quedamos, te escribo para retomarlo 🙌 ${loQueSigue}`;
+  }
 
   // --------------------------------------------------------------------
   // CASO 1: EL RESUMEN ESTA EN PANTALLA Y FALTA EL "SI".
@@ -233,6 +252,11 @@ async function pasada({ config, repos, catalogo, emisor, log, metricas, diario, 
 
     if (!decision.debe) {
       anotarMotivo(decision.motivo);
+      // Fuera de la ventana de 24 h, el unico toque posible es una
+      // plantilla aprobada. Ver `dominio/remarketing.js`.
+      if (decision.motivo === recordatorios.MOTIVOS.VENTANA_CERRADA && config.remarketingPlantilla) {
+        await tocarConPlantilla({ conversacion, config, repos, catalogo, emisor, log, diario, contar, anotarMotivo, informe, ahora });
+      }
       continue;
     }
 
@@ -340,6 +364,82 @@ async function pasada({ config, repos, catalogo, emisor, log, metricas, diario, 
 }
 
 /**
+ * Un toque de remarketing por plantilla, con todas sus guardas.
+ *
+ * Mismo orden que el recordatorio: decidir, comprobar la pausa contra el
+ * almacen, enviar con el permiso del BOT (obedece RESPUESTA_AUTOMATICA y la
+ * pausa) y SOLO DESPUES apuntar que se mando.
+ */
+async function tocarConPlantilla({ conversacion, config, repos, catalogo, emisor, log, diario, contar, anotarMotivo, informe, ahora }) {
+  const producto =
+    (catalogo && (catalogo.productos || []).find((p) => p.id === conversacion.productoId)) || null;
+  const d = remarketing.decidir({
+    conversacion,
+    producto,
+    config,
+    ahora,
+    desdeHora: config.recordatoriosDesdeHora,
+    hastaHora: config.recordatoriosHastaHora,
+    horaBogota: fechaPanel.horaBogota(ahora),
+  });
+  if (!d.debe) {
+    anotarMotivo(`remarketing: ${d.motivo}`);
+    if (d.motivo === remarketing.MOTIVOS.PRECIO_NO_AUTORIZADO && log) {
+      log.error("remarketing_precio_no_autorizado", { plantilla: config.remarketingPlantilla, sobran: d.sobran });
+    }
+    return;
+  }
+  try {
+    if (await atencionDeChat.estaPausada(repos, conversacion.contactoId)) {
+      anotarMotivo(`remarketing: ${remarketing.MOTIVOS.PAUSADO}`);
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  const destino = campos.valorConfirmado((conversacion.ficha || {}).telefono) || conversacion.contactoId;
+  let envio;
+  try {
+    envio = await emisor.enviarPlantilla({
+      para: destino,
+      plantilla: d.plantilla,
+      idioma: config.remarketingIdioma,
+      variables: d.variables,
+      permiso: PERMISOS.CONVERSACION,
+      conversacionId: conversacion.contactoId,
+    });
+  } catch (e) {
+    if (log) log.error("remarketing_fallo", { contactoId: conversacion.contactoId, detalle: e.message });
+    contar("remarketing_no_enviado");
+    informe.bloqueados++;
+    return;
+  }
+  if (!envio || !envio.enviado) {
+    contar("remarketing_no_enviado");
+    informe.bloqueados++;
+    anotarMotivo(`remarketing bloqueado: ${(envio && envio.motivo) || "desconocido"}`);
+    return;
+  }
+  try {
+    conversacion.remarketing = { base: d.base, plantilla: d.plantilla, enviadoEn: new Date(ahora).toISOString() };
+    atencionDeChat.anotarMensaje(conversacion, {
+      de: atencionDeChat.QUIEN.BOT,
+      texto: `[plantilla ${d.plantilla}]`,
+      wamid: envio.wamid || null,
+      estado: "enviado",
+      por: "remarketing",
+    });
+    await repos.conversaciones.guardar(conversacion);
+  } catch (e) {
+    if (log) log.error("remarketing_no_se_pudo_apuntar", { contactoId: conversacion.contactoId, detalle: e.message });
+  }
+  informe.enviados++;
+  contar("remarketing_enviado");
+  if (diario) diario.anotar("remarketing_enviado", { idCliente: conversacion.contactoId, plantilla: d.plantilla, motivo: d.motivo });
+}
+
+/**
  * Arranca el barrido periodico. Devuelve una funcion para pararlo.
  *
  * `unref()` para que no impida apagar el proceso: en Render cada despliegue
@@ -380,4 +480,4 @@ function arrancarBarrido({ config, obtenerPiezas, log, metricas, diario, cadaMs 
   return () => clearInterval(reloj);
 }
 
-module.exports = { pasada, texto, arrancarBarrido, CADA_MS, POR_PASADA };
+module.exports = { pasada, texto, arrancarBarrido, tocarConPlantilla, CADA_MS, POR_PASADA };

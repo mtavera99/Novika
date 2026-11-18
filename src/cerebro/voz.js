@@ -48,7 +48,9 @@ const APERTURAS = {
   [TEMAS.PAGO]: "Tranquila,",
   [TEMAS.GARANTIA]: "¡Claro que sí!",
   [TEMAS.GARANTIA_TRAMITE]: "Te explico:",
-  [TEMAS.COLOR]: "Sí,",
+  // Neutra y no «Sí,»: «¿viene en castaño?» recibia un SÍ a un tono que no
+  // se vende (17-nov). La respuesta ya dice cual es.
+  [TEMAS.COLOR]: "Te cuento:",
   [TEMAS.TALLA]: "Sí,",
   // "¿me sirve a mi?" es la duda mas personal que llega: alguien contando
   // su cuerpo a un desconocido. Merece empatia antes del dato.
@@ -90,7 +92,9 @@ const APERTURAS = {
   // medico: abrir con "¡Claro que sí!" delante de eso seria cruel.
   [TEMAS.CONTRAINDICACION]: "Te respondo con franqueza:",
   [TEMAS.TEMPERATURA]: "Te cuento:",
-  [TEMAS.MARCA]: "Sí,",
+  // «¿es original?» -> «Sí, es el champú Dexe…» se leia como «sí, original»,
+  // y eso no lo puede comprobar el bot (17-nov).
+  [TEMAS.MARCA]: "Te cuento:",
   [TEMAS.EMPAQUE]: "¡Claro!",
   [TEMAS.FACTURA]: "Te cuento:",
   // Un mayorista es un cliente distinto y se le habla como tal.
@@ -113,6 +117,8 @@ const APERTURAS = {
   // "¿y si no me funciona?" es miedo, no curiosidad.
   [TEMAS.SI_NO_FUNCIONA]: "Te entiendo, y tranquila:",
   [TEMAS.DURACION_EFECTO]: "¡Excelente pregunta!",
+  // Quien pregunta por alergias pide prudencia, no entusiasmo.
+  [TEMAS.ALERGIA]: "Te entiendo, es importante preguntarlo.",
   // Quien cita el anuncio no esta discutiendo: esta pidiendo que le
   // confirmen lo que leyo. Se reconoce, sin ponerse a la defensiva.
   [TEMAS.PROMESA_DEL_ANUNCIO]: "Te cuento con franqueza:",

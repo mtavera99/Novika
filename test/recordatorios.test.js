@@ -259,7 +259,7 @@ describe("3 · el historial se recorta, el campo no", () => {
 // 4 · LOS TEXTOS
 // ==========================================================================
 describe("4 · qué le dice", () => {
-  const elCinturon = () => cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get("cinturon-termico-colicos");
+  const elCinturon = () => cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get("cinturon-termico-colicos");
 
   test("retoma donde se quedó y pide UNA sola cosa", () => {
     const c = conversacionCallada();
@@ -412,7 +412,7 @@ describe("5 · el barrido", () => {
         return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.R${salidas.length}` }] }) };
       },
     });
-    const catalogo = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+    const catalogo = cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
     return { repos, cfg, emisor, catalogo, salidas };
   }
 

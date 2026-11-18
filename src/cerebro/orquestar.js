@@ -1240,7 +1240,7 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
         motivo:
           motivoDeHumano === "reclamo_de_garantia"
             ? atencionDeChat.MOTIVOS_PENDIENTE.CAMBIO_DE_PEDIDO
-            : atencionDeChat.MOTIVOS_PENDIENTE.NO_SUPO,
+            : atencionDeChat.MOTIVOS_PENDIENTE.PIDE_PERSONA,
         pregunta: evento.texto || "",
       });
     } else if (
@@ -1624,7 +1624,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     //    nota es lo que hace que eso sea verdad: alguien lo ve y lo retoma.
     if (loQuePregunta.temas.includes(preguntas.TEMAS.PARA_DESPUES)) {
       atencionDeChat.anotarPendiente(conversacion, {
-        motivo: atencionDeChat.MOTIVOS_PENDIENTE.SIN_DATO,
+        // SEGUIMIENTO y no SIN_DATO: «para fin de mes» no pregunto nada que
+        // falte en el catalogo, y salia en el panel como si lo hubiera hecho.
+        motivo: atencionDeChat.MOTIVOS_PENDIENTE.SEGUIMIENTO,
         pregunta: evento.texto || "",
       });
       contar("compra_para_mas_adelante");
@@ -1678,6 +1680,9 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
       ),
       borradorIA: analisis ? analisis.borradorRespuesta : null,
       redaccion: (config && config.iaRedaccion) || responder.REDACCION.NATURAL,
+      // Si hay barrido de recordatorios, a quien aplaza se le puede decir que
+      // se le escribira. Sin el, no.
+      seguimientoProgramado: Boolean(config && config.recordatorios),
 
       // El texto del turno y lo que ya se le dijo. Sin esto el texto no puede
       // responder lo que pregunto ni evitar repetir el saludo y la pedida de
@@ -1993,8 +1998,23 @@ function crearCerebro({ config, repos, catalogo, ia = null, emisor = null, log =
     // generaba nada: el cliente esperaba una respuesta que nadie sabia que
     // tenia que dar.
     // ------------------------------------------------------------------
+    // ⚠ FALSOS POSITIVOS DEL 17-NOV: «preguntó algo que no está en el
+    // catalogo» salia en el panel para preguntas que SI se contestaron. Dos
+    // causas:
+    //
+    //   1. Sin tema reconocido se anotaba la tarea AUNQUE el modelo hubiera
+    //      contestado con los datos autorizados y pasado los cuatro
+    //      candados. Si salio la respuesta del modelo y no promete
+    //      confirmar nada, la pregunta quedo contestada.
+    //   2. Faltaban temas (alergia, cabello mojado, se cae con el agua…).
+    //      Esos ya estan en `preguntas.js`.
+    const contestoElModelo = preparada.origen === "ia" && !contestar.prometeConfirmar(preparada.texto);
     const preguntoAlgoNoCatalogado =
-      !loQuePregunta.compra && !loQuePregunta.temas.length && loQuePregunta.pareceUnaPregunta && !loQuePregunta.soloSaludo;
+      !loQuePregunta.compra &&
+      !loQuePregunta.temas.length &&
+      loQuePregunta.pareceUnaPregunta &&
+      !loQuePregunta.soloSaludo &&
+      !contestoElModelo;
 
     // Preguntar por una cantidad sin tarifa es una venta MAYOR que la que
     // tenemos aprobada: quien pide tres se lleva mas que quien pide uno.

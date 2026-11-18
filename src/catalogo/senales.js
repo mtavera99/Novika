@@ -270,6 +270,34 @@ function resolver({ texto = "", referral = null, conversacion = null, catalogo, 
     };
   }
 
+  // ---- 2-bis. UN ANUNCIO NUEVO MANDA SOBRE UN PRODUCTO QUE YA NO SE VENDE ----
+  //
+  // 17-nov. El cinturon se desactivo y el champu quedo como unico producto
+  // activo. Los clientes que habian hablado del cinturon antes volvieron a
+  // entrar POR EL ANUNCIO DEL CHAMPU, y el contexto guardado (el cinturon,
+  // ya inactivo) ganaba al anuncio: el bot trataba la conversacion como de
+  // un producto que no se puede vender, y el modelo acabo preguntando
+  // «¿qué producto te gustaría conocer?».
+  //
+  // El orden de abajo -contexto antes que anuncio- sigue siendo el correcto
+  // cuando el contexto es un producto ACTIVO: lo que el cliente dijo en la
+  // conversacion pesa mas que el anuncio. Con el contexto INACTIVO no hay
+  // nada que defender, y el clic en el anuncio es la señal mas reciente.
+  if (confirmado && catalogo.porId.has(confirmado) && catalogo.porId.get(confirmado).activo !== true && referral) {
+    const delAnuncio = productoDelReferral(referral, catalogo);
+    const activos = catalogo.activos || [];
+    const elegido = delAnuncio || (activos.length === 1 ? { productoId: activos[0].id, confianza: "media", senal: "unico activo" } : null);
+    if (elegido) {
+      return {
+        productoId: elegido.productoId,
+        origen: ORIGENES.REFERRAL,
+        confianza: elegido.confianza,
+        esCambio: true,
+        motivo: `viene de un anuncio (${elegido.senal}) y el producto anterior ya no esta a la venta`,
+      };
+    }
+  }
+
   // ---- 2. Contexto confirmado ----
   if (confirmado && catalogo.porId.has(confirmado)) {
     return {

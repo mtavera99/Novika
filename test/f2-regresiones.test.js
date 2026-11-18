@@ -189,7 +189,7 @@ test("ningun archivo de Fase 2 menciona BIKERPRO ni sus productos", () => {
 });
 
 test("el catalogo de NOVIKA no contiene productos de BIKERPRO", () => {
-  const dir = path.join(__dirname, "..", "catalogo", "productos");
+  const dir = require("./ayuda").carpetaDelCinturon();
   for (const nombre of fs.readdirSync(dir)) {
     const contenido = fs.readFileSync(path.join(dir, nombre), "utf8").toLowerCase();
     for (const palabra of ["impermeable", "intercom", "colmena", "motociclista"]) {

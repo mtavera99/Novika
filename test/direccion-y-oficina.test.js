@@ -54,7 +54,7 @@ const ANUNCIO = "Hola, quiero información sobre el cinturón térmico de $49.90
 let SEQ = 0;
 
 function elCinturon() {
-  const cat = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  const cat = cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
   return [...cat.porId.values()].find((p) => /cinturon/i.test(p.id));
 }
 
@@ -75,7 +75,7 @@ async function chat() {
   const cerebro = crearCerebro({
     config: cfg,
     repos,
-    catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+    catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
     ia: crearCliente({ proveedor: null }),
     emisor,
   });

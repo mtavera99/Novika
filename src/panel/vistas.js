@@ -56,6 +56,8 @@ const MOTIVOS_EN_CLARO = {
   [atencion.MOTIVOS_PENDIENTE.NO_SUPO]: "el bot no supo resolverlo y se detuvo",
   [atencion.MOTIVOS_PENDIENTE.SIN_TELEFONO]:
     "escribió con nombre de usuario y no tiene teléfono: el bot no puede responderle",
+  [atencion.MOTIVOS_PENDIENTE.PIDE_PERSONA]: "pidió una persona, está molesto o reclama",
+  [atencion.MOTIVOS_PENDIENTE.SEGUIMIENTO]: "aplazó la compra: retomarlo en la fecha que dijo",
 };
 
 /** Escape de HTML. Todo lo que venga de un cliente pasa por aqui. */

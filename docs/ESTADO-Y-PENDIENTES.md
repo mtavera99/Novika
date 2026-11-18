@@ -21,6 +21,27 @@ gastar la mitad del contexto redescubriendo lo ya hecho.
 > Lo de aquí abajo sigue siendo válido como historia. Para saber qué está
 > pendiente HOY, la lista buena es la de la auditoría.
 
+> ### 2026-11-17 · los chats del champú, y un CI que mentía
+>
+> - **CI salía verde con 171 pruebas en rojo**: `npm test | tee` devolvía el
+>   código de `tee`. Ahora con `set -o pipefail`. Las rojas venían de
+>   desactivar el cinturón: las pruebas del motor usan ahora
+>   `ayuda.carpetaDelCinturon()`, una copia del catálogo con el cinturón activo.
+> - **El modelo pisaba las respuestas con oferta o advertencia** (duración,
+>   alergia, combos, color, marca): ahora las redacta el código siempre.
+> - **Alergia**: tema propio, nunca promete seguridad (prueba de parche,
+>   ingredientes, suspender si irrita). `seguridad.texto` ya no dice «suave
+>   sin amoníaco».
+> - **Lead de anuncio con un producto inactivo guardado**: el anuncio manda.
+>   Y un borrador que pregunta «¿qué producto?» con producto conocido se descarta.
+> - **«mañana hacemos el pedido»** es aplazamiento: no repite precio, queda
+>   `aplazadoEn` y el recordatorio de 20 h (con la «última oportunidad» si
+>   cae de madrugada).
+> - **Remarketing fuera de 24 h** por plantilla (`REMARKETING_*`), apagado.
+>   `promo_canas` retirada por el precio viejo de $120.000.
+>
+> Pruebas: `test/champu-17nov.test.js`.
+
 > ### 2026-11-11 · el número nuevo, y lo que encontró
 >
 > Con el número nuevo de WhatsApp API en producción, «hola» y «qué vendes»

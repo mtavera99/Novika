@@ -88,7 +88,7 @@ async function conversacion() {
     },
   });
 
-  const cat = cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true });
+  const cat = cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true });
   const catalogoCinturon = {
     ...cat,
     activos: [cat.porId.get("cinturon-termico-colicos")],
@@ -537,7 +537,7 @@ describe("5 · la respuesta de respaldo es útil, no un formulario", () => {
     const cerebro = crearCerebro({
       config: cfg,
       repos,
-      catalogo: cargarCatalogo({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }),
+      catalogo: cargarCatalogo({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }),
       ia: {
         disponible: true,
         async analizar() {
@@ -658,7 +658,7 @@ describe("7 · la intención de compra la contesta el código", () => {
   test("«lo quiero» pide los datos que faltan, no lo que diga el modelo", async () => {
     const responder = require("../src/cerebro/responder");
     const { cargarCatalogo: cargar } = require("../src/catalogo");
-    const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+    const prod = cargar({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get(
       "cinturon-termico-colicos"
     );
     const cotizador = require("../src/dominio/cotizador");
@@ -698,7 +698,7 @@ describe("7 · la intención de compra la contesta el código", () => {
     // que se verifica sigue siendo exactamente lo mismo.
     const responder = require("../src/cerebro/responder");
     const { cargarCatalogo: cargar } = require("../src/catalogo");
-    const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+    const prod = cargar({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get(
       "cinturon-termico-colicos"
     );
 
@@ -785,7 +785,7 @@ describe("8 · ni despacho hoy, ni respuesta inmediata", () => {
 
   test("y el catálogo también se lo prohíbe al modelo", () => {
     const { cargarCatalogo: cargar } = require("../src/catalogo");
-    const prod = cargar({ carpeta: path.join(RAIZ, "catalogo", "productos"), refrescar: true }).porId.get(
+    const prod = cargar({ carpeta: require("./ayuda").carpetaDelCinturon(), refrescar: true }).porId.get(
       "cinturon-termico-colicos"
     );
     const responder = require("../src/cerebro/responder");
